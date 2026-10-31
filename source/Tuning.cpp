@@ -2,27 +2,13 @@
 #include "parameter/Model.h"
 
 int DexedAudioProcessor::tuningTranspositionShift() {
-    int transpose = activeProgram[IDs::transpose.pos];
-    if( synthTuningState->is_standard_tuning() || ! controllers.transpose12AsScale )
-        return transpose - 24;
-    else {
-        int d144 = transpose;
-        if( d144 % 12 == 0 ) {
-            int oct = (d144 - 24) / 12;
-            int res = oct * synthTuningState->scale_length();
-            return res;
-        }
-        else
-            return transpose - 24;
-    }
+    return engine.tuningTranspositionShift();
 }
 
 void DexedAudioProcessor::resetTuning(std::shared_ptr<TuningState> t) {
     synthTuningState = t;
     synthTuningStateLast = t;
-    for( int i=0; i<MAX_ACTIVE_NOTES; ++i )
-        if( voices[i].dx7_note != nullptr )
-            voices[i].dx7_note->tuning_state_ = synthTuningState;
+    engine.setTuning(synthTuningState);
 }
 
 void DexedAudioProcessor::retuneToStandard() {

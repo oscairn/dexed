@@ -22,3 +22,12 @@ endforeach()
 
 add_test(NAME dx7-baseline-plugin COMMAND dexed-render-plugin --check ${DEXED_BASELINE})
 add_test(NAME dx7-baseline-plugin-reverse COMMAND dexed-render-plugin --check ${DEXED_BASELINE} --reverse)
+
+# The headless engine library alone, against the same baseline.
+add_executable(dexed-render-engine render_engine.cpp)
+target_link_libraries(dexed-render-engine PRIVATE dexed_engine)
+# no JUCE here: engine headers then leave out the plugin's logger
+target_compile_definitions(dexed-render-engine PRIVATE DEXED_HEADLESS=1)
+
+add_test(NAME dx7-baseline-engine COMMAND dexed-render-engine --check ${DEXED_BASELINE})
+add_test(NAME dx7-baseline-engine-reverse COMMAND dexed-render-engine --check ${DEXED_BASELINE} --reverse)

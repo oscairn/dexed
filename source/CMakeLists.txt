@@ -1,5 +1,36 @@
 set(BaseTargetName Dexed)
 
+# The headless engine: voices, MIDI handling and rendering, without JUCE. The plugin, the
+# tests and later the CLAP direct-process path link it.
+add_library(dexed_engine STATIC
+	msfa/dx7note.cc
+	msfa/env.cc
+	msfa/exp2.cc
+	msfa/fm_core.cc
+	msfa/fm_op_kernel.cc
+	msfa/freqlut.cc
+	msfa/lfo.cc
+	msfa/pitchenv.cc
+	msfa/sin.cc
+	msfa/tuning_standard.cc
+	msfa/porta.cpp
+
+	engine/EngineMkI.cpp
+	engine/EngineOpl.cpp
+	engine/SynthEngine.cpp
+
+	PluginFx.cpp
+
+	# until MTS-ESP has is own cmake project
+	../libs/MTS-ESP/Client/libMTSClient.cpp
+)
+target_include_directories(dexed_engine PUBLIC . ../libs/MTS-ESP/Client)
+target_compile_definitions(dexed_engine PRIVATE DEXED_HEADLESS=1)
+target_compile_features(dexed_engine PUBLIC cxx_std_17)
+# Same optimisation flags as the plugin code it came from (flags only, no JUCE code).
+target_link_libraries(dexed_engine PUBLIC tuning-library PRIVATE juce::juce_recommended_config_flags juce::juce_recommended_lto_flags)
+set_target_properties(dexed_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 set(DEXED_JUCE_FORMATS Standalone)
 
 if(NOT DEXED_SKIP_VST3)
@@ -43,29 +74,15 @@ juce_generate_juce_header(${PROJECT_NAME})
 include_directories(../libs/MTS-ESP/Client .)
 
 target_sources(${BaseTargetName} PRIVATE
-	msfa/dx7note.cc
-	msfa/env.cc
-	msfa/exp2.cc
-	msfa/fm_core.cc
-	msfa/fm_op_kernel.cc
-	msfa/freqlut.cc
-	msfa/lfo.cc
-	msfa/pitchenv.cc
-	msfa/sin.cc
 	msfa/tuning.cc
-	msfa/porta.cpp
 
 	PluginProcessor.cpp
 
 	PluginData.cpp
-	PluginFx.cpp
 	Tuning.cpp
 
 	core/Cartridge.cpp
 	core/Program.cpp
-
-    engine/EngineMkI.cpp
-	engine/EngineOpl.cpp
 
     ui/PluginEditor.cpp
 		ui/window/CartManager.cpp
@@ -90,9 +107,6 @@ target_sources(${BaseTargetName} PRIVATE
 
         debugger/ValueTreeDebugger.cpp
         debugger/MemoryLogger.h
-
-    # until MTS-ESP has is own cmake project
-    ../libs/MTS-ESP/Client/libMTSClient.cpp
 )
 
 if(DEXED_NO_ALSA)
@@ -132,6 +146,7 @@ PRIVATE
     surgesynthteam_tuningui
     tuning-library
     DexedResources
+    dexed_engine
 PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags

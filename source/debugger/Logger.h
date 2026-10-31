@@ -19,7 +19,10 @@
  */
 
 #pragma once
+// DEXED_HEADLESS: the engine library builds without JUCE, so no memory logger and no traces.
+#ifndef DEXED_HEADLESS
 #include <debugger/MemoryLogger.h>
+#endif
 
 void dexed_trace(const char *source, const char *fmt, ...);
 
@@ -28,14 +31,20 @@ void dexed_trace(const char *source, const char *fmt, ...);
 
 #ifdef DEBUG
     #define DEXED_VERSION __STR(DEXED_ID) " DEBUG"
+#else
+    #define DEXED_VERSION __STR(DEXED_ID)
+#endif
+
+#if defined(DEBUG) && !defined(DEXED_HEADLESS)
     #ifdef _MSC_VER
         #define TRACE(fmt, ...) dexed_trace(__FUNCTION__,fmt,##__VA_ARGS__)
     #else
         #define TRACE(fmt, ...) dexed_trace(__PRETTY_FUNCTION__,fmt,##__VA_ARGS__)
     #endif
 #else
-    #define DEXED_VERSION __STR(DEXED_ID)
     #define TRACE(fmt, ...)
 #endif
 
+#ifndef DEXED_HEADLESS
 #define DXLOG(fmt, ...) MemoryLogger::getInstance()->logFormat(fmt,##__VA_ARGS__)
+#endif

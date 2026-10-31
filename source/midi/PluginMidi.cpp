@@ -18,118 +18,20 @@ void DexedAudioProcessor::processMidiMessage(const MidiMessage *msg) {
     }
 
     const uint8 *buf  = msg->getRawData();
-    uint8_t cmd = buf[0];
-    uint8_t cf0 = cmd & 0xf0;
-    auto channel = msg->getChannel();
 
-    if( controllers.mpeEnabled && channel != 1 &&
-        (
-            (cf0 == 0xb0 && buf[1] == 74 ) || //timbre
-            (cf0 == 0xd0 ) || // aftertouch
-            (cf0 == 0xe0 ) // pb
-            )
-        ) {
-        // OK so find my voice index
-        int voiceIndex = -1;
-        for( int i=0; i<MAX_ACTIVE_NOTES; ++i ) {
-            if( voices[i].keydown && voices[i].channel == channel ) {
-                voiceIndex = i;
-                break;
-            }
-        }
-        if( voiceIndex >= 0 ) {
-            int i = voiceIndex;
-            switch(cf0) {
-            // THIS IS COMMENTED SINCE mepTimbre and mpePressure is not used
-            // case 0xb0:
-            //     voices[i].mpeTimbre = (int)buf[2];
-            //     voices[i].dx7_note->mpeTimbre = (int)buf[2];
-            //     break;
-            // case 0xd0:
-            //     voices[i].mpePressure = (int)buf[1];
-            //     voices[i].dx7_note->mpePressure = (int)buf[1];
-            //     break;
-            case 0xe0:
-                voices[i].mpePitchBend = (int)( buf[1] | (buf[2] << 7) );
-                voices[i].dx7_note->mpePitchBend = (int)( buf[1] | ( buf[2] << 7 ) );
-                break;
-            }
-        }
-    }
-    else {
-        switch(cmd & 0xf0) {
-        case 0x80 :
-            keyup(channel, buf[1], buf[2]);
-        return;
-
-        case 0x90 :
-            if (!synthTuningState->is_standard_tuning() || !buf[2] ||
-                !MTS_HasMaster(mtsClient) || !MTS_ShouldFilterNote(mtsClient, buf[1], channel - 1))
-                keydown(channel, buf[1], buf[2]);
-        return;
-
-        case 0xb0 : {
-            int ctrl = buf[1];
-            int value = buf[2];
-                switch(ctrl) {
-                case 1:
-                    controllers.modwheel_cc = value;
-                    controllers.refresh();
-                    break;
-                case 2:
-                    controllers.breath_cc = value;
-                    controllers.refresh();
-                    break;
-                case 4:
-                    controllers.foot_cc = value;
-                    controllers.refresh();
-                    break;
-                case 5:
-                    controllers.portamento_cc = value;
-                    break;
-                case 64:
-                    sustain = value > 63;
-                    if (!sustain) {
-                        for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-                            if (voices[note].sustained && !voices[note].keydown) {
-                                voices[note].dx7_note->keyup();
-                                voices[note].sustained = false;
-                            }
-                        }
-                    }
-                    break;
-                case 65:
-                    controllers.portamento_enable_cc = value >= 64;
-                    break;
-                case 120:
-                    panic();
-                    break;
-                case 123:
-                    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-                        if (voices[note].keydown)
-                            keyup(channel, voices[note].midi_note, 0);
-                    }
-                    break;
-                default:
-                    //TRACE("handle channel %d CC %d = %d", channel, ctrl, value);
-                    midiCCMapper->processControlChange(ctrl, value);
-                }
-            }
-            return;
-
-        case 0xc0 :
+    switch ( engine.processMidiMessage(buf, msg->getChannel()) ) {
+        case SynthEngine::MidiResult::ProgramChange:
             setCurrentProgram(buf[1]);
-            return;
-
-        case 0xd0 :
-            controllers.aftertouch_cc = buf[1];
-            controllers.refresh();
-            return;
-
-		case 0xe0 :
-			controllers.pitch_cc = buf[1] | (buf[2] << 7);
-            return;
-        }
+            break;
+        case SynthEngine::MidiResult::UnhandledControlChange:
+            //TRACE("handle channel %d CC %d = %d", channel, ctrl, value);
+            midiCCMapper->processControlChange(buf[1], buf[2]);
+            break;
+        case SynthEngine::MidiResult::Panic:
+            keyboardState.reset();
+            break;
+        case SynthEngine::MidiResult::Handled:
+            break;
     }
 }
 

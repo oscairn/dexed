@@ -25,7 +25,9 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include "PluginFx.h"
-#include "PluginProcessor.h"
+
+// equal to juce::MathConstants<float>::pi, used here before this file stopped depending on JUCE
+static constexpr float kPi = static_cast<float>(3.141592653589793238L);
 
 const float dc = 1e-18;
 
@@ -37,7 +39,7 @@ inline static float tptpc(float& state,float inp,float cutoff) {
 }
 
 inline static float tptlpupw(float & state , float inp , float cutoff , float srInv) {
-	cutoff = (cutoff * srInv)*juce::MathConstants<float>::pi;
+	cutoff = (cutoff * srInv)*kPi;
 	double v = (inp - state) * cutoff / (1 + cutoff);
 	double res = v + state;
 	state = res + v;
@@ -72,7 +74,7 @@ void PluginFx::init(int sr) {
     rcor24 = (970.0 / 44000)*rcrate;
     rcor24Inv = 1 / rcor24;
     
-    bright = tan((sampleRate*0.5f-10) * juce::MathConstants<float>::pi * sampleRateInv);
+    bright = tan((sampleRate*0.5f-10) * kPi * sampleRateInv);
     
     R = 1;
 	rcor = (480.0 / 44000)*rcrate;
@@ -84,7 +86,7 @@ void PluginFx::init(int sr) {
 
     // ~10 ms one-pole smoothing on the filter coefficients
     smoothCoef = expf(-1.0f / (0.01f * sampleRate));
-    sCutoff = tan(19000.0f * sampleRateInv * juce::MathConstants<float>::pi);
+    sCutoff = tan(19000.0f * sampleRateInv * kPi);
     sReso = 0;
     bypassed = true;
 
@@ -128,7 +130,7 @@ void PluginFx::process(float *work, int sampleSize) {
         rReso = (0.991-logsc(1-uiReso,0,0.991));
 
         float cutoffNorm = logsc(uiCutoff,60,19000);
-        rCutoff = (float)tan(cutoffNorm * sampleRateInv * juce::MathConstants<float>::pi);
+        rCutoff = (float)tan(cutoffNorm * sampleRateInv * kPi);
 
         pCutoff = uiCutoff;
         pReso = uiReso;

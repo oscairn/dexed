@@ -27,37 +27,15 @@
 
 #include "msfa/controllers.h"
 #include "msfa/dx7note.h"
-#include "msfa/lfo.h"
 #include "msfa/synth.h"
-#include "msfa/fm_core.h"
 #include "msfa/tuning.h"
 #include "PluginData.h"
 #include "PluginFx.h"
 #include "midi/SysexComm.h"
-#include "engine/EngineMkI.h"
-#include "engine/EngineOpl.h"
+#include "engine/SynthEngine.h"
 #include "parameter/DexedApvts.h"
 #include "core/Program.h"
 #include "util/CommandFifo.h"
-
-struct ProcessorVoice {
-    int channel;
-    int midi_note;
-    int velocity;
-    bool keydown;
-    bool sustained;
-    bool live;
-    int32_t keydown_seq;
-
-    int mpePitchBend;
-    Dx7Note *dx7_note;
-};
-
-enum DexedEngineResolution {
-    DEXED_ENGINE_MODERN,
-    DEXED_ENGINE_MARKI,
-    DEXED_ENGINE_OPL
-};
 
 /// Maximum allowed size for SCL and KBM files.
 /// (COMMENT: Since none of the 5175 .scl files in the Scala archive
@@ -73,26 +51,15 @@ class MidiCCHandler;
 */
 class DexedAudioProcessor  : public AudioProcessor, public MidiInputCallback, public clap_juce_extensions::clap_properties
 {
-    static const int MAX_ACTIVE_NOTES = 16;
-    ProcessorVoice voices[MAX_ACTIVE_NOTES];
-    int currentNote;
-
-    // The original DX7 had one single LFO. Later units had an LFO per note.
-    Lfo lfo;
-
-    bool sustain;
-    bool monoMode;
-    
-    // Extra buffering for when GetSamples wants a buffer not a multiple of N
-    float extra_buf[N];
-    int extra_buf_size;
+    // voices, MIDI handling and rendering
+    SynthEngine engine;
 
     int currentProgram;
     
     /**
      * Plugin fx (the filter)
      */
-    PluginFx fx;
+    PluginFx &fx { engine.fx };
 
     /**
      * This flag is used in the audio thread to know if the voice has changed
@@ -100,24 +67,25 @@ class DexedAudioProcessor  : public AudioProcessor, public MidiInputCallback, pu
      */
     juce::Atomic<bool> refreshVoice { false };
 
-    bool normalizeDxVelocity;
+    bool &normalizeDxVelocity { engine.normalizeDxVelocity };
     bool sendSysexChange;
     
     void processMidiMessage(const MidiMessage *msg);
-    void keydown(uint8_t chan, uint8_t pitch, uint8_t velo);
-    void keyup(uint8_t, uint8_t pitch, uint8_t velo);
 
     /**
      * Process midi messages until the samplePos is reached.
      */
     void processMidiMessages(MidiBufferIterator& cur, MidiBufferIterator& end, int samplePos);
 
+    // Hands the block's MIDI to processMidiMessages as the engine reaches each event's sample.
+    struct MidiEvents : SynthEngine::EventSource {
+        DexedAudioProcessor &proc;
+        MidiBufferIterator &cur, &end;
+        MidiEvents(DexedAudioProcessor &proc, MidiBufferIterator &cur, MidiBufferIterator &end) : proc(proc), cur(cur), end(end) {}
+        void dispatchUntil(int samplePos) override { proc.processMidiMessages(cur, end, samplePos); }
+    };
+
     void handleIncomingMidiMessage(MidiInput* source, const MidiMessage& message) override;
-    uint32_t engineType;
-    
-    FmCore engineMsfa;
-    EngineMkI engineMkI;
-    EngineOpl engineOpl;
 
     void resolvAppDir();
 
@@ -140,7 +108,7 @@ public :
     std::unique_ptr<MidiCCHandler> midiCCMapper;
 
     // in MIDI units (0x4000 is neutral)
-    Controllers controllers;
+    Controllers &controllers { engine.controllers };
     StringArray programNames;
     Cartridge currentCart;
 
@@ -219,7 +187,6 @@ public :
     
     static File dexedAppDir;
     static File dexedCartDir;
-    int lastActiveVoice = 0;
 
     void setZoomFactor(float factor);
     float getZoomFactor() {
@@ -265,7 +232,6 @@ public :
     std::string currentKBMData = "";
     // TUNING STUFF ====================================================
 private:
-    int32_t nextKeydownSeq;;
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DexedAudioProcessor)
 
