@@ -866,6 +866,8 @@ int extendedTest() {
             lfo.init(rate);
             lfo.reset(v);
             const double hz = range ? extLfoExtendedHz(speed) : extLfoHz(speed);
+            if (hz > rate / N / 4)
+                continue; // beyond what a once-per-block LFO can play (lfo.cc)
             const double blockRate = rate / N;
             const long blocks = (long)std::min(5e7, blockRate * 20 / hz) + 2;
             long first = -1, last = -1, wraps = 0;

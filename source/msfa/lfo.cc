@@ -20,6 +20,8 @@
 
 #include "sin.h"
 #include "lfo.h"
+
+#include <algorithm>
 #include "ext_voice.h"
 #include "ext_tables.h"
 
@@ -86,7 +88,10 @@ void Lfo::reset(const ExtendedVoice &v) {
     reset(p);
     const double hz = v.common(ext::LfoSpeedRange) == 0 ? extLfoHz(v.common(ext::LfoSpeed))
                                                         : extLfoExtendedHz(v.common(ext::LfoExtSpeed));
-    delta_ = (uint32_t)(hz * hzToDelta_ + 0.5);
+    // shortcut: the LFO advances once per 64-sample block, so it cannot run faster than half
+    // the block rate (344 Hz at 44.1 kHz); the extended range goes to 1357 Hz. Upgrade to a
+    // per-sample LFO for Extended sounds when that range matters.
+    delta_ = (uint32_t)std::min(hz * hzToDelta_ + 0.5, 2147483647.0);
     // shortcut: phase 0 is taken as the start of the wave as Lfo draws it; the reference's
     // start point is not measured yet
     startPhase_ = (uint32_t)v.common(ext::LfoPhase) << 30;
