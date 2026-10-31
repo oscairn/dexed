@@ -58,6 +58,12 @@ double extEgLevelDb(int l) {
     l = clampi(l, 0, 99);
     return l < kLevelSilentBelow ? -200.0 : interpolate(kLevelX, kEgLevelDb, l);
 }
+double extModLevelDb(int l) {
+    l = clampi(l, 0, 99);
+    return l < kModLevelX[0] ? -200.0 : interpolate(kModLevelX, kModLevelDb, l);
+}
+double extFeedbackScale(int f) { return kFeedbackScale[clampi(f, 0, 7)]; }
+
 double extOpLevelDb(int l) {
     l = clampi(l, 0, 99);
     return l < kLevelSilentBelow ? -200.0 : interpolate(kLevelX, kOpLevelDb, l);

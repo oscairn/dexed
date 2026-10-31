@@ -101,6 +101,7 @@ private:
     bool initialised_ = false;
     int algorithm_ = 0;
     int fbShift_ = 16;
+    int64_t fbGain_ = 0;
     uint8_t reset_ = 0;          // operators (FmOpParams index) with Key On Reset
     ExtEnv env_[8];
     ExtPitchEnv peg_[8];

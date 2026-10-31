@@ -42,6 +42,7 @@ struct ExtKernels {
     // arguments below are ignored
     const int32_t (*freqOf)[N] = nullptr;
     const FmOpParams *base = nullptr;
+    int64_t fbGain = 0; // feedback: the average of the last two outputs times this, Q24
     int cur = 0;
     bool gains(FmOpParams &p, int32_t &gain1, int32_t &gain2) {
         const int kLevelThresh = 1120;
@@ -81,7 +82,7 @@ struct ExtKernels {
         const int32_t *f = freqOf[cur];
         int32_t y0 = fb[0], y = fb[1];
         for (int i = 0; i < N; i++, ph += f[i - 1]) {
-            const int32_t scaled = (y0 + y) >> (shift + 1);
+            const int32_t scaled = (int32_t)(((int64_t)(y0 + y) * fbGain) >> 25);
             y0 = y;
             y = (int32_t)(((int64_t)Sin::lookup(ph + (in ? in[i] : 0) + scaled) * g[i]) >> 24);
             o[i] = y;
@@ -126,7 +127,7 @@ struct ExtKernels {
                     if (((a.inputs[op] >> j) & 1) && audible[j] && j != op)
                         in += bufs[j].get()[i];
                 if (k == 0)
-                    in += (y0 + y) >> (shift + 1);
+                    in += (int32_t)(((int64_t)(y0 + y) * fbGain) >> 25);
                 const int32_t out = (int32_t)(((int64_t)Sin::lookup(ph[k] + in) * gain) >> 24);
                 ph[k] += freqOf[op][i];
                 bufs[op].get()[i] = out;
@@ -260,7 +261,9 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     const double sampleRate = rate->sampleRate;
     algorithm_ = std::clamp(v.common(ext::Algorithm), 1, 88) - 1;
     const int feedback = std::clamp(v.common(ext::Feedback), 0, 7);
-    fbShift_ = feedback != 0 ? 8 - feedback : 16;
+    fbShift_ = feedback != 0 ? 8 - feedback : 16; // (16: off, for renderGraph)
+    // the measured feedback amount, relative to the DX7's shift for the same value
+    fbGain_ = feedback != 0 ? std::llround(extFeedbackScale(feedback) * (double)(1 << 24) / (1 << fbShift_)) : 0;
     pitchDepth_ = (std::clamp(v.common(ext::LfoPitchDepth), 0, 99) * 165) >> 6;
     ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
@@ -283,7 +286,10 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         }
         basepitch_[i] = pitch + (int32_t)std::lround(cents / 1200.0 * kQ24);
         // level: operator level, scaling and velocity, in dB, then MSFA's log format
-        double db = extOpLevelDb(std::clamp(o(ext::Level), 0, 99));
+        // modulators have their own level curve (the modulation index the reference plays)
+        const bool modulator = !((extCompiled(algorithm_).outputs >> i) & 1);
+        double db = modulator ? extModLevelDb(std::clamp(o(ext::Level), 0, 99))
+                              : extOpLevelDb(std::clamp(o(ext::Level), 0, 99));
         db += extLevelScalingDb(midinote, o(ext::BreakPoint), o(ext::LowDepth), o(ext::HighDepth), o(ext::LowCurve),
                                 o(ext::HighCurve));
         db += extLevelVelocityDb(o(ext::LevelVelocity), velocity);
@@ -371,6 +377,7 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
     k.gainOf = gains_;
     k.freqOf = freqs_;
     k.base = params_;
+    k.fbGain = fbGain_;
     renderGraph(k, extCompiled(algorithm_), buf, params_, fbBuf_, fbShift_, bufs_, sum_.get());
     // every operator moved by its per-sample increments (renderGraph assumed `freq` throughout)
     for (int i = 0; i < ext::Ops; i++) {
