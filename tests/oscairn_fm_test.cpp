@@ -1563,6 +1563,27 @@ int extendedTest() {
         std::vector<double> before = v;
         expect(!oscairn_fm::convertToClassic(v) && v == before, "a sound outside the Classic subset stays Extended");
     }
+    // -- no 16-bit rounding of Extended voices: a quiet sine's harmonics stay far below the
+    // rounding error's level
+    {
+        const auto x = renderExtended({ { 1051, 50 } }, 69, 1.0, 1.2, 1.2);
+        auto level = [&](double hz) {
+            const size_t from = 24000, n = 24000;
+            double re = 0, im = 0;
+            for (size_t i = 0; i < n; i++) {
+                const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), a = 2 * M_PI * hz * i / rate;
+                re += x[from + i] * w * std::cos(a);
+                im += x[from + i] * w * std::sin(a);
+            }
+            return 20 * std::log10(std::hypot(re, im) + 1e-30);
+        };
+        const double fundamental = level(f69);
+        double worst = -300;
+        for (int k = 2; k <= 8; k++)
+            worst = std::max(worst, level(f69 * k) - fundamental);
+        std::printf("quiet sine: harmonics 2-8 at most %.1f dB\n", worst);
+        expect(worst < -90, "quiet Extended sine: harmonics 2-8 at " + std::to_string(worst) + " dB");
+    }
     std::printf("Extended profile: envelope, pitch and LFO rates against the tables, init sound, conversion %s\n",
                 failures ? "FAILED" : "pass");
     return failures == 0 ? 0 : 1;

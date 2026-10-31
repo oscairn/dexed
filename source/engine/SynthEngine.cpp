@@ -21,6 +21,8 @@
 // Moved from PluginProcessor.cpp, midi/PluginMidi.cpp and Tuning.cpp without behaviour change.
 
 #include "SynthEngine.h"
+
+#include <algorithm>
 #include "msfa/ext_waves.h"
 
 #include "msfa/freqlut.h"
@@ -421,12 +423,19 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     const bool panned = right != nullptr && v.dx7_note->panned(gainLeft, gainRight);
                     for (int j=0; j < N; ++j) {
                         int32_t val = audiobuf.get()[j];
-
-                        val = val >> 4;
-                        int clip_val = val < -(1 << 24) ? 0x8000 : val >= (1 << 24) ? 0x7fff : val >> 9;
-                        float f = ((float) clip_val) / (float) 0x8000;
-                        if( f > 1 ) f = 1;
-                        if( f < -1 ) f = -1;
+                        float f;
+                        if (v.dx7_note->extended()) {
+                            // Extended voices skip Dexed's 16-bit rounding: on a periodic tone its
+                            // error lands on the harmonics, about 70 dB down, well above the
+                            // reference's own floor there
+                            f = std::clamp((float)val * (1.0f / (float)(1 << 28)), -1.0f, 1.0f);
+                        } else {
+                            val = val >> 4;
+                            int clip_val = val < -(1 << 24) ? 0x8000 : val >= (1 << 24) ? 0x7fff : val >> 9;
+                            f = ((float) clip_val) / (float) 0x8000;
+                            if( f > 1 ) f = 1;
+                            if( f < -1 ) f = -1;
+                        }
                         if ( v.fadeTotal > 0 ) { // choked: fading out
                             f *= (float)v.fadeLeft / (float)v.fadeTotal;
                             if ( v.fadeLeft > 0 )
