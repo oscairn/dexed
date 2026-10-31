@@ -1025,7 +1025,8 @@ tables, per-sample envelopes, init sounds, Extended test), `1a26b42` (attack and
 `f12fb53` (`fm/eg.py`, `fit_eg.py`, `lfo.py`, `fit_tables.py`, `make_tables.py`, `calibrate.py`,
 `compare.py`, `topology.py`). Second session: `7cc0925` (per-sample Extended LFO), `9a0aa9a` (algorithm 70),
 `33ae421` (rate-based operator pitch EG, per time value), `abc697b` (modulation index and
-feedback), `2976b05` (odd holds, attack 95, decay 85), `a14e132` (holds 94-99, attacks 96-99);
+feedback), `2976b05` (odd holds, attack 95, decay 85), `a14e132` (holds 94-99, attacks 96-99), `312febe`
+(output level by algorithm);
 measurement `a126d92`, `6b83d7b`.
 
 - **Profile.** Parameter 5 (Classic, Extended) per sound. Extended values have their own IDs:
@@ -1068,7 +1069,7 @@ queued on the shared recorder when this was written):
 | Pitch 1 cent | **Met where measurable.** Coarse 0-31, fine 0-127 at several coarse values, detune -15..+15 at 8 notes, fixed mode 20 Hz-14 kHz with fine, key follow 0-99 at 5 notes, common pitch velocity depth -64..+63 at 9 velocities. Exceptions: coarse 31 with fine above 100 (the reference gave 13.0 in one campaign and 6.658 in another, so its behaviour there is not stable), fixed frequencies below about 20 Hz (not measurable in short notes), common pitch velocity +32 at velocity 1 (1.11 cents). Operator pitch EG levels -50..+50: pass at all 101 levels, refitted by extrapolating the pitch back to the note-on (the decay towards 0 starts at once, see below; the old table, read from a 0.05-0.5 s window, was about 3.5 cents towards 0) |
 | LFO rate 1 % | **Met where measurable.** Normal speeds 0-99: all 100 pass (0-20 re-rendered with 5-13 cycles per note; the first renders held only 1.7-5 cycles and measured up to 4 % apart). Extended speeds (measured every fifth value): pass from 1 to 415, including 355-415 (377-1357 Hz) since Extended sounds run the LFO once per sample (pitch and amplitude modulation per sample, per-sample phase increments in the Extended kernels); Classic sounds keep the per-block LFO and stay bit-identical. 15 and 25 measured 1.1-1.2 % apart in 2-second notes (2.5 cycles); see the re-render note below. Speed 0 plays about 0.002 Hz, too slow to measure in 40 s. Values between the measured ones are interpolated; the table is piecewise linear, so speeds next to a slope change are unverified. In-fork test: the LFO, stepped per sample, matches its tables within 1 % at every normal speed and every fifth extended speed |
 
-**Tests run locally** (second session, on the commits through `222f1dc`): Release CTest 36/36
+**Tests run locally** (second session, on the commits through `6f3ac57`): Release CTest 36/36
 (164 Classic cases bit-identical through engine, JUCE plugin and native CLAP; topology 32 + 88;
 Extended test, now with the per-sample LFO at every speed, the operator pitch EG and the wave
 harmonics; Oscairn scanner and renderer), ASan/UBSan 19/19 and TSan 19/19 (those trees build
@@ -1106,7 +1107,12 @@ fixed frequencies below 20 Hz.
    harmonics 2, Formant 1, Formant 2), Spread, Formant (parameters 1000 n + 60..62).
 9. The wave tables take 7.7 MB, built once per process in SynthEngine's constructor (the
    desktop Dexed builds them too, since it shares the engine).
-10. A modulator's level follows its own measured curve (0.75 dB per step, audible down to
+10. Extended carriers play the reference's output level per algorithm (measured, 0 to
+    +13.55 dB above algorithm 1) and are 6.57 dB lower overall than a Classic carrier, the
+    level of the reference's probes; the absolute level may also include the probes' Part and
+    master volume, so Jacob may prefer another overall level (normalising to the loudest
+    algorithm instead would make algorithm 1 7 dB quieter than the reference).
+11. A modulator's level follows its own measured curve (0.75 dB per step, audible down to
     level 6), different from a carrier's; an operator is a modulator when its algorithm does
     not route it to the output (no algorithm does both).
 
@@ -1146,13 +1152,12 @@ fixed frequencies below 20 Hz.
 | Waves 1-4, every spread | **Met:** 32 of 32 cases, worst 0.22 dB |
 | Waves 1-4 and sine at notes 24-108 | **Met:** 35 of 35 (all harmonics below Nyquist kept up to the 16th); aliasing -64 dB or lower (the renders' floor), where the reference's reaches -14 dB at note 108 |
 | Formant waves, every spread (formant 0) | Formant 2: met at spreads 0-3, 6 and 7 (worst 0.31 dB); **not met** at 4 (1.2 dB) and 5 (14.5 dB at harmonic 16, -53 dB). Formant 1: met at 0-2 (0.91 dB); **not met** at 3-7 (1.5-3.8 dB, largest at harmonic 1), so at formant 0 formant 1 is not exactly the window model with its sign-flipped fold, while formant 2 is |
-| Formant sweep (0-99 every ninth, spreads 0, 3, 7; and centre 10 at every spread) | Spread 0: met; spread 3: 19 of 24 met. **Not met:** the far side of the window on the low harmonics (centre 10: harmonics 1-3, 30-60 dB down, 2-10 dB off), and spread 7 with the centre above harmonic 18, where the first 16 harmonics lie further from the centre than the measured window reaches (45 components; renders with the centre at harmonic 100 of note 24, `spec4`, are generated and not yet recorded). f6s3r54 fails on aliasing only (-28 dB against the reference's -43; its harmonics match), unexplained |
+| Formant sweep (0-99 every ninth, spreads 0, 3, 7; and centre 10 at every spread) | Spread 0: met; spread 3: 19 of 24 met. **Not met:** the far side of the window on the low harmonics (centre 10: harmonics 1-3, 30-60 dB down, 2-10 dB off), and spread 7 with the centre above harmonic 18, where the first 16 harmonics lie further from the centre than the measured window reaches (the windows now reach 99 components from centre-100 renders, `spec4`, which helped only partly: spread 6-7 formant 2 with the centre above about harmonic 27 is still 3-55 dB off, and Octet shows off-harmonic content at -23 dB there, unexplained). f6s3r54 fails on aliasing only (-28 dB against the reference's -43; its harmonics match), unexplained |
 | Formant waves at notes 24-84 (formant 50, spread 3) | Met where the centre is below Nyquist (6 cases); above it the reference plays a non-harmonic tone near Nyquist and Octet is silent (not compared) |
-| Waves as modulators | Renders queued (`spec3`), not yet compared |
+| Waves as modulators (`spec3`: each wave at spread 3 modulating a sine, levels 60 and 75) | **Not met.** Sine: harmonics 1-3 within 0.14 dB (harmonic 4: 1.1 dB). Formant 2 at level 60: 0.28 dB. The others are 1.8-14 dB off, Octet's sidebands mostly weaker: the reference seems to scale a non-sine wave differently as a modulator than as a carrier; this needs a modulator-depth sweep per wave and spread |
 
 **Where M5 stopped.** M5 is not complete: the formant wave gate rows above are not met, and
-waves as modulators are not checked. Next steps: record `spec4` (wider windows) and `spec3`,
-then refit; find what formant 1 does at formant 0 with wider spreads (its spectrum there is
+waves as modulators do not match. Next steps: measure modulation depth per wave and spread; find what formant 1 does at formant 0 with wider spreads (its spectrum there is
 not the window model's fold); the wave choice follows the note-on frequency only (pitch EG,
 LFO and bend moves are not followed; marked as a shortcut in `ext_note.cc`).
 
