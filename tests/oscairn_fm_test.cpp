@@ -958,6 +958,42 @@ int extendedTest() {
                        std::to_string(expected(mid)));
         }
     }
+    // -- pitch key follow (straight in cents from the centre) and random pitch, ratio-mode
+    // operators only (1 cent)
+    for (int kf : { 0, 40, 80, 112, 127 })
+        for (int key : { 50, 84 })
+            pitchCase({ { 56, kf } }, key, 1.0, noteHz(key) * std::pow(2.0, extPitchKeyFollowCents(kf, key, 60) / 1200),
+                      "pitch key follow " + std::to_string(kf) + " key " + std::to_string(key));
+    pitchCase({ { 56, 127 }, { 57, 48 } }, 41, 1.0, noteHz(41) * std::pow(2.0, -700 / 1200.0),
+              "pitch key follow +200 % centre 48, key 41");
+    pitchCase({ { 56, 0 }, { 55, 127 }, { 1031, 1 }, { 1032, 16 } }, 84, 1.0, extFixedHz(16, 0),
+              "a fixed-frequency operator follows neither pitch key follow nor random pitch");
+    expect(extPitchKeyFollowPercent(64) == 0 && extPitchKeyFollowPercent(96) == 100 &&
+               extPitchKeyFollowPercent(0) == -200 && extPitchKeyFollowPercent(127) == 200,
+           "pitch key follow percent table ends");
+    {
+        // random pitch: whole 18.75-cent steps within depth / 4 steps, every step reached
+        bool ok = true;
+        double lo = 0, hi = 0;
+        uint32_t r = 1;
+        for (int i = 0; i < 20000; i++) {
+            r = r * 1664525u + 1013904223u;
+            const double c = extRandomPitchCents(127, r);
+            ok = ok && std::fabs(c / 18.75 - std::round(c / 18.75)) < 1e-9;
+            lo = std::min(lo, c);
+            hi = std::max(hi, c);
+        }
+        expect(ok && lo == -600 && hi == 600 && extRandomPitchCents(0, 12345) == 0 &&
+                   std::fabs(extRandomPitchCents(16, 0xffffffffu)) <= 75,
+               "random pitch steps and range");
+        // the same note twice after activation plays the same random pitch (deterministic), on
+        // the grid
+        const auto a = renderExtended({ { 55, 127 } }, 60, 1.0, 0.6, 0.6);
+        const auto b = renderExtended({ { 55, 127 } }, 60, 1.0, 0.6, 0.6);
+        const double cents = 1200 * std::log2(zeroCrossingHz(a, 4800, a.size()) / noteHz(60));
+        expect(a == b && std::fabs(cents / 18.75 - std::round(cents / 18.75)) < 0.06 && std::fabs(cents) <= 600.5,
+               "random pitch is deterministic and on its grid: " + std::to_string(cents) + " cents");
+    }
     // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
     // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic
     {

@@ -62,6 +62,9 @@ enum Common {
     PitchEgDepth,       // 0-3: 8, 2, 1, 0.5 octaves
     PitchEgVelocity,    // 0-7: depth velocity sensitivity
     PitchEgTimeKeyFollow, // 0-7
+    RandomPitch,        // 0-127
+    PitchKeyFollow,     // 0-127: -200 % ... +200 % (extPitchKeyFollowPercent; 64 is 0 %, 96 +100 %)
+    PitchKeyCentre,     // 0-127 (MIDI note)
     CommonCount
 };
 

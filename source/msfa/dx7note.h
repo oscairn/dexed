@@ -46,7 +46,7 @@ public:
     // ext: the sound's Extended values; when its profile is Extended the note plays those
     // (ExtNote) instead of the DX7 voice
     void init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls,
-              const ExtendedVoice *ext = nullptr);
+              const ExtendedVoice *ext = nullptr, uint32_t random = 0);
     void initPortamento(const Dx7Note &srcNote);
 
     // Note: this _adds_ to the buffer. Interesting question whether it's

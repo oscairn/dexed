@@ -71,6 +71,8 @@ static ExtendedVoice buildExtDefaults() {
     e.v[FilterBreak2] = 48;
     e.v[FilterBreak3] = 60;
     e.v[FilterBreak4] = 72;
+    e.v[PitchKeyFollow] = 96; // +100 %
+    e.v[PitchKeyCentre] = 60;
     for (int n = 1; n <= Ops; n++) {
         int16_t *o = e.v + op(n, KeyOnReset);
         o[KeyOnReset] = 1;
@@ -178,6 +180,23 @@ static std::vector<Param> build() {
         extv(37, peg, "Depth", 0, 3, ext::PitchEgDepth, Text::Choice, depths);
         extv(38, peg, "Depth Velocity Sensitivity", 0, 7, ext::PitchEgVelocity);
         extv(39, peg, "Time Key Follow", 0, 7, ext::PitchEgTimeKeyFollow);
+    }
+    {
+        // pitch key follow as the percent each value plays (its steps are not even)
+        static const char *const *keyFollow = [] {
+            static std::string text[128];
+            static const char *ptr[129] = {};
+            for (int i = 0; i < 128; i++) {
+                const int pc = extPitchKeyFollowPercent(i);
+                text[i] = (pc > 0 ? "+" : "") + std::to_string(pc) + " %";
+                ptr[i] = text[i].c_str();
+            }
+            return ptr;
+        }();
+        const std::string c = "Extended/Common";
+        extv(55, c, "Random Pitch", 0, 127, ext::RandomPitch);
+        extv(56, c, "Pitch Key Follow", 0, 127, ext::PitchKeyFollow, Text::Choice, keyFollow);
+        extv(57, c, "Pitch Key Follow Centre", 0, 127, ext::PitchKeyCentre, Text::Key);
     }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
@@ -435,6 +454,8 @@ bool convertToClassic(std::vector<double> &values) {
     for (uint32_t id = 28; id <= 32; id++)
         if (x.geti(id) != 0)
             return false; // the common pitch EG (Classic's pitch EG is not converted either way)
+    if (x.geti(55) != 0 || x.geti(56) != 96)
+        return false; // random pitch, pitch key follow
     for (int d = 1; d <= 6; d++) {
         const uint32_t e = 1000 * m.op[d - 1];
         if (x.geti(e + 30) != keySync || x.geti(e + 58) != pitchSens)

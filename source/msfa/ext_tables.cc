@@ -346,3 +346,35 @@ static const uint8_t kPartPegRateSteps[100] = {
     11, 11, 10, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 1,
 };
 double extPartPegCentsPerMs(int time) { return kPartPegRateSteps[clampi(time, 0, 99)] * 0.05619077; }
+
+// ---- pitch key follow and random pitch ----
+
+// Pitch key follow by value (percent): 1 % steps within 10 of 0, 100 and 200 (and down to
+// 191 at the bottom), 5 % between (measured at every value two octaves above the centre,
+// each within 1 cent of its whole percent)
+static const int16_t kPitchKeyFollowPercent[128] = {
+    -200, -199, -198, -197, -196, -195, -194, -193, -192, -191, -190, -185, -180, -175, -170, -165,
+    -160, -155, -150, -145, -140, -135, -130, -125, -120, -115, -110, -105, -104, -103, -102, -101,
+    -100, -99, -98, -97, -96, -95, -90, -85, -80, -75, -70, -65, -60, -55, -50, -45,
+    -40, -35, -30, -25, -20, -15, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 35,
+    40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 96, 97, 98, 99,
+    100, 101, 102, 103, 104, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155,
+    160, 165, 170, 175, 180, 185, 190, 192, 193, 194, 195, 196, 197, 198, 199, 200,
+};
+
+int extPitchKeyFollowPercent(int value) { return kPitchKeyFollowPercent[clampi(value, 0, 127)]; }
+
+// straight in cents from the centre note (measured at fractional octaves, within 1 cent)
+double extPitchKeyFollowCents(int value, int midinote, int centre) {
+    return (extPitchKeyFollowPercent(value) - 100) * (midinote - clampi(centre, 0, 127));
+}
+
+double extRandomPitchCents(int depth, uint32_t random) {
+    // whole steps of 18.75 cents up to depth / 4 steps either way (+-600 cents at 127); the
+    // reference's offsets lay on that grid within 1.4 cents
+    // shortcut: uniform over the steps; the reference's distribution was not measured (10
+    // notes per depth)
+    const int k = (clampi(depth, 0, 127) + 2) / 4;
+    return ((int)(random % (uint32_t)(2 * k + 1)) - k) * 18.75;
+}

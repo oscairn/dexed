@@ -131,6 +131,7 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
     for (int c = 0; c < MAX_CONTEXTS; c++) {
         contexts[c].lfo.init(sampleRate);
         contexts[c].fx.init(sampleRate);
+        contexts[c].noteRandom = 0x2545F491u + (uint32_t)c;
         if ( c > 0 )
             contexts[c].block.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
     }
@@ -519,7 +520,16 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].keydown_seq = nextKeydownSeq++;
     // to avoid click, don't sync oscillators when voice stealing
     bool voice_steal = voices[note].dx7_note->isPlaying();
-    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext);
+    uint32_t random = 0;
+    if ( x.extended() ) {
+        // deterministic: the same notes after prepare give the same values (xorshift32)
+        uint32_t &r = x.noteRandom;
+        r ^= r << 13;
+        r ^= r >> 17;
+        r ^= r << 5;
+        random = r;
+    }
+    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext, random);
     // (Extended sounds reset each operator by its own Key On Reset)
     if ( (x.extended() || patch[OSC_KEY_SYNC]) && !voice_steal ) {
         voices[note].dx7_note->oscSync();

@@ -46,6 +46,9 @@ double extPartPegCents(int level, int depth);   // level -50-+50, depth 0-3 (8, 
 double extPartPegCentsPerMs(int time);           // 0-99: a segment's rate (0: instant)
 double extPartPegVelocityScale(int sensitivity, int velocity); // 0-7: multiplies the levels
 double extPartPegTimeKeyFollowScale(int sensitivity, int midinote); // 0-7: multiplies segment times
+int extPitchKeyFollowPercent(int value);   // pitch key follow 0-127 -> -200 ... +200 %
+double extPitchKeyFollowCents(int value, int midinote, int centre); // offset from the note's own pitch
+double extRandomPitchCents(int depth, uint32_t random); // random pitch 0-127, random: a uniform 32-bit value
 
 // LFO
 double extLfoHz(int speed);         // speed range Normal, 0-99

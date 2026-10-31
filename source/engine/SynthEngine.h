@@ -83,6 +83,7 @@ struct SynthContext {
     bool monoMode = false;
     int engineType = -1;
     int lastActiveVoice = 0;
+    uint32_t noteRandom = 0x2545F491u; // xorshift state: one value per Extended note (reset by prepare)
 
     // audio thread
     float extra_buf[N];        // rendered ahead (see SynthEngine::render)

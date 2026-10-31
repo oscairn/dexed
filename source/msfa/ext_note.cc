@@ -385,6 +385,11 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     pitchDepth_ = (std::clamp(v.common(ext::LfoPitchDepth), 0, 99) * 165) >> 6;
     ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
+    // pitch key follow and random pitch: ratio-mode operators only (fixed ones keep their
+    // frequency in the reference)
+    const double ratioCents =
+        extPitchKeyFollowCents(v.common(ext::PitchKeyFollow), midinote, v.common(ext::PitchKeyCentre)) +
+        extRandomPitchCents(v.common(ext::RandomPitch), random_);
     reset_ = 0;
     for (int n = 1; n <= ext::Ops; n++) {
         const int i = ext::Ops - n; // FmOpParams index (compileAlgorithm's order)
@@ -399,7 +404,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             cents += extKeyFollowCents(o(ext::KeyFollow), midinote);
             pitch = (int32_t)std::lround(std::log2(extFixedHz(o(ext::Coarse), o(ext::Fine))) * kQ24);
         } else {
-            cents += extDetuneCents(o(ext::Detune), midinote);
+            cents += extDetuneCents(o(ext::Detune), midinote) + ratioCents;
             pitch = notePitch + (int32_t)std::lround(std::log2(extRatio(o(ext::Coarse), o(ext::Fine))) * kQ24);
         }
         basepitch_[i] = pitch + (int32_t)std::lround(cents / 1200.0 * kQ24);
@@ -463,8 +468,10 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     setupFilter(v, midinote, velocity, start);
 }
 
-void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning) {
+void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
+                   uint32_t random) {
     initialised_ = true;
+    random_ = random;
     setup(v, midinote, velocity, rate, tuning, true);
 }
 

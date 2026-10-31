@@ -130,7 +130,9 @@ public:
         const int32_t *table = nullptr; // Table: the wave; Formant: the window
         int32_t centre = 1;             // Formant: the centre harmonic
     };
-    void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
+    // random: a uniform 32-bit value drawn for this note (random pitch)
+    void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
+              uint32_t random = 0);
     // the voice's values changed while it plays (envelopes keep their state)
     void update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
     // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency); lfo_samples is
@@ -159,6 +161,7 @@ private:
     ExtEnv env_[8];
     ExtPitchEnv peg_[8];
     ExtPartPitchEnv ppeg_;
+    uint32_t random_ = 0;        // this note's random value (random pitch)
     FmOpParams params_[8] = {};
     int32_t basepitch_[8] = {};
     bool fixed_[8] = {};
