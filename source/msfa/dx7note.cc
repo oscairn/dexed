@@ -165,8 +165,18 @@ Dx7Note::Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc, const SynthRa
     fb_buf_[1] = 0;
 }
 
-void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls) {
+void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls,
+                   const ExtendedVoice *ext) {
     initialised_ = true;
+    extended_ = ext != nullptr && ext->extended();
+    if (extended_) {
+        currentPatch = patch;
+        playingMidiNote = midinote;
+        midiChannel = channel;
+        mpePitchBend = 8192;
+        ext_.init(*ext, midinote, velocity, rate_, *tuning_state_);
+        return;
+    }
     currentPatch = patch;
     int rates[4];
     int levels[4];
@@ -219,23 +229,15 @@ void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int cha
 }
 
 void Dx7Note::initPortamento(const Dx7Note &srcNote) {
+    if (extended_)
+        return; // shortcut: no portamento for Extended sounds yet (milestone M7)
     for (int i=0;i<6;i++) {
         porta_curpitch_[i] = srcNote.porta_curpitch_[i];
     }
 }
 
-void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Controllers *ctrls) {
-    // ==== PITCH ====
-    uint32_t pmd = pitchmoddepth_ * lfo_delay;  // Q32
-    int32_t senslfo = pitchmodsens_ * (lfo_val - (1 << 23));
-    int32_t pmod_1 = (((int64_t) pmd) * (int64_t) senslfo) >> 39;
-    pmod_1 = abs(pmod_1);
-    int32_t pmod_2 = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
-    pmod_2 = abs(pmod_2);
-    int32_t pitch_mod = max(pmod_1, pmod_2);
-    pitch_mod = pitchenv_.getsample() + (pitch_mod * (senslfo < 0 ? -1 : 1));
-    
-    // ---- PITCH BEND ----
+// Pitch bend (with MPE and tuning) and master tune, in Q24 log frequency.
+int32_t Dx7Note::bendAndTune(const Controllers *ctrls) {
     int pitchbend = ctrls->pitch_cc;
     int32_t pb = (pitchbend - 0x2000);
     if (pb != 0) {
@@ -272,7 +274,25 @@ void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Co
         pb = newpb;
     }
     
-    int32_t pitch_base = pb + ctrls->masterTune;
+    return pb + ctrls->masterTune;
+}
+
+void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Controllers *ctrls) {
+    if (extended_) {
+        ext_.compute(buf, lfo_val, lfo_delay, bendAndTune(ctrls), ctrls);
+        return;
+    }
+    // ==== PITCH ====
+    uint32_t pmd = pitchmoddepth_ * lfo_delay;  // Q32
+    int32_t senslfo = pitchmodsens_ * (lfo_val - (1 << 23));
+    int32_t pmod_1 = (((int64_t) pmd) * (int64_t) senslfo) >> 39;
+    pmod_1 = abs(pmod_1);
+    int32_t pmod_2 = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
+    pmod_2 = abs(pmod_2);
+    int32_t pitch_mod = max(pmod_1, pmod_2);
+    pitch_mod = pitchenv_.getsample() + (pitch_mod * (senslfo < 0 ? -1 : 1));
+    
+    int32_t pitch_base = bendAndTune(ctrls);
     pitch_mod += pitch_base;
     
     // ==== AMP MOD ====
@@ -343,6 +363,10 @@ void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Co
 }
 
 void Dx7Note::keyup() {
+    if (extended_) {
+        ext_.keyup();
+        return;
+    }
     for (int op = 0; op < 6; op++) {
         env_[op].keydown(false);
     }
@@ -351,6 +375,8 @@ void Dx7Note::keyup() {
 
 void Dx7Note::updateBasePitches()
 {
+    if (extended_)
+        return; // Extended sounds use standard tuning in M4
     double f = MTS_NoteToFrequency(mtsClient, playingMidiNote, midiChannel - 1);
     if (f == mtsFreq) return;
     mtsFreq = f;
@@ -366,7 +392,12 @@ void Dx7Note::updateBasePitches()
     }
 }
 
-void Dx7Note::update(const uint8_t patch[156], int midinote, int velocity, int channel) {
+void Dx7Note::update(const uint8_t patch[156], int midinote, int velocity, int channel, const ExtendedVoice *ext) {
+    if (extended_) {
+        if (ext != nullptr && ext->extended())
+            ext_.update(*ext, midinote, velocity, rate_, *tuning_state_);
+        return;
+    }
     currentPatch = patch;
     int rates[4];
     int levels[4];
@@ -409,6 +440,10 @@ void Dx7Note::update(const uint8_t patch[156], int midinote, int velocity, int c
 }
 
 void Dx7Note::peekVoiceStatus(VoiceStatus &status) {
+    if (extended_) {
+        status = VoiceStatus {};
+        return;
+    }
     for(int i=0;i<6;i++) {
         status.amp[i] = Exp2::lookup(params_[i].level_in - (14 * (1 << 24)));
         env_[i].getPosition(&status.ampStep[i]);
@@ -420,6 +455,11 @@ void Dx7Note::peekVoiceStatus(VoiceStatus &status) {
  * Used in monophonic mode to transfer voice state from different notes
  */
 void Dx7Note::transferState(Dx7Note &src) {
+    if (extended_ || src.extended_) {
+        if (extended_ && src.extended_)
+            ext_.transferState(src.ext_);
+        return;
+    }
     for (int i=0;i<6;i++) {
         env_[i].transfer(src.env_[i]);
         params_[i].gain_out = src.params_[i].gain_out;
@@ -428,6 +468,11 @@ void Dx7Note::transferState(Dx7Note &src) {
 }
 
 void Dx7Note::transferSignal(Dx7Note &src) {
+    if (extended_ || src.extended_) {
+        if (extended_ && src.extended_)
+            ext_.transferSignal(src.ext_);
+        return;
+    }
     for (int i=0;i<6;i++) {
         params_[i].gain_out = src.params_[i].gain_out;
         params_[i].phase = src.params_[i].phase;
@@ -435,12 +480,21 @@ void Dx7Note::transferSignal(Dx7Note &src) {
 }
 
 void Dx7Note::transferPhase(Dx7Note &src) {
+    if (extended_ || src.extended_) {
+        if (extended_ && src.extended_)
+            ext_.transferPhase(src.ext_);
+        return;
+    }
     for (int i=0;i<6;i++) {
         params_[i].phase = src.params_[i].phase;
     }
 }
 
 void Dx7Note::oscSync() {
+    if (extended_) {
+        ext_.oscSync();
+        return;
+    }
     for (int i=0;i<6;i++) {
         params_[i].gain_out = 0;
         params_[i].phase = 0;
@@ -450,6 +504,8 @@ void Dx7Note::oscSync() {
 // a note is playing if it's been initialised and any carrier's amp
 // envelope is active
 bool Dx7Note::isPlaying() {
+    if (extended_)
+        return initialised_ && ext_.isPlaying();
     if ( !initialised_ ) return false;
     for (int i=0; i<6; i++) {
         if ( FmCore::isCarrier(algorithm_, i) && env_[i].isActive() ) {

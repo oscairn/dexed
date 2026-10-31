@@ -20,6 +20,8 @@
 
 #include "sin.h"
 #include "lfo.h"
+#include "ext_voice.h"
+#include "ext_tables.h"
 
 // source table
 static double lfoSource[] = {
@@ -46,12 +48,17 @@ static double lfoSource[] = {
 };
 
 
+double Lfo::classicHz(int speed) {
+    return lfoSource[speed < 0 ? 0 : speed > 99 ? 99 : speed] * (4437500000.0 / 4294967296.0);
+}
+
 void Lfo::init(double sample_rate) {
     // constant is 1 << 32 / 15.5s / 11
     Lfo::unit_ = (int32_t)(N * 25190424 / sample_rate + 0.5);
 
     double ratio = 4437500000.0 * N;
     Lfo::lforatio_ = ratio / sample_rate;
+    hzToDelta_ = 4294967296.0 * N / sample_rate;
 }
 
 void Lfo::reset(const uint8_t params[6]) {
@@ -70,6 +77,19 @@ void Lfo::reset(const uint8_t params[6]) {
     }
     waveform_ = params[5];
     sync_ = params[4] != 0;
+    startPhase_ = (1U << 31) - 1;
+}
+
+void Lfo::reset(const ExtendedVoice &v) {
+    uint8_t p[6] = { 0, (uint8_t)v.common(ext::LfoDelay), 0, 0, (uint8_t)v.common(ext::LfoKeyReset),
+                     (uint8_t)v.common(ext::LfoWave) };
+    reset(p);
+    const double hz = v.common(ext::LfoSpeedRange) == 0 ? extLfoHz(v.common(ext::LfoSpeed))
+                                                        : extLfoExtendedHz(v.common(ext::LfoExtSpeed));
+    delta_ = (uint32_t)(hz * hzToDelta_ + 0.5);
+    // shortcut: phase 0 is taken as the start of the wave as Lfo draws it; the reference's
+    // start point is not measured yet
+    startPhase_ = (uint32_t)v.common(ext::LfoPhase) << 30;
 }
 
 int32_t Lfo::getsample() {
@@ -115,7 +135,7 @@ int32_t Lfo::getdelay() {
 
 void Lfo::keydown() {
     if (sync_) {
-        phase_ = (1U << 31) - 1;
+        phase_ = startPhase_;
     }
     delaystate_ = 0;
 }

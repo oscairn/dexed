@@ -172,7 +172,7 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
 
     for (int c = 0; c < MAX_CONTEXTS; c++)
         if ( contexts[c].patch != nullptr )
-            contexts[c].lfo.reset(contexts[c].patch + LFO_PARAMS);
+            resetLfo(c);
 }
 
 void SynthEngine::release() {
@@ -194,13 +194,17 @@ void SynthEngine::refreshVoices(int c) {
     SynthContext &x = contexts[c];
     for(int i=0;i < MAX_ACTIVE_NOTES;i++) {
         if ( voices[i].live && voices[i].context == c )
-            voices[i].dx7_note->update(x.patch, voices[i].midi_note, voices[i].velocity, voices[i].channel);
+            voices[i].dx7_note->update(x.patch, voices[i].midi_note, voices[i].velocity, voices[i].channel, x.ext);
     }
-    x.lfo.reset(x.patch + LFO_PARAMS);
+    resetLfo(c);
 }
 
 void SynthEngine::resetLfo(int c) {
-    contexts[c].lfo.reset(contexts[c].patch + LFO_PARAMS);
+    SynthContext &x = contexts[c];
+    if ( x.extended() )
+        x.lfo.reset(*x.ext);
+    else
+        x.lfo.reset(x.patch + LFO_PARAMS);
 }
 
 void SynthEngine::panicContext(int c) {
@@ -505,8 +509,9 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].keydown_seq = nextKeydownSeq++;
     // to avoid click, don't sync oscillators when voice stealing
     bool voice_steal = voices[note].dx7_note->isPlaying();
-    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl);
-    if ( patch[OSC_KEY_SYNC] && !voice_steal ) {
+    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext);
+    // (Extended sounds reset each operator by its own Key On Reset)
+    if ( (x.extended() || patch[OSC_KEY_SYNC]) && !voice_steal ) {
         voices[note].dx7_note->oscSync();
     }
     // (the last voice of this sound: another sound may have taken it since)
@@ -533,7 +538,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
             }
         }
     }
-    else if ( !patch[OSC_KEY_SYNC] ) {
+    else if ( !x.extended() && !patch[OSC_KEY_SYNC] ) {
         // if another note at the same pitch is playing, transfer phase
         // to avoid unpredictable destructive interference. this can cause
         // clicking when voice stealing, but we've tried to choose a voice

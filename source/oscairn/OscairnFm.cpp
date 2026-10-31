@@ -72,6 +72,7 @@ struct Slot {
     std::atomic<uint32_t> generation { 0 }; // bumped by every preparation
     uint32_t loadedGeneration = 0;     // audio thread: which preparation the engine holds
     uint8_t patch[156];                // the engine's voice data once loaded
+    ExtendedVoice ext;                 // the engine's Extended values once loaded
     uint8_t voiceName[10];             // main thread
     std::vector<double> prepared;      // values from prepare, loaded by the audio thread
 };
@@ -110,11 +111,13 @@ struct Plugin : SynthEngine::NoteEndSink {
     Plugin() : values(new std::atomic<double>[contextCount * params().size()]) {
         for (int c = 0; c < contextCount; c++) {
             std::memcpy(slots[c].patch, initVoice, 156);
+            slots[c].ext = extDefaults();
             std::memcpy(slots[c].voiceName, initVoice + 145, 10);
             slots[c].prepared.assign(params().size(), 0.0);
             for (size_t i = 0; i < params().size(); i++)
                 value(c, i).store(params()[i].def, std::memory_order_relaxed);
             engine.setPatch(c, slots[c].patch);
+            engine.setExtended(c, &slots[c].ext);
         }
         std::snprintf(slots[0].name, sizeof slots[0].name, "Default");
         slots[0].ready.store(true, std::memory_order_release);
@@ -168,6 +171,16 @@ struct Plugin : SynthEngine::NoteEndSink {
                 patch[155] &= (uint8_t)~(1U << p.target);
             engine.refreshVoices(c);
             return;
+        case Kind::Ext: {
+            int16_t &e = slots[c].ext.v[p.target];
+            if (e == (int16_t)v)
+                return;
+            e = (int16_t)v;
+            if (p.target == ext::ProfileSel) // voices of the other profile cannot continue
+                engine.panicContext(c);
+            engine.refreshVoices(c);
+            return;
+        }
         case Kind::Setting:
             break;
         }
@@ -236,6 +249,7 @@ struct Plugin : SynthEngine::NoteEndSink {
         ctrl.portamento_enable_cc = now.portamento_enable_cc;
         ctrl.mpeEnabled = now.mpeEnabled;
         std::memcpy(slot.patch, initVoice, 156); // (the voice name stays with the main thread)
+        slot.ext = extDefaults();
         for (size_t i = 0; i < params().size(); i++)
             apply(c, i, slot.prepared[i]);
         engine.resetLfo(c);

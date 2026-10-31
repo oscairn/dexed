@@ -16,11 +16,17 @@
 
 // Low frequency oscillator, compatible with DX7
 
+struct ExtendedVoice;
+
 class Lfo {
 public:
     void init(double sample_rate);
 
     void reset(const uint8_t params[6]);
+    // The Extended profile's LFO: measured speed tables, start phase, DX7 delay and waves.
+    void reset(const ExtendedVoice &v);
+    // The rate of DX7 LFO speed 0-99 as this class plays it, in Hz.
+    static double classicHz(int speed);
 
     // result is 0..1 in Q24
     int32_t getsample();
@@ -34,6 +40,8 @@ private:
     // per instance: they depend on the sample rate (they used to be process-wide)
     uint32_t lforatio_ = 0;
     uint32_t unit_ = 0;
+    double hzToDelta_ = 0; // phase increment per block for 1 Hz
+    uint32_t startPhase_ = (1U << 31) - 1; // the phase a key-on reset starts from
 
     // phase, S/H and delay state used to be read uninitialised until a synced key-down
     uint32_t phase_ = 0; // Q32

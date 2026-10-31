@@ -28,8 +28,10 @@ struct SynthRate {
     Porta porta;
     uint32_t envMultiplier = 1 << 24; // Env::sr_multiplier
     int pitchEnvUnit = 0;             // PitchEnv::unit_
+    double sampleRate = 44100;
 
     void init(double sampleRate) {
+        this->sampleRate = sampleRate;
         freqlut.init(sampleRate);
         porta.init_sr(sampleRate);
         envMultiplier = (44100.0 / sampleRate) * (1<<24);

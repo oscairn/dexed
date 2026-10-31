@@ -28,6 +28,9 @@
 #include "baseline_file.h"
 #include "oscairn/Parameters.h"
 #include "msfa/algorithms.h"
+#include "msfa/ext_tables.h"
+#include "msfa/lfo.h"
+#include "msfa/synth.h"
 #include <oscairn-clap/sound-contexts.h>
 
 #include <atomic>
@@ -568,14 +571,32 @@ int threadsTest() {
 
 // Renders note 60 with only the operators in `on` at full level (simple ratio-1 sine
 // operators with instant envelopes), with the given algorithm, feedback and engine.
+// engine 3: the Extended profile (8 operators, the 88 algorithms)
 std::vector<float> renderOperators(int algorithm, unsigned on, int feedback, int engine) {
     Host h(entry);
     h.activate(48000, 512);
     EventList in;
-    in.events.reserve(256);
-    in.param(0, 1, algorithm);
-    in.param(0, 2, feedback);
-    in.param(0, 100, engine);
+    in.events.reserve(512);
+    if (engine == 3) {
+        in.param(0, 5, 1); // profile Extended
+        in.param(0, 40, algorithm);
+        in.param(0, 41, feedback);
+        for (int n = 1; n <= 8; n++) {
+            const uint32_t id = 1000 * n;
+            for (int k = 41; k <= 44; k++)
+                in.param(0, id + k, 99); // levels
+            for (int k = 45; k <= 48; k++)
+                in.param(0, id + k, 0);  // times
+            in.param(0, id + 51, (on >> (n - 1)) & 1 ? 99 : 0);
+            in.param(0, id + 32, 1);     // coarse 1 (ratio 1)
+            in.param(0, id + 33, 0);
+            in.param(0, id + 34, 0);
+            in.param(0, id + 57, 0);     // velocity sensitivity
+        }
+    }
+    in.param(0, 1, engine == 3 ? 1 : algorithm);
+    in.param(0, 2, engine == 3 ? 0 : feedback);
+    in.param(0, 100, engine == 3 ? 0 : engine);
     for (int n = 1; n <= 6; n++) {
         const uint32_t id = 1000 * n;
         for (int k = 1; k <= 4; k++)
@@ -607,7 +628,10 @@ bool audible(const std::vector<float> &x) {
     return false;
 }
 
-int topologyTest() {
+// Checks the renders of every algorithm of a set against its graph: which operators are heard
+// alone, which modulate which, and that feedback acts. engines: Classic's three, or 3 for
+// Extended; n: operators per voice.
+int checkTopology(const OperatorGraph *graphs, int count, int n, const std::vector<int> &engines) {
     int failures = 0;
     auto expect = [&](bool ok, int alg, int engine, const std::string &what) {
         if (!ok) {
@@ -615,23 +639,23 @@ int topologyTest() {
             failures++;
         }
     };
-    for (int a = 1; a <= 32; a++) {
-        const OperatorGraph &g = dx7Algorithms[a - 1];
+    for (int a = 1; a <= count; a++) {
+        const OperatorGraph &g = graphs[a - 1];
         // ancestors[k]: every operator whose output reaches operator k
-        unsigned ancestors[6];
-        for (int k = 0; k < 6; k++) {
+        unsigned ancestors[8];
+        for (int k = 0; k < n; k++) {
             unsigned m = g.inputs[k], prev = 0;
             while (m != prev) {
                 prev = m;
-                for (int j = 0; j < 6; j++)
+                for (int j = 0; j < n; j++)
                     if (m & (1u << j))
                         m |= g.inputs[j];
             }
             ancestors[k] = m;
         }
-        for (int engine = 0; engine < 3; engine++) {
-            std::vector<float> alone[6];
-            for (int k = 0; k < 6; k++) {
+        for (int engine : engines) {
+            std::vector<float> alone[8];
+            for (int k = 0; k < n; k++) {
                 alone[k] = renderOperators(a, 1u << k, 0, engine);
                 const bool carrier = (g.carriers >> k) & 1;
                 expect(audible(alone[k]) == carrier, a, engine, "operator " + std::to_string(k + 1) + (carrier ? " should" : " should not") + " be heard alone");
@@ -639,16 +663,16 @@ int topologyTest() {
             // Every edge: with operator m and everything it reaches on (its path to the
             // output), adding operator j changes that path iff j directly modulates an
             // operator on it; otherwise j is just heard beside it (or not at all).
-            for (int m = 0; m < 6; m++) {
+            for (int m = 0; m < n; m++) {
                 unsigned path = 1u << m, modulators = 0;
-                for (int k = 0; k < 6; k++)
+                for (int k = 0; k < n; k++)
                     if ((ancestors[k] >> m) & 1)
                         path |= 1u << k;
-                for (int k = 0; k < 6; k++)
+                for (int k = 0; k < n; k++)
                     if ((path >> k) & 1)
                         modulators |= g.inputs[k];
                 const auto base = renderOperators(a, path, 0, engine);
-                for (int j = 0; j < 6; j++) {
+                for (int j = 0; j < n; j++) {
                     if ((path >> j) & 1)
                         continue;
                     const bool modulates = (modulators >> j) & 1;
@@ -666,15 +690,280 @@ int topologyTest() {
             // reaches on, feedback changes the sound.
             const int to = g.feedbackTo - 1;
             unsigned path = 1u << to;
-            for (int k = 0; k < 6; k++)
+            for (int k = 0; k < n; k++)
                 if ((ancestors[k] >> to) & 1)
                     path |= 1u << k;
             path |= 1u << (g.feedbackFrom - 1);
             expect(renderOperators(a, path, 7, engine) != renderOperators(a, path, 0, engine), a, engine, "feedback changes nothing");
         }
     }
-    std::printf("32 algorithms x 3 engines: carriers, modulation paths and feedback %s\n", failures ? "DIFFER" : "match the graphs");
+    std::printf("%d algorithms x %zu engines: carriers, modulation paths and feedback %s\n", count, engines.size(),
+                failures ? "DIFFER" : "match the graphs");
+    return failures;
+}
+
+int topologyTest() {
+    const int classic = checkTopology(dx7Algorithms, 32, 6, { 0, 1, 2 });
+    const int extended = checkTopology(extAlgorithms, 88, 8, { 3 });
+    return classic + extended == 0 ? 0 : 1;
+}
+
+// ---- the Extended profile against its measured tables ----
+
+// One note of an Extended sound: operator 1 alone (algorithm 1, every other operator silent,
+// instant envelope, release time 0) unless params say otherwise. Mono output at 48 kHz.
+std::vector<float> renderExtended(const std::vector<std::pair<uint32_t, double>> &params, int key, double velocity,
+                                  double hold, double seconds) {
+    Host h(entry);
+    const double rate = 48000;
+    h.activate(rate, 512);
+    EventList in;
+    in.events.reserve(512);
+    in.param(0, 5, 1);
+    in.param(0, 40, 1);
+    for (int n = 1; n <= 8; n++) {
+        in.param(0, 1000 * n + 51, n == 1 ? 99 : 0);
+        in.param(0, 1000 * n + 48, 0);
+    }
+    for (const auto &p : params)
+        in.param(0, p.first, p.second);
+    h.process(512, in);
+    in.clear();
+    const size_t holdFrames = (size_t)(hold * rate), total = (size_t)(seconds * rate);
+    std::vector<float> out;
+    in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)key, velocity);
+    for (size_t done = 0; done < total; done += 512) {
+        if (holdFrames >= done && holdFrames < done + 512)
+            in.note(CLAP_EVENT_NOTE_OFF, (uint32_t)(holdFrames - done), -1, 0, (int16_t)key, 0);
+        h.process(512, in);
+        in.clear();
+        out.insert(out.end(), h.left.begin(), h.left.begin() + 512);
+    }
+    return out;
+}
+
+// Level in dB per window of `window` samples (peak magnitude), and the window centres in s.
+std::vector<double> peakDb(const std::vector<float> &x, size_t window) {
+    std::vector<double> db;
+    for (size_t i = 0; i + window <= x.size(); i += window) {
+        float m = 0;
+        for (size_t j = i; j < i + window; j++)
+            m = std::max(m, std::fabs(x[j]));
+        db.push_back(20 * std::log10(std::max(m, 1e-9f)));
+    }
+    return db;
+}
+
+// Frequency in Hz from upward zero crossings (interpolated) between from and to (samples).
+double zeroCrossingHz(const std::vector<float> &x, size_t from, size_t to, double rate = 48000) {
+    double first = -1, last = -1;
+    int count = 0;
+    for (size_t i = from + 1; i < to && i < x.size(); i++)
+        if (x[i - 1] < 0 && x[i] >= 0) {
+            const double t = (double)(i - 1) + x[i - 1] / (x[i - 1] - x[i]);
+            if (first < 0)
+                first = t;
+            else
+                count++;
+            last = t;
+        }
+    return count > 0 ? count * rate / (last - first) : 0;
+}
+
+int extendedTest() {
+    int failures = 0;
+    auto expect = [&](bool ok, const std::string &what) {
+        if (!ok) {
+            std::fprintf(stderr, "FAIL: %s\n", what.c_str());
+            failures++;
+        }
+    };
+    const double rate = 48000;
+    const double f69 = 440.0;
+    // -- envelope: decay 1 slopes (ms per dB), fitted between 3 and 35 dB below the peak
+    for (int t : { 10, 20, 30, 40, 50, 60, 70, 80 }) {
+        const double ms = extEgMsPerDb(t);
+        const double seconds = std::min(6.0, 0.05 + 40 * ms / 1000);
+        const auto x = renderExtended({ { 1046, t }, { 1042, 0 }, { 1043, 0 } }, 69, 1.0, seconds, seconds);
+        const size_t w = 110; // one period of 440 Hz at 48 kHz, so each window holds a peak
+        const auto db = peakDb(x, w);
+        const size_t peak = (size_t)(std::max_element(db.begin(), db.end()) - db.begin());
+        double sx = 0, sy = 0, sxx = 0, sxy = 0;
+        int n = 0;
+        for (size_t i = peak; i < db.size(); i++) {
+            const double rel = db[peak] - db[i];
+            if (rel < 3)
+                continue;
+            if (rel > 35)
+                break;
+            const double tt = i * w / rate;
+            sx += tt; sy += db[i]; sxx += tt * tt; sxy += tt * db[i]; n++;
+        }
+        const double slope = (n * sxy - sx * sy) / (n * sxx - sx * sx); // dB per second
+        const double measured = -1000.0 / slope;
+        expect(n > 2 && std::fabs(measured / ms - 1) < 0.02,
+               "decay time " + std::to_string(t) + ": " + std::to_string(measured) + " ms/dB, table " + std::to_string(ms));
+    }
+    // -- hold: the step from the hold level to full level
+    for (int t : { 30, 50, 70 }) {
+        const double ms = extHoldMs(t);
+        const auto x = renderExtended({ { 1049, t }, { 1044, 50 } }, 69, 1.0, ms / 1000 + 0.2, ms / 1000 + 0.2);
+        const auto db = peakDb(x, 110);
+        const double top = *std::max_element(db.begin(), db.end());
+        size_t i = 0;
+        while (i < db.size() && db[i] < top - 6)
+            i++;
+        const double measured = i * 110 / rate * 1000;
+        expect(std::fabs(measured - ms) < std::max(0.02 * ms, 110 / rate * 1000),
+               "hold time " + std::to_string(t) + ": " + std::to_string(measured) + " ms, table " + std::to_string(ms));
+    }
+    // -- pitch: ratio, fine, detune, fixed frequency, key follow, pitch velocity (1 cent)
+    auto pitchCase = [&](const std::vector<std::pair<uint32_t, double>> &p, int key, double velocity, double expectHz,
+                         const std::string &what) {
+        const auto x = renderExtended(p, key, velocity, 1.0, 0.6);
+        const double hz = zeroCrossingHz(x, 4800, x.size());
+        const double cents = 1200 * std::log2(hz / expectHz);
+        expect(std::fabs(cents) < 1.0, what + ": " + std::to_string(cents) + " cents");
+    };
+    auto noteHz = [&](int key) { return f69 * std::pow(2.0, (key - 69) / 12.0); };
+    for (int c : { 0, 1, 2, 7, 15, 31 })
+        for (int f : { 0, 37, 64, 127 })
+            pitchCase({ { 1032, c }, { 1033, f } }, 57, 1.0, noteHz(57) * extRatio(c, f),
+                      "coarse " + std::to_string(c) + " fine " + std::to_string(f));
+    for (int d : { -15, -7, 1, 15 })
+        for (int key : { 36, 60, 96 })
+            pitchCase({ { 1034, d } }, key, 1.0, noteHz(key) * std::pow(2.0, extDetuneCents(d, key) / 1200),
+                      "detune " + std::to_string(d) + " key " + std::to_string(key));
+    for (int c : { 0, 3, 9, 20 })
+        for (int f : { 0, 64, 127 }) {
+            const double hz = extFixedHz(c, f);
+            if (hz > 30 && hz < 12000)
+                pitchCase({ { 1031, 1 }, { 1032, c }, { 1033, f } }, 60, 1.0, hz,
+                          "fixed coarse " + std::to_string(c) + " fine " + std::to_string(f));
+        }
+    for (int kf : { 25, 99 })
+        for (int key : { 48, 72 })
+            pitchCase({ { 1031, 1 }, { 1032, 4 }, { 1035, kf } }, key, 1.0,
+                      extFixedHz(4, 0) * std::pow(2.0, extKeyFollowCents(kf, key) / 1200),
+                      "key follow " + std::to_string(kf) + " key " + std::to_string(key));
+    for (int pv : { -7, 4, 7 })
+        for (int vel : { 1, 64, 127 })
+            pitchCase({ { 1036, pv } }, 60, vel / 127.0, noteHz(60) * std::pow(2.0, extPitchVelocityCents(pv, vel) / 1200),
+                      "pitch velocity " + std::to_string(pv) + " velocity " + std::to_string(vel));
+    // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw
+    for (int range = 0; range < 2; range++)
+        for (int speed = 0; speed <= (range ? 415 : 99); speed += range ? 5 : 1) {
+            ExtendedVoice v = oscairn_fm::extDefaults();
+            v.v[ext::LfoWave] = 2; // saw up
+            v.v[ext::LfoSpeedRange] = (int16_t)range;
+            v.v[range ? ext::LfoExtSpeed : ext::LfoSpeed] = (int16_t)speed;
+            Lfo lfo;
+            lfo.init(rate);
+            lfo.reset(v);
+            const double hz = range ? extLfoExtendedHz(speed) : extLfoHz(speed);
+            const double blockRate = rate / N;
+            const long blocks = (long)std::min(5e7, blockRate * 20 / hz) + 2;
+            long first = -1, last = -1, wraps = 0;
+            int32_t prev = lfo.getsample();
+            for (long b = 1; b < blocks; b++) {
+                const int32_t y = lfo.getsample();
+                if (y < prev) {
+                    if (first < 0)
+                        first = b;
+                    else
+                        wraps++;
+                    last = b;
+                }
+                prev = y;
+            }
+            // within one block of the true wrap: compare with the rate over many cycles
+            const double measured = wraps > 0 ? wraps * blockRate / (double)(last - first) : 0;
+            expect(std::fabs(measured / hz - 1) < 0.01, std::string(range ? "extended" : "normal") + " LFO speed " +
+                                                            std::to_string(speed) + ": " + std::to_string(measured) +
+                                                            " Hz, table " + std::to_string(hz));
+        }
+    // -- the Extended init sound plays (operator 8 at level 85 in algorithm 69)
+    {
+        Host h(entry);
+        h.activate(rate, 512);
+        EventList in;
+        in.param(0, 5, 1);
+        h.process(512, in);
+        in.clear();
+        in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, 60, 0.8);
+        h.process(512, in);
+        in.clear();
+        h.process(512, in);
+        expect(audible(h.left), "the Extended init sound is silent");
+    }
+    // -- profile conversion
+    {
+        std::vector<double> v;
+        for (const auto &p : oscairn_fm::params())
+            v.push_back(p.def);
+        auto at = [&](uint32_t id) -> double & { return v[(size_t)oscairn_fm::indexOf(id)]; };
+        at(1) = 5;
+        at(1003) = 70; // operator 1, rate 3
+        oscairn_fm::convertToExtended(v);
+        expect(at(5) == 1 && at(40) == 13, "DX7 algorithm 5 converts to Extended algorithm 13");
+        expect(at(8051) == 99 && at(1051) == 0 && at(2051) == 0, "DX7 operator 1 plays as Extended operator 8");
+        expect(oscairn_fm::convertToClassic(v) && at(5) == 0 && at(1) == 5 && at(1017) == 99,
+               "a converted sound converts back to Classic");
+        expect(std::fabs(at(1003) - 70) <= 2, "rates survive the round trip within 2 (" + std::to_string(at(1003)) + ")");
+        oscairn_fm::convertToExtended(v);
+        at(8049) = 10; // a hold segment: not in Classic
+        std::vector<double> before = v;
+        expect(!oscairn_fm::convertToClassic(v) && v == before, "a sound outside the Classic subset stays Extended");
+    }
+    std::printf("Extended profile: envelope, pitch and LFO rates against the tables, init sound, conversion %s\n",
+                failures ? "FAILED" : "pass");
     return failures == 0 ? 0 : 1;
+}
+
+// ---- renders for comparing with reference recordings ----
+
+// render <out.wav> <rate> <note> <velocity 1-127> <hold s> <tail s> [id=value ...]: one note
+// with the given parameter values, as a mono 32-bit float WAV (the note starts at frame 0).
+int renderToWav(const std::vector<char *> &args) {
+    if (args.size() < 8)
+        return 2;
+    const char *path = args[2];
+    const double rate = std::atof(args[3]);
+    const int key = std::atoi(args[4]);
+    const double velocity = std::atof(args[5]) / 127.0;
+    const size_t holdFrames = (size_t)std::llround(std::atof(args[6]) * rate);
+    const size_t total = holdFrames + (size_t)std::llround(std::atof(args[7]) * rate);
+    Host h(entry);
+    h.activate(rate, 512);
+    EventList in;
+    in.events.reserve(1024);
+    for (size_t i = 8; i < args.size(); i++) {
+        const char *eq = std::strchr(args[i], '=');
+        if (eq == nullptr)
+            return 2;
+        in.param(0, (clap_id)std::atol(args[i]), std::atof(eq + 1));
+    }
+    h.process(512, in);
+    in.clear();
+    std::vector<float> out;
+    out.reserve(total + 512);
+    in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)key, velocity);
+    for (size_t done = 0; done < total; done += 512) {
+        if (holdFrames >= done && holdFrames < done + 512)
+            in.note(CLAP_EVENT_NOTE_OFF, (uint32_t)(holdFrames - done), -1, 0, (int16_t)key, 0);
+        h.process(512, in);
+        in.clear();
+        out.insert(out.end(), h.left.begin(), h.left.begin() + 512);
+    }
+    out.resize(total);
+    std::ofstream f(path, std::ios::binary);
+    auto u32 = [&](uint32_t v) { f.write((const char *)&v, 4); };
+    auto u16 = [&](uint16_t v) { f.write((const char *)&v, 2); };
+    const uint32_t bytes = (uint32_t)(out.size() * 4);
+    f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8); u32(16); u16(3); u16(1);
+    u32((uint32_t)rate); u32((uint32_t)rate * 4); u16(4); u16(32); f.write("data", 4); u32(bytes);
+    f.write((const char *)out.data(), bytes);
+    return f ? 0 : 1;
 }
 
 // ---- sound contexts ----
@@ -1178,6 +1467,10 @@ int main(int argc, char **argv) {
         return noAllocTest();
     if (cmd == "threads")
         return threadsTest();
+    if (cmd == "extended")
+        return extendedTest();
+    if (cmd == "render")
+        return renderToWav(args);
     if (cmd == "topology")
         return topologyTest();
     if (cmd == "contexts")

@@ -27,6 +27,7 @@
 #include "env.h"
 #include "pitchenv.h"
 #include "fm_core.h"
+#include "ext_note.h"
 #include "tuning.h"
 #include "porta.h"
 #include "synth_rate.h"
@@ -42,7 +43,10 @@ struct VoiceStatus {
 class Dx7Note {
 public:
     Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc, const SynthRate *rate);
-    void init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls);
+    // ext: the sound's Extended values; when its profile is Extended the note plays those
+    // (ExtNote) instead of the DX7 voice
+    void init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls,
+              const ExtendedVoice *ext = nullptr);
     void initPortamento(const Dx7Note &srcNote);
 
     // Note: this _adds_ to the buffer. Interesting question whether it's
@@ -55,7 +59,7 @@ public:
     bool isPlaying();
     
     // PG:add the update
-    void update(const uint8_t patch[156], int midinote, int velocity, int channel);
+    void update(const uint8_t patch[156], int midinote, int velocity, int channel, const ExtendedVoice *ext = nullptr);
     void updateBasePitches();
     void peekVoiceStatus(VoiceStatus &status);
     void transferState(Dx7Note& src);
@@ -63,7 +67,8 @@ public:
     void transferPhase(Dx7Note &src);
     void oscSync();
     // Stops the note for good: it no longer counts as playing (after a choke's fade).
-    void silence() { initialised_ = false; }
+    void silence() { initialised_ = false; ext_.silence(); }
+    bool extended() const { return extended_; }
 
     // We should put this as a function and not a DX7Note method
     //int32_t osc_freq(int midinote, int mode, int coarse, int fine, int detune);
@@ -76,6 +81,9 @@ public:
     
 private:
     bool initialised_;
+    bool extended_ = false;
+    ExtNote ext_;
+    int32_t bendAndTune(const Controllers *ctrls);
     Env env_[6];
     FmOpParams params_[6];
     PitchEnv pitchenv_;

@@ -3,6 +3,7 @@
 2 | Common | Feedback | 0 | 7 | 0 | stepped
 3 | Common | Oscillator Key Sync | 0 | 1 | 1 | stepped enum
 4 | Common | Transpose | -24 | 24 | 0 | stepped
+5 | Common | Profile | 0 | 1 | 0 | stepped enum
 10 | LFO 1 | Speed | 0 | 99 | 35 | stepped
 11 | LFO 1 | Delay | 0 | 99 | 0 | stepped
 12 | LFO 1 | Pitch Depth | 0 | 99 | 0 | stepped
@@ -18,6 +19,17 @@
 25 | Pitch/EG | Level 2 | 0 | 99 | 50 | stepped
 26 | Pitch/EG | Level 3 | 0 | 99 | 50 | stepped
 27 | Pitch/EG | Level 4 | 0 | 99 | 50 | stepped
+40 | Extended/Common | Algorithm | 1 | 88 | 69 | stepped
+41 | Extended/Common | Feedback | 0 | 7 | 0 | stepped
+42 | Extended/LFO 2 | Wave | 0 | 5 | 0 | stepped enum
+43 | Extended/LFO 2 | Speed | 0 | 99 | 30 | stepped
+44 | Extended/LFO 2 | Phase | 0 | 3 | 0 | stepped enum
+45 | Extended/LFO 2 | Delay | 0 | 99 | 0 | stepped
+46 | Extended/LFO 2 | Key On Reset | 0 | 1 | 0 | stepped enum
+47 | Extended/LFO 2 | Pitch Depth | 0 | 99 | 0 | stepped
+48 | Extended/LFO 2 | Amp Depth | 0 | 99 | 0 | stepped
+49 | Extended/LFO 2 | Speed Range | 0 | 1 | 1 | stepped enum
+50 | Extended/LFO 2 | Extended Speed | 0 | 415 | 60 | stepped
 100 | Voice | Engine | 0 | 2 | 1 | stepped enum
 101 | Voice | Mono | 0 | 1 | 0 | stepped enum
 102 | Voice | Portamento Time | 0 | 99 | 0 | stepped
@@ -67,6 +79,36 @@
 1020 | Operator 1/Frequency | Fine | 0 | 99 | 0 | stepped
 1021 | Operator 1/Frequency | Detune | -7 | 7 | 0 | stepped
 1022 | Operator 1 | Switch | 0 | 1 | 1 | stepped enum
+1030 | Operator 1/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+1031 | Operator 1/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+1032 | Operator 1/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+1033 | Operator 1/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+1034 | Operator 1/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+1035 | Operator 1/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+1036 | Operator 1/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+1037 | Operator 1/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+1038 | Operator 1/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+1039 | Operator 1/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+1040 | Operator 1/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+1041 | Operator 1/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+1042 | Operator 1/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+1043 | Operator 1/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+1044 | Operator 1/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+1045 | Operator 1/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+1046 | Operator 1/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+1047 | Operator 1/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+1048 | Operator 1/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+1049 | Operator 1/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+1050 | Operator 1/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+1051 | Operator 1/Extended | Level | 0 | 99 | 0 | stepped
+1052 | Operator 1/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+1053 | Operator 1/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+1054 | Operator 1/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+1055 | Operator 1/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+1056 | Operator 1/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+1057 | Operator 1/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+1058 | Operator 1/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+1059 | Operator 1/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
 2001 | Operator 2/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 2002 | Operator 2/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 2003 | Operator 2/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -89,6 +131,36 @@
 2020 | Operator 2/Frequency | Fine | 0 | 99 | 0 | stepped
 2021 | Operator 2/Frequency | Detune | -7 | 7 | 0 | stepped
 2022 | Operator 2 | Switch | 0 | 1 | 1 | stepped enum
+2030 | Operator 2/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+2031 | Operator 2/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+2032 | Operator 2/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+2033 | Operator 2/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+2034 | Operator 2/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+2035 | Operator 2/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+2036 | Operator 2/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+2037 | Operator 2/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+2038 | Operator 2/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+2039 | Operator 2/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+2040 | Operator 2/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+2041 | Operator 2/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+2042 | Operator 2/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+2043 | Operator 2/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+2044 | Operator 2/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+2045 | Operator 2/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+2046 | Operator 2/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+2047 | Operator 2/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+2048 | Operator 2/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+2049 | Operator 2/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+2050 | Operator 2/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+2051 | Operator 2/Extended | Level | 0 | 99 | 0 | stepped
+2052 | Operator 2/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+2053 | Operator 2/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+2054 | Operator 2/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+2055 | Operator 2/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+2056 | Operator 2/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+2057 | Operator 2/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+2058 | Operator 2/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+2059 | Operator 2/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
 3001 | Operator 3/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 3002 | Operator 3/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 3003 | Operator 3/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -111,6 +183,36 @@
 3020 | Operator 3/Frequency | Fine | 0 | 99 | 0 | stepped
 3021 | Operator 3/Frequency | Detune | -7 | 7 | 0 | stepped
 3022 | Operator 3 | Switch | 0 | 1 | 1 | stepped enum
+3030 | Operator 3/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+3031 | Operator 3/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+3032 | Operator 3/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+3033 | Operator 3/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+3034 | Operator 3/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+3035 | Operator 3/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+3036 | Operator 3/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+3037 | Operator 3/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+3038 | Operator 3/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+3039 | Operator 3/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+3040 | Operator 3/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+3041 | Operator 3/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+3042 | Operator 3/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+3043 | Operator 3/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+3044 | Operator 3/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+3045 | Operator 3/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+3046 | Operator 3/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+3047 | Operator 3/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+3048 | Operator 3/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+3049 | Operator 3/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+3050 | Operator 3/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+3051 | Operator 3/Extended | Level | 0 | 99 | 0 | stepped
+3052 | Operator 3/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+3053 | Operator 3/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+3054 | Operator 3/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+3055 | Operator 3/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+3056 | Operator 3/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+3057 | Operator 3/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+3058 | Operator 3/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+3059 | Operator 3/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
 4001 | Operator 4/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 4002 | Operator 4/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 4003 | Operator 4/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -133,6 +235,36 @@
 4020 | Operator 4/Frequency | Fine | 0 | 99 | 0 | stepped
 4021 | Operator 4/Frequency | Detune | -7 | 7 | 0 | stepped
 4022 | Operator 4 | Switch | 0 | 1 | 1 | stepped enum
+4030 | Operator 4/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+4031 | Operator 4/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+4032 | Operator 4/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+4033 | Operator 4/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+4034 | Operator 4/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+4035 | Operator 4/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+4036 | Operator 4/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+4037 | Operator 4/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+4038 | Operator 4/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+4039 | Operator 4/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+4040 | Operator 4/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+4041 | Operator 4/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+4042 | Operator 4/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+4043 | Operator 4/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+4044 | Operator 4/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+4045 | Operator 4/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+4046 | Operator 4/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+4047 | Operator 4/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+4048 | Operator 4/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+4049 | Operator 4/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+4050 | Operator 4/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+4051 | Operator 4/Extended | Level | 0 | 99 | 0 | stepped
+4052 | Operator 4/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+4053 | Operator 4/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+4054 | Operator 4/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+4055 | Operator 4/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+4056 | Operator 4/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+4057 | Operator 4/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+4058 | Operator 4/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+4059 | Operator 4/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
 5001 | Operator 5/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 5002 | Operator 5/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 5003 | Operator 5/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -155,6 +287,36 @@
 5020 | Operator 5/Frequency | Fine | 0 | 99 | 0 | stepped
 5021 | Operator 5/Frequency | Detune | -7 | 7 | 0 | stepped
 5022 | Operator 5 | Switch | 0 | 1 | 1 | stepped enum
+5030 | Operator 5/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+5031 | Operator 5/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+5032 | Operator 5/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+5033 | Operator 5/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+5034 | Operator 5/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+5035 | Operator 5/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+5036 | Operator 5/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+5037 | Operator 5/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+5038 | Operator 5/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+5039 | Operator 5/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+5040 | Operator 5/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+5041 | Operator 5/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+5042 | Operator 5/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+5043 | Operator 5/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+5044 | Operator 5/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+5045 | Operator 5/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+5046 | Operator 5/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+5047 | Operator 5/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+5048 | Operator 5/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+5049 | Operator 5/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+5050 | Operator 5/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+5051 | Operator 5/Extended | Level | 0 | 99 | 0 | stepped
+5052 | Operator 5/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+5053 | Operator 5/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+5054 | Operator 5/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+5055 | Operator 5/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+5056 | Operator 5/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+5057 | Operator 5/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+5058 | Operator 5/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+5059 | Operator 5/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
 6001 | Operator 6/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 6002 | Operator 6/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 6003 | Operator 6/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -177,3 +339,93 @@
 6020 | Operator 6/Frequency | Fine | 0 | 99 | 0 | stepped
 6021 | Operator 6/Frequency | Detune | -7 | 7 | 0 | stepped
 6022 | Operator 6 | Switch | 0 | 1 | 1 | stepped enum
+6030 | Operator 6/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+6031 | Operator 6/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+6032 | Operator 6/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+6033 | Operator 6/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+6034 | Operator 6/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+6035 | Operator 6/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+6036 | Operator 6/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+6037 | Operator 6/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+6038 | Operator 6/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+6039 | Operator 6/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+6040 | Operator 6/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+6041 | Operator 6/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+6042 | Operator 6/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+6043 | Operator 6/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+6044 | Operator 6/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+6045 | Operator 6/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+6046 | Operator 6/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+6047 | Operator 6/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+6048 | Operator 6/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+6049 | Operator 6/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+6050 | Operator 6/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+6051 | Operator 6/Extended | Level | 0 | 99 | 0 | stepped
+6052 | Operator 6/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+6053 | Operator 6/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+6054 | Operator 6/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+6055 | Operator 6/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+6056 | Operator 6/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+6057 | Operator 6/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+6058 | Operator 6/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+6059 | Operator 6/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+7030 | Operator 7/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+7031 | Operator 7/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+7032 | Operator 7/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+7033 | Operator 7/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+7034 | Operator 7/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+7035 | Operator 7/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+7036 | Operator 7/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+7037 | Operator 7/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+7038 | Operator 7/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+7039 | Operator 7/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+7040 | Operator 7/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+7041 | Operator 7/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+7042 | Operator 7/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+7043 | Operator 7/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+7044 | Operator 7/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+7045 | Operator 7/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+7046 | Operator 7/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+7047 | Operator 7/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+7048 | Operator 7/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+7049 | Operator 7/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+7050 | Operator 7/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+7051 | Operator 7/Extended | Level | 0 | 99 | 0 | stepped
+7052 | Operator 7/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+7053 | Operator 7/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+7054 | Operator 7/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+7055 | Operator 7/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+7056 | Operator 7/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+7057 | Operator 7/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+7058 | Operator 7/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+7059 | Operator 7/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+8030 | Operator 8/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
+8031 | Operator 8/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
+8032 | Operator 8/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
+8033 | Operator 8/Extended/Frequency | Fine | 0 | 127 | 0 | stepped
+8034 | Operator 8/Extended/Frequency | Detune | -15 | 15 | 0 | stepped
+8035 | Operator 8/Extended/Frequency | Key Follow | 0 | 99 | 0 | stepped
+8036 | Operator 8/Extended/Frequency | Pitch Velocity Sensitivity | -7 | 7 | 0 | stepped
+8037 | Operator 8/Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+8038 | Operator 8/Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+8039 | Operator 8/Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+8040 | Operator 8/Extended/Pitch EG | Decay Time | 0 | 99 | 0 | stepped
+8041 | Operator 8/Extended/Envelope | Attack Level | 0 | 99 | 99 | stepped
+8042 | Operator 8/Extended/Envelope | Decay 1 Level | 0 | 99 | 99 | stepped
+8043 | Operator 8/Extended/Envelope | Decay 2 Level | 0 | 99 | 99 | stepped
+8044 | Operator 8/Extended/Envelope | Release (Hold) Level | 0 | 99 | 0 | stepped
+8045 | Operator 8/Extended/Envelope | Attack Time | 0 | 99 | 0 | stepped
+8046 | Operator 8/Extended/Envelope | Decay 1 Time | 0 | 99 | 0 | stepped
+8047 | Operator 8/Extended/Envelope | Decay 2 Time | 0 | 99 | 0 | stepped
+8048 | Operator 8/Extended/Envelope | Release Time | 0 | 99 | 40 | stepped
+8049 | Operator 8/Extended/Envelope | Hold Time | 0 | 99 | 0 | stepped
+8050 | Operator 8/Extended/Envelope | Time Key Follow | 0 | 7 | 0 | stepped
+8051 | Operator 8/Extended | Level | 0 | 99 | 85 | stepped
+8052 | Operator 8/Extended/Scaling | Break Point | 0 | 99 | 39 | stepped
+8053 | Operator 8/Extended/Scaling | Low Depth | 0 | 99 | 0 | stepped
+8054 | Operator 8/Extended/Scaling | High Depth | 0 | 99 | 0 | stepped
+8055 | Operator 8/Extended/Scaling | Low Curve | 0 | 3 | 0 | stepped enum
+8056 | Operator 8/Extended/Scaling | High Curve | 0 | 3 | 0 | stepped enum
+8057 | Operator 8/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
+8058 | Operator 8/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
+8059 | Operator 8/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped

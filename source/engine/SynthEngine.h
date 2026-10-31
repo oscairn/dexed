@@ -30,6 +30,7 @@
 
 #include "msfa/controllers.h"
 #include "msfa/dx7note.h"
+#include "msfa/ext_voice.h"
 #include "msfa/lfo.h"
 #include "msfa/synth_rate.h"
 #include "msfa/synth.h"
@@ -74,6 +75,8 @@ enum DexedEngineResolution {
 // had one per instrument) and its output filter. Context 0 is the default sound.
 struct SynthContext {
     const uint8_t *patch = nullptr; // 156 bytes, owned by the engine's user
+    const ExtendedVoice *ext = nullptr; // Extended values (Octet only), owned by the engine's user
+    bool extended() const { return ext != nullptr && ext->extended(); }
     Controllers ctrl;               // settings and controller values
     Lfo lfo;
     PluginFx fx;
@@ -136,6 +139,9 @@ public:
     // Owned by the caller and read while voices play.
     void setPatch(const uint8_t *patch) { contexts[0].patch = patch; }
     void setPatch(int c, const uint8_t *patch) { contexts[c].patch = patch; }
+    // The Extended values of context c; its profile chooses between them and the DX7 voice.
+    // Owned by the caller and read while voices play. Without them, contexts are Classic.
+    void setExtended(int c, const ExtendedVoice *ext) { contexts[c].ext = ext; }
     void setTuning(std::shared_ptr<TuningState> tuning);
     void setMtsClient(MTSClient *client) { mtsClient = client; }
 

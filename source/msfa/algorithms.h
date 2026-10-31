@@ -74,6 +74,103 @@ static const uint8_t dx7ExtraActive[32] = {
     OP(3) | OP(2), OP(3) | OP(2), OP(3) | OP(2), 0, OP(5), 0, 0, 0, 0, 0, OP(5), OP(5), 0, 0, 0, 0, 0,
 };
 
+// The 88 Extended algorithms, 8 operators each. Operators modulate only higher-numbered
+// operators, so ascending order renders them; feedback runs from feedbackFrom back into
+// feedbackTo (two algorithms, 12 and 14, have a loop through other operators). Transcribed
+// from the published FM-X algorithm chart; tests/oscairn_fm_test.cpp "topology" checks the
+// renders against these graphs, and docs/oscairn-plan.md section 11 records the measurement
+// against reference renders.
+static const OperatorGraph extAlgorithms[88] = {
+    /*  1 */ { { 0, 0, 0, 0, 0, 0, 0, 0 }, OP(1) | OP(2) | OP(3) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  2 */ { { 0, OP(1), OP(2), OP(3), 0, 0, 0, 0 }, OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  3 */ { { 0, 0, OP(1) | OP(2), OP(3), 0, 0, 0, 0 }, OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  4 */ { { 0, 0, OP(2), OP(1) | OP(3), 0, 0, 0, 0 }, OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  5 */ { { 0, OP(1), 0, OP(2) | OP(3), 0, 0, 0, 0 }, OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  6 */ { { 0, OP(1), 0, OP(3), 0, 0, 0, 0 }, OP(2) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  7 */ { { 0, OP(1), OP(1), OP(1), 0, 0, 0, 0 }, OP(2) | OP(3) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  8 */ { { 0, OP(1), 0, 0, 0, 0, 0, 0 }, OP(2) | OP(3) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /*  9 */ { { 0, 0, 0, OP(3), OP(4), OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(6) | OP(8), 3, 3 },
+    /* 10 */ { { 0, 0, 0, OP(3), OP(4), OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(6) | OP(8), 7, 7 },
+    /* 11 */ { { 0, 0, 0, OP(3), OP(4), 0, OP(6), OP(7) }, OP(1) | OP(2) | OP(5) | OP(8), 3, 3 },
+    /* 12 */ { { 0, 0, 0, OP(3), OP(4), 0, OP(6), OP(7) }, OP(1) | OP(2) | OP(5) | OP(8), 5, 3 },
+    /* 13 */ { { 0, 0, 0, OP(3), 0, OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(4) | OP(6) | OP(8), 3, 3 },
+    /* 14 */ { { 0, 0, 0, OP(3), 0, OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(4) | OP(6) | OP(8), 4, 3 },
+    /* 15 */ { { 0, 0, 0, OP(3), 0, OP(4) | OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(6) | OP(8), 3, 3 },
+    /* 16 */ { { 0, 0, 0, OP(3), 0, OP(4) | OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(6) | OP(8), 5, 5 },
+    /* 17 */ { { 0, 0, 0, OP(3), 0, OP(4) | OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(6) | OP(8), 7, 7 },
+    /* 18 */ { { 0, 0, 0, OP(3), OP(4), 0, 0, OP(6) | OP(7) }, OP(1) | OP(2) | OP(5) | OP(8), 3, 3 },
+    /* 19 */ { { 0, 0, 0, OP(3), OP(4), 0, 0, OP(6) | OP(7) }, OP(1) | OP(2) | OP(5) | OP(8), 7, 7 },
+    /* 20 */ { { 0, 0, 0, OP(3), 0, 0, 0, OP(5) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(4) | OP(8), 3, 3 },
+    /* 21 */ { { 0, 0, 0, OP(3), 0, 0, 0, OP(5) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(4) | OP(8), 5, 5 },
+    /* 22 */ { { 0, 0, 0, 0, OP(3) | OP(4), OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(6) | OP(8), 3, 3 },
+    /* 23 */ { { 0, 0, 0, 0, OP(3) | OP(4), OP(5), 0, OP(7) }, OP(1) | OP(2) | OP(6) | OP(8), 7, 7 },
+    /* 24 */ { { 0, 0, 0, OP(3), 0, OP(5), 0, OP(4) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 25 */ { { 0, 0, 0, OP(3), 0, OP(5), 0, OP(4) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 7, 7 },
+    /* 26 */ { { 0, 0, 0, OP(3), OP(4), 0, 0, OP(5) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 6, 6 },
+    /* 27 */ { { 0, 0, 0, OP(3), OP(3), 0, OP(6), OP(7) }, OP(1) | OP(2) | OP(4) | OP(5) | OP(8), 3, 3 },
+    /* 28 */ { { 0, 0, 0, 0, OP(3) | OP(4), 0, OP(6), 0 }, OP(1) | OP(2) | OP(5) | OP(7) | OP(8), 6, 6 },
+    /* 29 */ { { 0, 0, 0, OP(3), OP(3), 0, OP(6), OP(6) }, OP(1) | OP(2) | OP(4) | OP(5) | OP(7) | OP(8), 6, 6 },
+    /* 30 */ { { 0, 0, 0, OP(3), OP(3), OP(3), 0, OP(7) }, OP(1) | OP(2) | OP(4) | OP(5) | OP(6) | OP(8), 3, 3 },
+    /* 31 */ { { 0, OP(1), OP(1), 0, OP(4), 0, 0, 0 }, OP(2) | OP(3) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 32 */ { { 0, OP(1), OP(1), 0, 0, 0, 0, 0 }, OP(2) | OP(3) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 33 */ { { 0, 0, OP(1) | OP(2), 0, OP(4), 0, 0, 0 }, OP(3) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 34 */ { { 0, 0, OP(1) | OP(2), 0, OP(4), 0, 0, 0 }, OP(3) | OP(5) | OP(6) | OP(7) | OP(8), 4, 4 },
+    /* 35 */ { { 0, OP(1), OP(2), 0, OP(4), 0, 0, 0 }, OP(3) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 36 */ { { 0, OP(1), OP(2), 0, 0, 0, 0, 0 }, OP(3) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 37 */ { { 0, 0, 0, OP(3), OP(4), OP(5), OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 38 */ { { 0, 0, 0, 0, OP(3) | OP(4), OP(5), OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 39 */ { { 0, 0, 0, 0, OP(4), OP(3) | OP(5), OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 40 */ { { 0, 0, 0, 0, OP(4), OP(5), OP(3) | OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 41 */ { { 0, 0, 0, 0, OP(4), OP(5), OP(6), OP(3) | OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 42 */ { { 0, 0, 0, 0, 0, OP(3) | OP(4) | OP(5), OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 43 */ { { 0, 0, 0, OP(3), 0, OP(5), OP(4) | OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 44 */ { { 0, 0, 0, 0, 0, OP(5), OP(3) | OP(4) | OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 45 */ { { 0, 0, 0, 0, OP(3) | OP(4), 0, OP(5) | OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 6, 6 },
+    /* 46 */ { { 0, 0, 0, OP(3), 0, OP(5), OP(6), OP(4) | OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 47 */ { { 0, 0, 0, 0, OP(3) | OP(4), OP(5), 0, OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 7, 7 },
+    /* 48 */ { { 0, 0, 0, 0, OP(4), OP(3) | OP(5), 0, OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 7, 7 },
+    /* 49 */ { { 0, 0, 0, 0, 0, 0, OP(3) | OP(4) | OP(5) | OP(6), OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 50 */ { { 0, 0, 0, 0, 0, OP(3) | OP(4) | OP(5), 0, OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 7, 7 },
+    /* 51 */ { { 0, 0, 0, 0, OP(3) | OP(4), 0, OP(6), OP(5) | OP(7) }, OP(1) | OP(2) | OP(8), 6, 6 },
+    /* 52 */ { { 0, 0, 0, 0, 0, 0, OP(6), OP(3) | OP(4) | OP(5) | OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 53 */ { { 0, 0, 0, 0, OP(3) | OP(4), 0, 0, OP(5) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 7, 7 },
+    /* 54 */ { { 0, 0, 0, 0, 0, 0, 0, OP(3) | OP(4) | OP(5) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(8), 3, 3 },
+    /* 55 */ { { 0, 0, 0, 0, OP(4), OP(5), OP(6), OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 1, 1 },
+    /* 56 */ { { 0, 0, 0, 0, 0, OP(4) | OP(5), OP(6), OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 4, 4 },
+    /* 57 */ { { 0, 0, 0, 0, 0, OP(5), OP(4) | OP(6), OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 4, 4 },
+    /* 58 */ { { 0, 0, 0, 0, 0, OP(5), OP(6), OP(4) | OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 4, 4 },
+    /* 59 */ { { 0, 0, 0, 0, 0, 0, OP(4) | OP(5) | OP(6), OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 4, 4 },
+    /* 60 */ { { 0, 0, 0, 0, OP(4), 0, OP(6), OP(5) | OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 4, 4 },
+    /* 61 */ { { 0, 0, 0, 0, 0, 0, OP(6), OP(4) | OP(5) | OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 4, 4 },
+    /* 62 */ { { 0, 0, 0, 0, 0, OP(4) | OP(5), 0, OP(6) | OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 7, 7 },
+    /* 63 */ { { 0, 0, 0, 0, 0, 0, 0, OP(4) | OP(5) | OP(6) | OP(7) }, OP(1) | OP(2) | OP(3) | OP(8), 4, 4 },
+    /* 64 */ { { 0, 0, 0, 0, OP(3) | OP(4), 0, 0, OP(6) | OP(7) }, OP(1) | OP(2) | OP(5) | OP(8), 3, 3 },
+    /* 65 */ { { 0, 0, 0, 0, OP(3) | OP(4), OP(3) | OP(4), OP(3) | OP(4), OP(3) | OP(4) }, OP(1) | OP(2) | OP(5) | OP(6) | OP(7) | OP(8), 3, 3 },
+    /* 66 */ { { 0, OP(1), OP(2), OP(3), OP(4), OP(5), OP(6), OP(7) }, OP(8), 1, 1 },
+    /* 67 */ { { 0, OP(1), 0, OP(3), 0, OP(5), 0, OP(7) }, OP(2) | OP(4) | OP(6) | OP(8), 1, 1 },
+    /* 68 */ { { 0, 0, 0, 0, 0, 0, 0, OP(1) | OP(2) | OP(3) | OP(4) | OP(5) | OP(6) | OP(7) }, OP(8), 1, 1 },
+    /* 69 */ { { 0, OP(1), OP(2), OP(3), 0, OP(5), OP(6), OP(7) }, OP(4) | OP(8), 1, 1 },
+    /* 70 */ { { 0, OP(1), OP(2), OP(3), 0, 0, OP(5) | OP(6), OP(7) }, OP(4) | OP(8), 1, 1 },
+    /* 71 */ { { 0, 0, OP(2), OP(1) | OP(3), 0, 0, OP(6), OP(5) | OP(7) }, OP(4) | OP(8), 1, 1 },
+    /* 72 */ { { 0, OP(1), 0, OP(2) | OP(3), 0, OP(5), 0, OP(6) | OP(7) }, OP(4) | OP(8), 1, 1 },
+    /* 73 */ { { 0, 0, OP(2), 0, OP(4), OP(4), OP(4), OP(4) }, OP(1) | OP(3) | OP(5) | OP(6) | OP(7) | OP(8), 2, 2 },
+    /* 74 */ { { 0, OP(1), 0, OP(3), 0, OP(5), 0, OP(6) | OP(7) }, OP(2) | OP(4) | OP(8), 1, 1 },
+    /* 75 */ { { 0, OP(1), OP(1), 0, OP(4), 0, OP(6), OP(5) | OP(7) }, OP(2) | OP(3) | OP(8), 1, 1 },
+    /* 76 */ { { 0, OP(1), OP(2), 0, OP(4), OP(4), OP(4), OP(4) }, OP(3) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 77 */ { { 0, 0, 0, OP(1) | OP(2) | OP(3), 0, 0, 0, OP(5) | OP(6) | OP(7) }, OP(4) | OP(8), 1, 1 },
+    /* 78 */ { { 0, 0, OP(1) | OP(2), 0, OP(4), 0, OP(6), 0 }, OP(3) | OP(5) | OP(7) | OP(8), 1, 1 },
+    /* 79 */ { { 0, 0, OP(1) | OP(2), OP(3), 0, OP(5), OP(6), OP(7) }, OP(4) | OP(8), 1, 1 },
+    /* 80 */ { { 0, 0, OP(1) | OP(2), OP(1) | OP(2), OP(1) | OP(2), OP(1) | OP(2), OP(1) | OP(2), OP(1) | OP(2) }, OP(3) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 81 */ { { 0, OP(1), 0, OP(3), OP(4), 0, OP(6), OP(7) }, OP(2) | OP(5) | OP(8), 1, 1 },
+    /* 82 */ { { 0, OP(1), OP(2), OP(2), 0, OP(5), OP(6), OP(6) }, OP(3) | OP(4) | OP(7) | OP(8), 1, 1 },
+    /* 83 */ { { 0, OP(1), 0, 0, OP(3) | OP(4), 0, 0, OP(6) | OP(7) }, OP(2) | OP(5) | OP(8), 1, 1 },
+    /* 84 */ { { 0, OP(1), OP(1), OP(1), OP(1), 0, OP(6), OP(6) }, OP(2) | OP(3) | OP(4) | OP(5) | OP(7) | OP(8), 6, 6 },
+    /* 85 */ { { 0, OP(1), 0, 0, OP(4), 0, OP(6), OP(3) | OP(5) | OP(7) }, OP(2) | OP(8), 1, 1 },
+    /* 86 */ { { 0, OP(1), OP(2), OP(3), OP(3), OP(3), OP(3), OP(3) }, OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 87 */ { { 0, OP(1), OP(2), OP(2), OP(2), OP(2), OP(2), OP(2) }, OP(3) | OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+    /* 88 */ { { 0, 0, OP(1) | OP(2), OP(3), OP(3), OP(3), OP(3), OP(3) }, OP(4) | OP(5) | OP(6) | OP(7) | OP(8), 1, 1 },
+};
+
 #undef OP
 
 // An algorithm prepared for rendering. Operators are addressed by their index in the
@@ -157,6 +254,18 @@ inline const CompiledAlgorithm &dx7Compiled(int algorithm) {
         Table() {
             for (int i = 0; i < 32; i++)
                 a[i] = compileAlgorithm(dx7Algorithms[i], 6, dx7ExtraActive[i]);
+        }
+    } table;
+    return table.a[algorithm];
+}
+
+// The 88 Extended algorithms, compiled once.
+inline const CompiledAlgorithm &extCompiled(int algorithm) {
+    static const struct Table {
+        CompiledAlgorithm a[88];
+        Table() {
+            for (int i = 0; i < 88; i++)
+                a[i] = compileAlgorithm(extAlgorithms[i], 8);
         }
     } table;
     return table.a[algorithm];

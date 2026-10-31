@@ -18,12 +18,15 @@
 #include <string>
 #include <vector>
 
+#include "msfa/ext_voice.h"
+
 namespace oscairn_fm {
 
 enum class Kind {
     Byte,     // a byte of the DX7 voice: byte = value + offset
     OpSwitch, // a bit of the operator switch byte (155)
-    Setting   // a plugin setting (see Setting)
+    Setting,  // a plugin setting (see Setting)
+    Ext       // an Extended profile value: ExtendedVoice::v[target] = value
 };
 
 enum class Setting {
@@ -40,7 +43,7 @@ struct Param {
     std::string module, name;
     double min, max, def;
     Kind kind;
-    int target;      // Byte: voice offset; OpSwitch: bit; Setting: Setting
+    int target;      // Byte: voice offset; OpSwitch: bit; Setting: Setting; Ext: index
     int offset = 0;  // Byte: added to the value to give the byte
     Text text = Text::Number;
     const char *const *choices = nullptr;
@@ -54,5 +57,16 @@ int indexOf(uint32_t id);
 
 // The DX7 initial voice ("INIT VOICE"), 155 bytes plus the operator switch byte.
 extern const uint8_t initVoice[156];
+
+// The Extended values of a new sound: the documented defaults, profile Classic. The
+// Extended init sound is the same with the profile set to Extended.
+const ExtendedVoice &extDefaults();
+
+// "Convert to Extended" (approximate where the tables differ): Classic values to the same
+// sound's Extended values, profile Extended. values are by params() index.
+void convertToExtended(std::vector<double> &values);
+// Back to Classic: only when the Extended values stay within what Classic can express;
+// otherwise false and values are unchanged.
+bool convertToClassic(std::vector<double> &values);
 
 } // namespace oscairn_fm

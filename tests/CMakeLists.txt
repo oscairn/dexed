@@ -51,7 +51,7 @@ add_test(NAME engine-robustness COMMAND dexed-render-engine --robustness)
 # its allocation guard sees the plugin's allocations. Never both copies in one process.
 add_executable(oscairn-fm-test oscairn_fm_test.cpp ../source/oscairn/Parameters.cpp)
 target_include_directories(oscairn-fm-test PRIVATE ../libs/clap-juce-extensions/clap-libs/clap/include ../libs/oscairn-clap/include ../source)
-target_link_libraries(oscairn-fm-test PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(oscairn-fm-test PRIVATE dexed_engine ${CMAKE_DL_LIBS})
 add_dependencies(oscairn-fm-test oscairn_fm)
 add_executable(oscairn-fm-test-linked oscairn_fm_test.cpp)
 target_compile_definitions(oscairn-fm-test-linked PRIVATE OSCAIRN_FM_LINKED=1)
