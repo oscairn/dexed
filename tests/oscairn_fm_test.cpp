@@ -1099,7 +1099,8 @@ int extendedTest() {
         v.v[ext::PartLfoSpeed] = 48;
         run(x, 48000);
         const double period = 48000 / extPartLfoHz(48); // samples
-        auto at = [&](double cycles) { return x[(size_t)std::lround(cycles * period)]; };
+        const double wait = 0.012 * 48000;              // the LFO starts 12 ms after the key-on
+        auto at = [&](double cycles) { return x[(size_t)std::lround(wait + cycles * period)]; };
         expect(std::fabs(at(0.25) - 1) < 1e-3 && std::fabs(at(0.5)) < 1e-3 && std::fabs(at(0.75) + 1) < 1e-3 &&
                    std::fabs(at(1.25) - 1) < 1e-3,
                "part LFO triangle at its rate: " + std::to_string(at(0.25)) + " " + std::to_string(at(0.75)));
@@ -1120,7 +1121,7 @@ int extendedTest() {
         v.v[ext::PartLfoPhase] = 0;
         v.v[ext::PartLfoDelay] = 64;
         run(x, 48000);
-        const size_t d = (size_t)std::lround(extPartLfoDelayMs(64) * 48);
+        const size_t d = (size_t)std::lround(wait + extPartLfoDelayMs(64) * 48);
         expect(x[d - 2] == 0 && x[d + 480] != 0, "part LFO delay");
         v.v[ext::PartLfoDelay] = 0;
         // user wave, 4 steps: +63 (full), -64, +32, -32; slope up ramps towards a higher next step

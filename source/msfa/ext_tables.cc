@@ -463,23 +463,22 @@ double extPartLfoTempoBeats(int length) {
     return beats[clampi(length, 0, 19)];
 }
 
-// The LFO's delay, fade in, hold and fade out share one time table (the four measured at every
-// eighth value agree within the measurement's resolution from 48 up); measured from the delay's
-// onset at every eighth value, straight in log time between (shortcut: the values between and the
-// fastest times, below about 100 ms, are not resolved; the fades were read at one LFO cycle's
-// resolution, 0.26 s)
-static double partLfoTimeMs(int time) {
-    static const double x[17] = { 0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 127 };
-    static const double ms[17] = { 0, 31, 55, 67, 95, 152, 207, 294, 450, 680, 1024, 1524, 2306, 3483, 5264, 7978, 11509 };
-    const int t = clampi(time, 0, 127);
-    int i = 0;
-    while (i < 15 && t > x[i + 1])
-        i++;
-    const double f = (t - x[i]) / (x[i + 1] - x[i]);
-    if (i == 0)
-        return ms[1] * f;
-    return ms[i] * std::pow(ms[i + 1] / ms[i], f);
-}
+// The LFO's delay, fade in, hold and fade out share one time table (the four, measured at every
+// eighth value, agree within the measurement's resolution from 48 up): ms by value, from the
+// delay's onset at every value (an LFO at 11.9 Hz, every eighth value also at 3.9 Hz), made
+// non-decreasing where the fastest values scatter by about 10 ms (largest change 7.6 ms)
+// shortcut: the fades and hold below about 100 ms are taken from the delay
+static const uint16_t kPartLfoTimeMs[128] = {
+    0, 41, 41, 41, 41, 41, 45, 45, 45, 53, 53, 53, 53, 53, 53, 56,
+    56, 56, 59, 74, 74, 74, 74, 74, 74, 74, 91, 91, 91, 91, 94, 97,
+    97, 99, 126, 126, 126, 130, 130, 139, 151, 151, 152, 175, 175, 176, 176, 211,
+    211, 211, 221, 258, 258, 259, 291, 299, 299, 326, 345, 369, 369, 395, 414, 420,
+    452, 472, 511, 540, 561, 585, 626, 653, 680, 715, 762, 789, 828, 866, 921, 963,
+    1024, 1076, 1112, 1181, 1250, 1303, 1375, 1463, 1524, 1613, 1685, 1770, 1871, 1968, 2081, 2182,
+    2306, 2438, 2562, 2685, 2832, 2975, 3132, 3309, 3482, 3662, 3862, 4065, 4300, 4515, 4774, 5015,
+    5264, 5559, 5854, 6164, 6492, 6836, 7185, 7579, 7978, 8408, 8856, 9330, 9849, 10366, 10907, 11509,
+};
+static double partLfoTimeMs(int time) { return kPartLfoTimeMs[clampi(time, 0, 127)]; }
 double extPartLfoDelayMs(int time) { return partLfoTimeMs(time); }
 double extPartLfoFadeInMs(int time) { return partLfoTimeMs(time); }
 double extPartLfoHoldMs(int time) { return partLfoTimeMs(time); }

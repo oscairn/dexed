@@ -51,6 +51,9 @@ void ExtPartLfo::keydown(bool firstKey) {
     if (keyReset_ == 1 || (keyReset_ == 2 && firstKey)) {
         phase_ = startPhase_;
         held_ = 2; // (draw a new value at once)
+        // the reference's LFO starts about 12 ms after the key-on (its onset with no delay, at
+        // 3.9 and 11.9 Hz, and its waves' lag behind Octet's without this, 3-18 ms)
+        startWait_ = (int)std::lround(0.012 * sampleRate_);
     }
     // shortcut: the envelope restarts with the phase, and on every first key-on with key-on
     // reset off (the reference's envelope with reset off was not measured)
@@ -94,6 +97,11 @@ double ExtPartLfo::wave(double p) {
 
 void ExtPartLfo::render(float *out, int n) {
     for (int s = 0; s < n; s++) {
+        if (startWait_ > 0) {
+            startWait_--;
+            out[s] = (float)(wave(phase_) * (envStage_ == 0 && stage_[0] > 0 ? 0.0 : envStage_ < 4 ? (envStage_ == 1 ? 0.0 : 1.0) : envDone_));
+            continue;
+        }
         // envelope
         // (stages of no length pass at once)
         while (envStage_ < 4 && envPos_ >= stage_[envStage_]) {

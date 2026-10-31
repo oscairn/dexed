@@ -47,6 +47,7 @@ private:
     int envStage_ = 4;     // 0 delay, 1 fade in, 2 hold, 3 fade out, 4 done (level 1 or 0)
     double envPos_ = 0;    // samples into the stage
     double envDone_ = 1;   // the level once done
+    int startWait_ = 0;    // samples the LFO holds still after a reset (the reference's start latency)
     // sample and hold: the held value and the cycle it belongs to
     double held_ = 0;
     uint32_t random_ = 0x6D2B79F5u;
