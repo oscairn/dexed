@@ -26,10 +26,15 @@ add_library(dexed_engine STATIC
 )
 target_include_directories(dexed_engine PUBLIC . ../libs/MTS-ESP/Client)
 target_compile_definitions(dexed_engine PRIVATE DEXED_HEADLESS=1)
+# MSFA's phase accumulators and fixed-point maths rely on signed integers wrapping around;
+# make that defined behaviour (it is what the compilers already did) instead of UB.
+if(NOT MSVC)
+    target_compile_options(dexed_engine PRIVATE -fwrapv)
+endif()
 target_compile_features(dexed_engine PUBLIC cxx_std_17)
 # Same optimisation flags as the plugin code it came from (flags only, no JUCE code).
 target_link_libraries(dexed_engine PUBLIC tuning-library PRIVATE juce::juce_recommended_config_flags juce::juce_recommended_lto_flags)
-set_target_properties(dexed_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(dexed_engine PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 
 set(DEXED_JUCE_FORMATS Standalone)
 
