@@ -1,6 +1,8 @@
 # Oscairn extension plan for Dexed
 
-Status: proposal, 2026-10-30. Nothing in this document is implemented yet.
+Status: proposal, 2026-10-30; M0 and M1 implemented on 2026-10-31 (see [section 11](#11-progress)).
+Sections 2-4 describe the fork as it was at `fea2f0f`; where the implementation changed the plan,
+the text says so.
 
 This branch (`oscairn`) of the [oscairn/dexed](https://github.com/oscairn/dexed) fork turns
 Dexed into an 8-operator FM instrument for Oscairn. The target is everything a MONTAGE M /
@@ -29,6 +31,7 @@ binaries or disassembly.
 8. [Upstreamability](#8-upstreamability)
 9. [Licences and naming](#9-licences-and-naming)
 10. [Risks and open questions](#10-risks-and-open-questions)
+11. [Progress](#11-progress)
 
 ---
 
@@ -464,7 +467,17 @@ Plan:
 Today the wrapper turns CLAP notes into MIDI and drops the note ID; `NOTE_END` is never sent;
 the plugin offers MIDI and MPE only.
 
-Plan: implement `supportsDirectProcess()` / `clap_direct_process()` from
+**Changed in M1:** the Oscairn build is a native CLAP entry over the headless engine
+(`source/oscairn/`, target `oscairn_fm`, "Oscairn FM", `org.oscairn.fm`), not the JUCE
+processor's direct-process path. Why: with direct process, parameters, state, ports and note
+ports would still go through the JUCE processor (APVTS listeners on other threads, parameter IDs
+derived by the wrapper, a note output port fixed by `producesMidi()` on the shared class, no
+`get_extension` hook for section 4.5), so each M1 item would be a workaround; the M0 engine
+split made the native entry small (about 800 lines with the parameter table, no JUCE), and M3
+needs it anyway. The JUCE
+plugin stays as the desktop Dexed, unchanged. The original plan was:
+
+Plan (original): implement `supportsDirectProcess()` / `clap_direct_process()` from
 `clap_juce_audio_processor_capabilities` in the Oscairn build, and drive the headless engine
 from the raw CLAP events:
 
@@ -477,6 +490,10 @@ from the raw CLAP events:
 - Parameter events applied at their sample offset. Events still land on the 64-sample control
   grid of the MSFA EG and LFO; the plan is to split rendering at event offsets so note starts
   are sample accurate, and to verify that output is identical for 37- and 512-frame blocks.
+  **M1:** not split. The engine applies every event at the first 64-sample boundary at or
+  after it, counted from the start of the stream, so output is already identical for any
+  block size (tested), and splitting would change DX7 output, which M1 must keep
+  bit-identical. Sample-accurate starts are left for the Extended profile.
 - Oscairn build: `producesMidi()` returns false, so there is no note output port. SysEx output
   to DX7 hardware stays in the desktop build. Oscairn's instant sound switching for ordinary
   plugins only accepts instruments with no note output, so this matters even before native
@@ -527,6 +544,7 @@ Plan:
   clap-juce-extensions (upstreamable to free-audio); (b) wrap the plugin's `get_extension` in
   our CLAP entry; (c) for the Oscairn build only, a thin CLAP entry that skips the JUCE wrapper
   and drives the headless engine directly. Decide in milestone M3.
+  **Decided in M1: (c)**, see section 4.3.
 - Reuse the rules and tests of Oscairn's `plugins/common/SoundContexts.h` and
   `core/engine/tests/sound_contexts.cpp`; copy with licence care (section 9).
 
@@ -832,6 +850,20 @@ UI or show the graph only is for review.
    described editors are enough.
 7. Whether to keep MTS-ESP in the Oscairn build at all.
 
+**Decisions taken while implementing (conservative choices, for Jacob to confirm)**
+
+- Q3: the native CLAP is called "Oscairn FM" with ID `org.oscairn.fm` (the proposal), version
+  0.1.0. Easy to change before anything depends on it.
+- Q7: the native CLAP has no MTS-ESP and no Scala/KBM tuning yet (standard tuning only); the
+  desktop Dexed keeps both.
+- Q1: no Oscairn (AGPL) code was copied into the fork. The test host, allocation guard and
+  state format were written for the fork (GPL-3.0-or-later); only the MIT CLAP headers are used.
+- The desktop Dexed, when loaded (also by `oscairn-render`), creates
+  `~/Library/Application Support/DigitalSuburban/Dexed` (or the XDG equivalent) with the
+  built-in cartridges and reads `Dexed.xml` from it; the engine type in `Dexed.xml` overrides
+  the default, so that plugin is not deterministic across machines. The tests give it a data
+  folder in the build tree. The native CLAP touches no files.
+
 **Unverified in this plan**
 
 - Nothing was built or run. Scanner, renderer and test results are all future work.
@@ -843,3 +875,58 @@ UI or show the graph only is for review.
 - Whether 2nd LFO key-on reset and the Part LFO are per voice or shared in FM-X.
 - Licences of the submodules other than JUCE, and the origin of `source/msfa/tuning.*`.
 - The origin and licence of the banks in `assets/builtin_pgm.zip`.
+
+---
+
+## 11. Progress
+
+### M0 (done 2026-10-31)
+
+Commits on `oscairn`: `f1aaf84` (copy-after-build option), `d1a01b6` (state read uninitialised,
+section 4.6), `7f0204b` (render tests and baseline), `c121a49` (engine split), `e1bbe8d`
+(Oscairn scanner/renderer tests, CI), `a2ba0c0` (x86_64 baseline).
+
+- `source/engine/SynthEngine.*` is the headless engine; it builds as `dexed_engine` without
+  JUCE. The JUCE processor delegates to it.
+- `tests/`: 164 render cases of generated DX7 voices (all 32 algorithms, three render
+  engines, poly/mono/MPE, 44.1/48/96 kHz, blocks 37 to 1024). `dexed-render-plugin` (the JUCE
+  plugin as a black box) and `dexed-render-engine` (the engine alone) both match
+  `tests/baseline/dx7-renders-<cpu>.txt`, recorded from unmodified Dexed (`7f0204b`).
+  arm64 and x86_64 differ in the last bits of the float output filter (fused multiply-add on
+  arm64), hence two files; Linux ARM64 matches macOS exactly.
+- CI (`.github/workflows/oscairn-tests.yml`): Linux x86_64, Linux ARM64 and macOS build the
+  engine, both CLAPs and the tests and run CTest. Windows is not built by this workflow.
+- With `-DDEXED_OSCAIRN_BUILD_DIR=<an Oscairn build>`, CTest runs `oscairn-plugin-scan` on
+  both CLAPs and renders them with `oscairn-render` (512 and 37 frames, twice, and in
+  Oscairn's plugin worker) and compares the files. These ran on macOS only; CI does not build
+  Oscairn.
+
+### M1 (done 2026-10-31, except where listed)
+
+- Per-instance sample-rate tables (`msfa/synth_rate.h`); shared tables built once.
+- `source/oscairn/`: the native CLAP (section 4.3) with CLAP note IDs, wildcards, choke and
+  `NOTE_END` (stolen, choked, or released and silent; reported at the end of the block, or at
+  the event for steals and chokes); no note output; MIDI and MPE input; fixed parameter IDs
+  (voice 1-99, settings 100-199, operator n at 1000 n + k) with module paths, value text and
+  stepped/enum flags, listed in `tests/baseline/oscairn-fm-params.txt`; a versioned text state
+  (`oscairn-fm-state 1`, parameters by ID, voice name), refused whole if anything is wrong;
+  state loaded while active is handed to the audio thread without locks.
+- Tests (`oscairn-fm-test`): the 164 cases through the CLAP binary are bit-identical to the
+  baseline; two instances at different rates; parameter list and text round trips; notes;
+  state round trip and render after load; no allocation while processing; main-thread calls
+  during processing. ASan+UBSan and TSan builds pass on macOS; CI runs them on Linux.
+- Not done in M1: CLAP note expressions (the DX7 engine has no per-voice destinations except
+  MPE pitch bend); the real-time fixes of section 4.6 in the desktop JUCE processor (the
+  `push_back`, the unsynchronised `activeProgram`, `panic()` from the parameter thread), which
+  the native CLAP does not use; Dexed 1.0/1.1 state loading (not applicable: the native CLAP
+  has its own ID, so hosts never give it Dexed states); a Windows build of the native CLAP.
+
+### How to run the tests
+
+```
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDEXED_COPY_PLUGIN_AFTER_BUILD=OFF \
+      [-DDEXED_OSCAIRN_BUILD_DIR=<oscairn build>]
+cmake --build build --target dexed-render-plugin dexed-render-engine Dexed_CLAP oscairn_fm \
+      oscairn-fm-test oscairn-fm-test-linked
+ctest --test-dir build
+```

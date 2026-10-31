@@ -1,6 +1,6 @@
 name: oscairn-tests
 
-# Builds the engine, the CLAP and the tests, and runs them (docs/oscairn-plan.md, M0).
+# Builds the engine, the CLAPs and the tests, and runs them (docs/oscairn-plan.md, M0-M1).
 on:
   push:
     branches: [ oscairn ]
@@ -20,10 +20,23 @@ jobs:
         include:
           - name: Linux x86_64
             os: ubuntu-24.04
+            build_type: Release
           - name: Linux ARM64
             os: ubuntu-24.04-arm
+            build_type: Release
           - name: macOS
             os: macos-14
+            build_type: Release
+          - name: Linux ASan and UBSan
+            os: ubuntu-24.04
+            build_type: Debug
+            sanitize: -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
+          - name: Linux TSan
+            os: ubuntu-24.04
+            build_type: Debug
+            sanitize: -fsanitize=thread
+            targets: oscairn-fm-test-linked dexed-render-engine
+            tests: engine-two-rates|fm-threads
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
 
@@ -47,16 +60,21 @@ jobs:
 
     - name: Configure
       run: |
-        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-          -DDEXED_COPY_PLUGIN_AFTER_BUILD=OFF -DDEXED_NO_ALSA=ON -DDEXED_SKIP_VST3=ON
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+          -DDEXED_COPY_PLUGIN_AFTER_BUILD=OFF -DDEXED_NO_ALSA=ON -DDEXED_SKIP_VST3=ON \
+          "-DCMAKE_CXX_FLAGS=${{ matrix.sanitize }}" "-DCMAKE_C_FLAGS=${{ matrix.sanitize }}" \
+          "-DCMAKE_EXE_LINKER_FLAGS=${{ matrix.sanitize }}" "-DCMAKE_MODULE_LINKER_FLAGS=${{ matrix.sanitize }}"
 
     - name: Build
-      run: cmake --build build --target dexed_engine dexed-render-engine dexed-render-plugin Dexed_CLAP
+      run: |
+        cmake --build build --target ${{ matrix.targets || 'dexed_engine dexed-render-engine dexed-render-plugin Dexed_CLAP oscairn_fm oscairn-fm-test oscairn-fm-test-linked' }}
 
     - name: Test
       run: |
+        args="--test-dir build --output-on-failure"
+        if [ -n "${{ matrix.tests }}" ]; then args="$args -R ${{ matrix.tests }}"; fi
         if [ "$RUNNER_OS" = Linux ]; then
-          xvfb-run -a ctest --test-dir build --output-on-failure
+          xvfb-run -a ctest $args
         else
-          ctest --test-dir build --output-on-failure
+          ctest $args
         fi

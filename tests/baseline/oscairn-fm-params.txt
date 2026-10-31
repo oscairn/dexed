@@ -1,0 +1,179 @@
+# Oscairn FM parameters: id | module | name | min | max | default | flags. IDs must never change.
+1 | Common | Algorithm | 1 | 32 | 1 | stepped
+2 | Common | Feedback | 0 | 7 | 0 | stepped
+3 | Common | Oscillator Key Sync | 0 | 1 | 1 | stepped enum
+4 | Common | Transpose | -24 | 24 | 0 | stepped
+10 | LFO 1 | Speed | 0 | 99 | 35 | stepped
+11 | LFO 1 | Delay | 0 | 99 | 0 | stepped
+12 | LFO 1 | Pitch Depth | 0 | 99 | 0 | stepped
+13 | LFO 1 | Amp Depth | 0 | 99 | 0 | stepped
+14 | LFO 1 | Key Sync | 0 | 1 | 1 | stepped enum
+15 | LFO 1 | Wave | 0 | 5 | 0 | stepped enum
+16 | Pitch | LFO Pitch Sensitivity | 0 | 7 | 3 | stepped
+20 | Pitch/EG | Rate 1 | 0 | 99 | 99 | stepped
+21 | Pitch/EG | Rate 2 | 0 | 99 | 99 | stepped
+22 | Pitch/EG | Rate 3 | 0 | 99 | 99 | stepped
+23 | Pitch/EG | Rate 4 | 0 | 99 | 99 | stepped
+24 | Pitch/EG | Level 1 | 0 | 99 | 50 | stepped
+25 | Pitch/EG | Level 2 | 0 | 99 | 50 | stepped
+26 | Pitch/EG | Level 3 | 0 | 99 | 50 | stepped
+27 | Pitch/EG | Level 4 | 0 | 99 | 50 | stepped
+100 | Voice | Engine | 0 | 2 | 1 | stepped enum
+101 | Voice | Mono | 0 | 1 | 0 | stepped enum
+102 | Voice | Portamento Time | 0 | 99 | 0 | stepped
+103 | Voice | Glissando | 0 | 1 | 0 | stepped enum
+104 | Pitch | Bend Range Up | 0 | 48 | 3 | stepped
+105 | Pitch | Bend Range Down | 0 | 48 | 3 | stepped
+106 | Pitch | Bend Step | 0 | 12 | 0 | stepped
+110 | Controllers | Mod Wheel Range | 0 | 99 | 0 | stepped
+111 | Controllers | Mod Wheel Pitch | 0 | 1 | 0 | stepped enum
+112 | Controllers | Mod Wheel Amp | 0 | 1 | 0 | stepped enum
+113 | Controllers | Mod Wheel EG Bias | 0 | 1 | 0 | stepped enum
+114 | Controllers | Foot Range | 0 | 99 | 0 | stepped
+115 | Controllers | Foot Pitch | 0 | 1 | 0 | stepped enum
+116 | Controllers | Foot Amp | 0 | 1 | 0 | stepped enum
+117 | Controllers | Foot EG Bias | 0 | 1 | 0 | stepped enum
+118 | Controllers | Breath Range | 0 | 99 | 0 | stepped
+119 | Controllers | Breath Pitch | 0 | 1 | 0 | stepped enum
+120 | Controllers | Breath Amp | 0 | 1 | 0 | stepped enum
+121 | Controllers | Breath EG Bias | 0 | 1 | 0 | stepped enum
+122 | Controllers | Aftertouch Range | 0 | 99 | 0 | stepped
+123 | Controllers | Aftertouch Pitch | 0 | 1 | 0 | stepped enum
+124 | Controllers | Aftertouch Amp | 0 | 1 | 0 | stepped enum
+125 | Controllers | Aftertouch EG Bias | 0 | 1 | 0 | stepped enum
+130 | Voice | Master Tune | -1 | 1 | 0 | continuous
+131 | Filter | Cutoff | 0 | 1 | 1 | continuous
+132 | Filter | Resonance | 0 | 1 | 0 | continuous
+133 | Amp | Output | 0 | 1 | 1 | continuous
+1001 | Operator 1/Envelope | Rate 1 | 0 | 99 | 99 | stepped
+1002 | Operator 1/Envelope | Rate 2 | 0 | 99 | 99 | stepped
+1003 | Operator 1/Envelope | Rate 3 | 0 | 99 | 99 | stepped
+1004 | Operator 1/Envelope | Rate 4 | 0 | 99 | 99 | stepped
+1005 | Operator 1/Envelope | Level 1 | 0 | 99 | 99 | stepped
+1006 | Operator 1/Envelope | Level 2 | 0 | 99 | 99 | stepped
+1007 | Operator 1/Envelope | Level 3 | 0 | 99 | 99 | stepped
+1008 | Operator 1/Envelope | Level 4 | 0 | 99 | 0 | stepped
+1009 | Operator 1/Scaling | Break Point | 0 | 99 | 0 | stepped
+1010 | Operator 1/Scaling | Left Depth | 0 | 99 | 0 | stepped
+1011 | Operator 1/Scaling | Right Depth | 0 | 99 | 0 | stepped
+1012 | Operator 1/Scaling | Left Curve | 0 | 3 | 0 | stepped enum
+1013 | Operator 1/Scaling | Right Curve | 0 | 3 | 0 | stepped enum
+1014 | Operator 1/Scaling | Rate Scaling | 0 | 7 | 0 | stepped
+1015 | Operator 1/Modulation | Amp Mod Sensitivity | 0 | 3 | 0 | stepped
+1016 | Operator 1/Modulation | Velocity Sensitivity | 0 | 7 | 0 | stepped
+1017 | Operator 1 | Level | 0 | 99 | 99 | stepped
+1018 | Operator 1/Frequency | Mode | 0 | 1 | 0 | stepped enum
+1019 | Operator 1/Frequency | Coarse | 0 | 31 | 1 | stepped
+1020 | Operator 1/Frequency | Fine | 0 | 99 | 0 | stepped
+1021 | Operator 1/Frequency | Detune | -7 | 7 | 0 | stepped
+1022 | Operator 1 | Switch | 0 | 1 | 1 | stepped enum
+2001 | Operator 2/Envelope | Rate 1 | 0 | 99 | 99 | stepped
+2002 | Operator 2/Envelope | Rate 2 | 0 | 99 | 99 | stepped
+2003 | Operator 2/Envelope | Rate 3 | 0 | 99 | 99 | stepped
+2004 | Operator 2/Envelope | Rate 4 | 0 | 99 | 99 | stepped
+2005 | Operator 2/Envelope | Level 1 | 0 | 99 | 99 | stepped
+2006 | Operator 2/Envelope | Level 2 | 0 | 99 | 99 | stepped
+2007 | Operator 2/Envelope | Level 3 | 0 | 99 | 99 | stepped
+2008 | Operator 2/Envelope | Level 4 | 0 | 99 | 0 | stepped
+2009 | Operator 2/Scaling | Break Point | 0 | 99 | 0 | stepped
+2010 | Operator 2/Scaling | Left Depth | 0 | 99 | 0 | stepped
+2011 | Operator 2/Scaling | Right Depth | 0 | 99 | 0 | stepped
+2012 | Operator 2/Scaling | Left Curve | 0 | 3 | 0 | stepped enum
+2013 | Operator 2/Scaling | Right Curve | 0 | 3 | 0 | stepped enum
+2014 | Operator 2/Scaling | Rate Scaling | 0 | 7 | 0 | stepped
+2015 | Operator 2/Modulation | Amp Mod Sensitivity | 0 | 3 | 0 | stepped
+2016 | Operator 2/Modulation | Velocity Sensitivity | 0 | 7 | 0 | stepped
+2017 | Operator 2 | Level | 0 | 99 | 0 | stepped
+2018 | Operator 2/Frequency | Mode | 0 | 1 | 0 | stepped enum
+2019 | Operator 2/Frequency | Coarse | 0 | 31 | 1 | stepped
+2020 | Operator 2/Frequency | Fine | 0 | 99 | 0 | stepped
+2021 | Operator 2/Frequency | Detune | -7 | 7 | 0 | stepped
+2022 | Operator 2 | Switch | 0 | 1 | 1 | stepped enum
+3001 | Operator 3/Envelope | Rate 1 | 0 | 99 | 99 | stepped
+3002 | Operator 3/Envelope | Rate 2 | 0 | 99 | 99 | stepped
+3003 | Operator 3/Envelope | Rate 3 | 0 | 99 | 99 | stepped
+3004 | Operator 3/Envelope | Rate 4 | 0 | 99 | 99 | stepped
+3005 | Operator 3/Envelope | Level 1 | 0 | 99 | 99 | stepped
+3006 | Operator 3/Envelope | Level 2 | 0 | 99 | 99 | stepped
+3007 | Operator 3/Envelope | Level 3 | 0 | 99 | 99 | stepped
+3008 | Operator 3/Envelope | Level 4 | 0 | 99 | 0 | stepped
+3009 | Operator 3/Scaling | Break Point | 0 | 99 | 0 | stepped
+3010 | Operator 3/Scaling | Left Depth | 0 | 99 | 0 | stepped
+3011 | Operator 3/Scaling | Right Depth | 0 | 99 | 0 | stepped
+3012 | Operator 3/Scaling | Left Curve | 0 | 3 | 0 | stepped enum
+3013 | Operator 3/Scaling | Right Curve | 0 | 3 | 0 | stepped enum
+3014 | Operator 3/Scaling | Rate Scaling | 0 | 7 | 0 | stepped
+3015 | Operator 3/Modulation | Amp Mod Sensitivity | 0 | 3 | 0 | stepped
+3016 | Operator 3/Modulation | Velocity Sensitivity | 0 | 7 | 0 | stepped
+3017 | Operator 3 | Level | 0 | 99 | 0 | stepped
+3018 | Operator 3/Frequency | Mode | 0 | 1 | 0 | stepped enum
+3019 | Operator 3/Frequency | Coarse | 0 | 31 | 1 | stepped
+3020 | Operator 3/Frequency | Fine | 0 | 99 | 0 | stepped
+3021 | Operator 3/Frequency | Detune | -7 | 7 | 0 | stepped
+3022 | Operator 3 | Switch | 0 | 1 | 1 | stepped enum
+4001 | Operator 4/Envelope | Rate 1 | 0 | 99 | 99 | stepped
+4002 | Operator 4/Envelope | Rate 2 | 0 | 99 | 99 | stepped
+4003 | Operator 4/Envelope | Rate 3 | 0 | 99 | 99 | stepped
+4004 | Operator 4/Envelope | Rate 4 | 0 | 99 | 99 | stepped
+4005 | Operator 4/Envelope | Level 1 | 0 | 99 | 99 | stepped
+4006 | Operator 4/Envelope | Level 2 | 0 | 99 | 99 | stepped
+4007 | Operator 4/Envelope | Level 3 | 0 | 99 | 99 | stepped
+4008 | Operator 4/Envelope | Level 4 | 0 | 99 | 0 | stepped
+4009 | Operator 4/Scaling | Break Point | 0 | 99 | 0 | stepped
+4010 | Operator 4/Scaling | Left Depth | 0 | 99 | 0 | stepped
+4011 | Operator 4/Scaling | Right Depth | 0 | 99 | 0 | stepped
+4012 | Operator 4/Scaling | Left Curve | 0 | 3 | 0 | stepped enum
+4013 | Operator 4/Scaling | Right Curve | 0 | 3 | 0 | stepped enum
+4014 | Operator 4/Scaling | Rate Scaling | 0 | 7 | 0 | stepped
+4015 | Operator 4/Modulation | Amp Mod Sensitivity | 0 | 3 | 0 | stepped
+4016 | Operator 4/Modulation | Velocity Sensitivity | 0 | 7 | 0 | stepped
+4017 | Operator 4 | Level | 0 | 99 | 0 | stepped
+4018 | Operator 4/Frequency | Mode | 0 | 1 | 0 | stepped enum
+4019 | Operator 4/Frequency | Coarse | 0 | 31 | 1 | stepped
+4020 | Operator 4/Frequency | Fine | 0 | 99 | 0 | stepped
+4021 | Operator 4/Frequency | Detune | -7 | 7 | 0 | stepped
+4022 | Operator 4 | Switch | 0 | 1 | 1 | stepped enum
+5001 | Operator 5/Envelope | Rate 1 | 0 | 99 | 99 | stepped
+5002 | Operator 5/Envelope | Rate 2 | 0 | 99 | 99 | stepped
+5003 | Operator 5/Envelope | Rate 3 | 0 | 99 | 99 | stepped
+5004 | Operator 5/Envelope | Rate 4 | 0 | 99 | 99 | stepped
+5005 | Operator 5/Envelope | Level 1 | 0 | 99 | 99 | stepped
+5006 | Operator 5/Envelope | Level 2 | 0 | 99 | 99 | stepped
+5007 | Operator 5/Envelope | Level 3 | 0 | 99 | 99 | stepped
+5008 | Operator 5/Envelope | Level 4 | 0 | 99 | 0 | stepped
+5009 | Operator 5/Scaling | Break Point | 0 | 99 | 0 | stepped
+5010 | Operator 5/Scaling | Left Depth | 0 | 99 | 0 | stepped
+5011 | Operator 5/Scaling | Right Depth | 0 | 99 | 0 | stepped
+5012 | Operator 5/Scaling | Left Curve | 0 | 3 | 0 | stepped enum
+5013 | Operator 5/Scaling | Right Curve | 0 | 3 | 0 | stepped enum
+5014 | Operator 5/Scaling | Rate Scaling | 0 | 7 | 0 | stepped
+5015 | Operator 5/Modulation | Amp Mod Sensitivity | 0 | 3 | 0 | stepped
+5016 | Operator 5/Modulation | Velocity Sensitivity | 0 | 7 | 0 | stepped
+5017 | Operator 5 | Level | 0 | 99 | 0 | stepped
+5018 | Operator 5/Frequency | Mode | 0 | 1 | 0 | stepped enum
+5019 | Operator 5/Frequency | Coarse | 0 | 31 | 1 | stepped
+5020 | Operator 5/Frequency | Fine | 0 | 99 | 0 | stepped
+5021 | Operator 5/Frequency | Detune | -7 | 7 | 0 | stepped
+5022 | Operator 5 | Switch | 0 | 1 | 1 | stepped enum
+6001 | Operator 6/Envelope | Rate 1 | 0 | 99 | 99 | stepped
+6002 | Operator 6/Envelope | Rate 2 | 0 | 99 | 99 | stepped
+6003 | Operator 6/Envelope | Rate 3 | 0 | 99 | 99 | stepped
+6004 | Operator 6/Envelope | Rate 4 | 0 | 99 | 99 | stepped
+6005 | Operator 6/Envelope | Level 1 | 0 | 99 | 99 | stepped
+6006 | Operator 6/Envelope | Level 2 | 0 | 99 | 99 | stepped
+6007 | Operator 6/Envelope | Level 3 | 0 | 99 | 99 | stepped
+6008 | Operator 6/Envelope | Level 4 | 0 | 99 | 0 | stepped
+6009 | Operator 6/Scaling | Break Point | 0 | 99 | 0 | stepped
+6010 | Operator 6/Scaling | Left Depth | 0 | 99 | 0 | stepped
+6011 | Operator 6/Scaling | Right Depth | 0 | 99 | 0 | stepped
+6012 | Operator 6/Scaling | Left Curve | 0 | 3 | 0 | stepped enum
+6013 | Operator 6/Scaling | Right Curve | 0 | 3 | 0 | stepped enum
+6014 | Operator 6/Scaling | Rate Scaling | 0 | 7 | 0 | stepped
+6015 | Operator 6/Modulation | Amp Mod Sensitivity | 0 | 3 | 0 | stepped
+6016 | Operator 6/Modulation | Velocity Sensitivity | 0 | 7 | 0 | stepped
+6017 | Operator 6 | Level | 0 | 99 | 0 | stepped
+6018 | Operator 6/Frequency | Mode | 0 | 1 | 0 | stepped enum
+6019 | Operator 6/Frequency | Coarse | 0 | 31 | 1 | stepped
+6020 | Operator 6/Frequency | Fine | 0 | 99 | 0 | stepped
+6021 | Operator 6/Frequency | Detune | -7 | 7 | 0 | stepped
+6022 | Operator 6 | Switch | 0 | 1 | 1 | stepped enum
