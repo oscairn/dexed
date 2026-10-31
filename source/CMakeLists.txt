@@ -12,6 +12,9 @@ endif()
 
 message(STATUS "Building Dexed in formats: ${DEXED_JUCE_FORMATS}")
 
+# Off for test and CI builds: copying installs the plugins into the user's plug-in folders.
+option(DEXED_COPY_PLUGIN_AFTER_BUILD "Copy the plugins to the user's plug-in folders after building" ON)
+
 juce_add_plugin("${BaseTargetName}"
         VERSION "1.1.0"
         ICON_BIG "../assets/ui/dexedIcon.png"
@@ -28,7 +31,7 @@ juce_add_plugin("${BaseTargetName}"
         PRODUCT_NAME "Dexed"
         DESCRIPTION "Dexed FM Synth"
         BUNDLE_ID "com.digitalsuburban.Dexed"
-        COPY_PLUGIN_AFTER_BUILD TRUE
+        COPY_PLUGIN_AFTER_BUILD ${DEXED_COPY_PLUGIN_AFTER_BUILD}
 )
 
 clap_juce_extensions_plugin(TARGET ${BaseTargetName}
