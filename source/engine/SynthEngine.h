@@ -60,6 +60,8 @@ struct ProcessorVoice {
     NoteRef ref;             // the note that started this voice
     bool noteActive = false; // the host has not been told the note ended
     int context = 0;         // the sound (SynthContext) the voice plays
+    int fadeLeft = 0;        // choked: samples left of the fade-out (of fadeTotal)
+    int fadeTotal = 0;
 };
 
 enum DexedEngineResolution {
@@ -228,6 +230,7 @@ private:
     EngineOpl engineOpl;
 
     SynthRate rate;
+    double sampleRate = 44100;
     std::shared_ptr<TuningState> tuningState;
     MTSClient *mtsClient = nullptr;
 

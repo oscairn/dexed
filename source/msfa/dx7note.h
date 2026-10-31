@@ -62,6 +62,8 @@ public:
     void transferSignal(Dx7Note &src);
     void transferPhase(Dx7Note &src);
     void oscSync();
+    // Stops the note for good: it no longer counts as playing (after a choke's fade).
+    void silence() { initialised_ = false; }
 
     // We should put this as a function and not a DX7Note method
     //int32_t osc_freq(int midinote, int mode, int coarse, int fine, int detune);

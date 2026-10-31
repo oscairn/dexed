@@ -124,6 +124,7 @@ void SynthEngine::setTuning(std::shared_ptr<TuningState> t) {
 }
 
 void SynthEngine::prepare(double sampleRate, int maxFrames) {
+    this->sampleRate = sampleRate;
     rate.init(sampleRate);
     for (int c = 0; c < MAX_CONTEXTS; c++) {
         contexts[c].lfo.init(sampleRate);
@@ -142,6 +143,7 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
         voices[note].keydown_seq = -1;
         voices[note].noteActive = false;
         voices[note].context = 0;
+        voices[note].fadeLeft = 0;
     }
 
     currentNote = 0;
@@ -374,6 +376,7 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
 
                     voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &voiceCtrl(c, voices[note].channel));
 
+                    ProcessorVoice &v = voices[note];
                     for (int j=0; j < N; ++j) {
                         int32_t val = audiobuf.get()[j];
 
@@ -382,8 +385,19 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                         float f = ((float) clip_val) / (float) 0x8000;
                         if( f > 1 ) f = 1;
                         if( f < -1 ) f = -1;
+                        if ( v.fadeTotal > 0 ) { // choked: fading out
+                            f *= (float)v.fadeLeft / (float)v.fadeTotal;
+                            if ( v.fadeLeft > 0 )
+                                v.fadeLeft--;
+                        }
                         sumbuf[c][j] += f;
                         audiobuf.get()[j] = 0;
+                    }
+                    if ( v.fadeTotal > 0 && v.fadeLeft == 0 ) {
+                        // the fade is over: free the voice
+                        v.fadeTotal = 0;
+                        v.live = false;
+                        v.dx7_note->silence();
                     }
                 }
             }
@@ -487,6 +501,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].sustained = sustain[(channel - 1) & 15];
     Controllers &ctrl = voiceCtrl(c, channel);
     voices[note].keydown = true;
+    voices[note].fadeLeft = voices[note].fadeTotal = 0; // a voice taken while fading
     voices[note].keydown_seq = nextKeydownSeq++;
     // to avoid click, don't sync oscillators when voice stealing
     bool voice_steal = voices[note].dx7_note->isPlaying();
@@ -608,11 +623,17 @@ void SynthEngine::releaseNotes(const NoteRef &match) {
 
 void SynthEngine::chokeNotes(const NoteRef &match) {
     for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-        if ( voices[note].noteActive && matches(voices[note].ref, match) ) {
-            voices[note].keydown = false;
-            voices[note].sustained = false;
-            voices[note].live = false;
-            endNote(note);
+        ProcessorVoice &v = voices[note];
+        if ( v.noteActive && matches(v.ref, match) ) {
+            v.keydown = false;
+            v.sustained = false;
+            if ( v.live && v.fadeLeft == 0 ) {
+                // a short fade-out instead of a click; the voice is freed (and its NOTE_END
+                // sent by collectEndedNotes) when it ends
+                v.fadeTotal = v.fadeLeft = (int)(0.003 * sampleRate) + 1;
+            } else if ( !v.live ) {
+                endNote(note);
+            }
         }
     }
 }

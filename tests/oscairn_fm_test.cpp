@@ -258,13 +258,33 @@ int notesTest() {
     for (auto &x : e)
         check(x.key == 60 && x.channel == 0, "NOTE_END carries the note's channel and key");
 
-    // Choke ends a held note at once, at the event's frame.
-    h.output.clear();
-    in.note(CLAP_EVENT_NOTE_CHOKE, 100, 8, 0, 60);
-    h.process(256, in);
-    in.clear();
-    e = ends(h);
-    check(e.size() == 1 && e[0].id == 8 && e[0].time == 100, "choke gives NOTE_END for 8 at frame 100");
+    // Choke fades a held note out within 3 ms (no click), then frees it and ends it.
+    {
+        std::vector<float> after;
+        std::vector<NoteEnd> chokeEnds;
+        in.note(CLAP_EVENT_NOTE_CHOKE, 100, 8, 0, 60);
+        for (int b = 0; b < 2; b++) {
+            h.output.clear();
+            h.process(256, in);
+            in.clear();
+            after.insert(after.end(), h.left.begin(), h.left.begin() + 256);
+            for (auto x : ends(h))
+                chokeEnds.push_back(x);
+        }
+        // the choke lands on the 64-sample grid (frame 128); 3 ms at 48 kHz is 145 samples
+        float before = 0, tail = 0, jump = 0;
+        for (int i = 100; i < 128; i++)
+            before = std::max(before, std::fabs(after[i]));
+        for (int i = 128 + 150; i < 512; i++)
+            tail = std::max(tail, std::fabs(after[i]));
+        for (int i = 129; i < 128 + 145; i++)
+            jump = std::max(jump, std::fabs(after[i] - after[i - 1]));
+        std::printf("choke: level before %g, largest step during the fade %g, largest after it %g\n", before, jump, tail);
+        // after the fade only the output DC filter's small decaying offset is left
+        check(before > 0 && tail < 0.01f * before, "the choked note fades to silence within 3 ms");
+        check(jump < before, "no step as large as the note itself (no click)");
+        check(chokeEnds.size() == 1 && chokeEnds[0].id == 8, "choke gives NOTE_END for 8 once its fade is over");
+    }
 
     // Wildcard note-off releases every held note.
     for (int k = 0; k < 4; k++)
@@ -304,6 +324,27 @@ int notesTest() {
     e = run(200);
     check(e.size() == 1 && e[0].id == -1 && e[0].channel == 3 && e[0].key == 61, "MIDI note ends with its channel and key");
 
+    {
+        // a choked voice is free again: with 16 held notes, choke one, and a new note takes
+        // the choked voice instead of stealing a held one
+        Host f(entry);
+        f.activate(48000, 256);
+        EventList fin;
+        for (int k = 0; k < 16; k++)
+            fin.note(CLAP_EVENT_NOTE_ON, 0, 400 + k, 0, 40 + k);
+        f.process(256, fin);
+        fin.clear();
+        fin.note(CLAP_EVENT_NOTE_CHOKE, 0, 405, 0, -1);
+        for (int b = 0; b < 4; b++) {
+            f.output.clear();
+            f.process(256, fin);
+            fin.clear();
+        }
+        fin.note(CLAP_EVENT_NOTE_ON, 0, 500, 0, 90);
+        f.output.clear();
+        f.process(256, fin);
+        check(ends(f).empty(), "a new note reuses the choked voice; no held note is stolen");
+    }
     std::printf("note IDs, choke, wildcards, stealing, sustain and MIDI notes give the expected NOTE_END\n");
     return 0;
 }
