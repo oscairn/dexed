@@ -464,12 +464,12 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
                               : extOpLevelDb(std::clamp(level, 0, 99));
         db += extLevelScalingDb(midinote, o(ext::BreakPoint), o(ext::LowDepth), o(ext::HighDepth), o(ext::LowCurve),
                                 o(ext::HighCurve));
-        db += extLevelVelocityDb(o(ext::LevelVelocity), velocity);
+        const double velocityDb = extLevelVelocityDb(o(ext::LevelVelocity), velocity); // (may raise the level)
         // carriers: the reference's output level for this algorithm (up to 13.6 dB above
         // algorithm 1), and its overall level: its probes play a full-level sine 6.57 dB below
         // Octet's Classic-scale carrier, which keeps the loudest algorithms from clipping
         const double algorithmGain = modulator ? 0.0 : extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb;
-        const int32_t outlevel = kFullScale + dbToLog(std::min(0.0, db) + algorithmGain);
+        const int32_t outlevel = kFullScale + dbToLog(std::min(0.0, db) + velocityDb + algorithmGain);
         int levels[4] = { o(ext::AttackLevel), o(ext::Decay1Level), o(ext::Decay2Level), o(ext::ReleaseLevel) };
         int times[4] = { o(ext::AttackTime), o(ext::Decay1Time), o(ext::Decay2Time), o(ext::ReleaseTime) };
         times[0] += modulator ? std::min(aegAttack, 0) : aegAttack;

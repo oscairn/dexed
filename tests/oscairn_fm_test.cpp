@@ -1631,6 +1631,22 @@ int extendedTest() {
                    renderExtended({ { 1057, 7 } }, 60, 65 / 127.0, 0.6, 0.8),
                "velocity depth 96: velocity 43 plays as 65 (64.5 rounded)");
         expect(!audible(renderExtended({ { 235, 0 } }, 60, 1.0, 0.6, 0.8)), "velocity depth 0: no note");
+        // operator level velocity sensitivity: the measured table, against sensitivity 0
+        {
+            auto rms = [&](int sens, int vel) {
+                const auto x = renderExtended({ { 1057, sens } }, 60, vel / 127.0, 0.6, 0.6);
+                double e = 0;
+                for (size_t i = 4800; i < 24000; i++)
+                    e += (double)x[i] * x[i];
+                return 10 * std::log10(e / 19200 + 1e-30);
+            };
+            const double ref = rms(0, 100);
+            for (const auto &c : std::vector<std::array<double, 3>>{ { 7, 1, -59.11 }, { 7, 127, 5.27 }, { 3, 64, -4.52 }, { -4, 104, -16.57 } })
+                expect(std::fabs(rms((int)c[0], (int)c[1]) - ref - c[2]) < 0.2,
+                       "level velocity " + std::to_string((int)c[0]) + " at " + std::to_string((int)c[1]) + ": " +
+                           std::to_string(rms((int)c[0], (int)c[1]) - ref) + " dB, table " + std::to_string(c[2]));
+            expect(rms(-7, 127) - ref < -100, "level velocity -7 at 127 is silent");
+        }
         {
             Host h(entry);
             h.activate(48000, 256);

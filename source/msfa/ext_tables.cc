@@ -85,17 +85,38 @@ double extLevelScalingDb(int midinote, int breakPoint, int lowDepth, int highDep
     return s * kDbPerStep;
 }
 
-// shortcut: Dx7Note's ScaleVelocity, mirrored for negative sensitivities (unmeasured)
+// Operator level velocity sensitivity -7..+7: dB against sensitivity 0, measured on a lone
+// carrier at every sensitivity and 17 velocities (fifth session, `m7d`), straight between them.
+// Positive values raise the level at high velocities too (+5.3 dB at +7, velocity 127); negative
+// ones mirror them about velocity 64; -7 at velocity 127 is silent.
+static const float kLevelVelocityDb[15][17] = {
+    { 5.27f, 4.14f, 2.63f, 1.13f, -0.38f, -2.63f, -4.89f, -7.53f, -10.54f, -13.18f, -16.19f, -19.96f, -23.73f, -29.02f, -35.84f, -45.05f, -120.0f }, // -7 (127: silent)
+    { 4.52f, 3.39f, 2.26f, 1.13f, -0.38f, -2.26f, -4.14f, -6.4f, -9.03f, -11.29f, -13.93f, -16.94f, -20.33f, -24.86f, -30.53f, -38.5f, -70.68f }, // -6
+    { 3.76f, 3.01f, 1.88f, 0.75f, -0.38f, -1.88f, -3.39f, -5.27f, -7.53f, -9.41f, -11.67f, -14.31f, -16.94f, -20.71f, -25.62f, -32.04f, -57.07f }, // -5
+    { 3.01f, 2.26f, 1.51f, 0.75f, -0.38f, -1.51f, -2.63f, -4.14f, -6.02f, -7.53f, -9.41f, -11.29f, -13.55f, -16.57f, -20.33f, -25.62f, -45.05f }, // -4
+    { 2.26f, 1.88f, 1.13f, 0.75f, 0.0f, -1.13f, -1.88f, -3.01f, -4.52f, -5.65f, -6.77f, -8.28f, -10.16f, -12.42f, -15.06f, -19.2f, -33.56f }, // -3
+    { 1.51f, 1.13f, 0.75f, 0.38f, 0.0f, -0.75f, -1.13f, -1.88f, -3.01f, -3.76f, -4.52f, -5.65f, -6.77f, -8.28f, -10.16f, -12.8f, -22.22f }, // -2
+    { 0.75f, 0.75f, 0.38f, 0.38f, 0.0f, -0.38f, -0.38f, -0.75f, -1.51f, -1.88f, -2.26f, -2.63f, -3.39f, -4.14f, -4.89f, -6.4f, -10.92f }, // -1
+    { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f }, // +0
+    { -8.28f, -6.02f, -4.89f, -3.76f, -3.39f, -2.63f, -2.26f, -1.88f, -1.51f, -0.75f, -0.38f, -0.38f, 0.0f, 0.38f, 0.38f, 0.76f, 0.68f }, // +1
+    { -16.57f, -12.42f, -9.79f, -7.9f, -6.77f, -5.65f, -4.52f, -3.76f, -3.01f, -1.88f, -1.13f, -0.75f, 0.0f, 0.38f, 0.75f, 1.51f, 1.51f }, // +2
+    { -24.86f, -18.45f, -15.06f, -12.05f, -10.16f, -8.28f, -6.77f, -5.65f, -4.52f, -3.01f, -1.88f, -1.13f, 0.0f, 0.75f, 1.13f, 1.88f, 2.26f }, // +3
+    { -33.18f, -24.86f, -19.96f, -16.19f, -13.55f, -11.29f, -9.41f, -7.53f, -6.02f, -4.14f, -2.63f, -1.51f, -0.38f, 0.75f, 1.51f, 2.63f, 3.01f }, // +4
+    { -41.57f, -31.29f, -24.86f, -20.33f, -16.94f, -14.31f, -11.67f, -9.41f, -7.53f, -5.27f, -3.39f, -1.88f, -0.38f, 1.13f, 1.88f, 3.39f, 3.76f }, // +5
+    { -50.18f, -37.36f, -30.15f, -24.48f, -20.33f, -16.94f, -13.93f, -11.29f, -9.03f, -6.4f, -4.14f, -2.26f, -0.38f, 1.13f, 2.26f, 3.76f, 4.52f }, // +6
+    { -59.11f, -43.88f, -35.09f, -28.64f, -23.73f, -19.96f, -16.19f, -13.18f, -10.54f, -7.53f, -4.89f, -2.63f, -0.38f, 1.51f, 2.63f, 4.52f, 5.27f }, // +7
+};
+static const uint8_t kLevelVelocities[17] = { 1, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 127 };
 double extLevelVelocityDb(int sensitivity, int velocity) {
-    static const uint8_t data[64] = { 0, 70, 86, 97, 106, 114, 121, 126, 132, 138, 142, 148, 152, 156, 160, 163,
-                                      166, 170, 173, 174, 178, 181, 184, 186, 189, 190, 194, 196, 198, 200, 202,
-                                      205, 206, 209, 211, 214, 216, 218, 220, 222, 224, 225, 227, 229, 230, 232,
-                                      233, 235, 237, 238, 240, 241, 242, 243, 244, 246, 246, 248, 249, 250, 251,
-                                      252, 253, 254 };
-    const int v = data[clampi(velocity, 0, 127) >> 1] - 239;
-    const int s = std::abs(clampi(sensitivity, -7, 7));
-    const double db = (((s * v + 7) >> 3) << 4) / 32.0 * kDbPerStep;
-    return sensitivity < 0 ? -db : db;
+    const float *row = kLevelVelocityDb[clampi(sensitivity, -7, 7) + 7];
+    const int v = clampi(velocity, 1, 127);
+    int i = 0;
+    while (i < 15 && kLevelVelocities[i + 1] <= v)
+        i++;
+    if (v >= 127)
+        return row[16];
+    const double t = (double)(v - kLevelVelocities[i]) / (kLevelVelocities[i + 1] - kLevelVelocities[i]);
+    return row[i] + (row[i + 1] - row[i]) * t;
 }
 
 // Fine 100-127 carries into the next coarse value (fine 100 on coarse 4 is ratio 5); past
