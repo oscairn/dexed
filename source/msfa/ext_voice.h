@@ -32,6 +32,7 @@ enum Common {
     LfoAmpDepth,   // 0-99
     LfoSpeedRange, // 0 Normal, 1 Extended
     LfoExtSpeed,   // 0-415 (speed range Extended)
+    PitchVelocityDepth, // -64-+63: velocity to pitch, for every operator (see Op::PitchVelocity)
     CommonCount
 };
 
@@ -42,7 +43,7 @@ enum Op {
     Fine,         // 0-127
     Detune,       // -15-+15
     KeyFollow,    // 0-99 (fixed mode)
-    PitchVelocity, // -7-+7
+    PitchVelocity, // -7-+7: this operator's share of the common pitch velocity depth
     PegInitial,   // -50-+50
     PegAttack,    // -50-+50
     PegAttackTime, // 0-99

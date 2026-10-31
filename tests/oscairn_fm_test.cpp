@@ -781,11 +781,14 @@ int extendedTest() {
     const double rate = 48000;
     const double f69 = 440.0;
     // -- envelope: decay 1 slopes (ms per dB), fitted between 3 and 35 dB below the peak
-    for (int t : { 10, 20, 30, 40, 50, 60, 70, 80 }) {
+    // (from time 20 up: faster decays cross 32 dB within four 64-sample blocks, too few points
+    // for this fit; they are checked against the reference renders instead)
+    for (int t : { 20, 30, 40, 50, 60, 70, 80 }) {
         const double ms = extEgMsPerDb(t);
         const double seconds = std::min(6.0, 0.05 + 40 * ms / 1000);
-        const auto x = renderExtended({ { 1046, t }, { 1042, 0 }, { 1043, 0 } }, 69, 1.0, seconds, seconds);
-        const size_t w = 110; // one period of 440 Hz at 48 kHz, so each window holds a peak
+        // note 105 (3520 Hz): windows of 48 samples hold three or more peaks
+        const auto x = renderExtended({ { 1046, t }, { 1042, 0 }, { 1043, 0 } }, 105, 1.0, seconds, seconds);
+        const size_t w = 48;
         const auto db = peakDb(x, w);
         const size_t peak = (size_t)(std::max_element(db.begin(), db.end()) - db.begin());
         double sx = 0, sy = 0, sxx = 0, sxy = 0;
@@ -843,13 +846,15 @@ int extendedTest() {
         }
     for (int kf : { 25, 99 })
         for (int key : { 48, 72 })
-            pitchCase({ { 1031, 1 }, { 1032, 4 }, { 1035, kf } }, key, 1.0,
-                      extFixedHz(4, 0) * std::pow(2.0, extKeyFollowCents(kf, key) / 1200),
+            pitchCase({ { 1031, 1 }, { 1032, 14 }, { 1035, kf } }, key, 1.0,
+                      extFixedHz(14, 0) * std::pow(2.0, extKeyFollowCents(kf, key) / 1200),
                       "key follow " + std::to_string(kf) + " key " + std::to_string(key));
-    for (int pv : { -7, 4, 7 })
-        for (int vel : { 1, 64, 127 })
-            pitchCase({ { 1036, pv } }, 60, vel / 127.0, noteHz(60) * std::pow(2.0, extPitchVelocityCents(pv, vel) / 1200),
-                      "pitch velocity " + std::to_string(pv) + " velocity " + std::to_string(vel));
+    for (int depth : { -64, 32, 63 })
+        for (int pv : { -7, 4, 7 })
+            for (int vel : { 1, 64, 127 })
+                pitchCase({ { 51, depth }, { 1036, pv } }, 60, vel / 127.0,
+                          noteHz(60) * std::pow(2.0, extPitchVelocityCents(depth, pv, vel) / 1200),
+                          "pitch velocity " + std::to_string(depth) + "/" + std::to_string(pv) + " velocity " + std::to_string(vel));
     // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw
     for (int range = 0; range < 2; range++)
         for (int speed = 0; speed <= (range ? 415 : 99); speed += range ? 5 : 1) {
@@ -882,19 +887,27 @@ int extendedTest() {
                                                             std::to_string(speed) + ": " + std::to_string(measured) +
                                                             " Hz, table " + std::to_string(hz));
         }
-    // -- the Extended init sound plays (operator 8 at level 85 in algorithm 69)
-    {
+    // -- the two init sounds: Classic is the default sound; Extended plays (operator 8 at
+    // level 85 in algorithm 69)
+    for (const char *file : { "Classic Init.octet", "Extended Init.octet" }) {
+        std::ifstream f(std::string(OCTET_ASSETS) + "/" + file);
+        std::stringstream text;
+        text << f.rdbuf();
         Host h(entry);
+        const bool loaded = h.loadState(text.str());
+        double profile = -1;
+        h.params->get_value(h.plugin, 5, &profile);
+        const bool extended = std::strstr(file, "Extended") != nullptr;
+        expect(loaded && profile == (extended ? 1 : 0), std::string(file) + " loads with its profile");
         h.activate(rate, 512);
         EventList in;
-        in.param(0, 5, 1);
         h.process(512, in);
         in.clear();
         in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, 60, 0.8);
         h.process(512, in);
         in.clear();
         h.process(512, in);
-        expect(audible(h.left), "the Extended init sound is silent");
+        expect(audible(h.left), std::string(file) + " is silent");
     }
     // -- profile conversion
     {

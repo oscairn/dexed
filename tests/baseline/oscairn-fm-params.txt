@@ -30,6 +30,7 @@
 48 | Extended/LFO 2 | Amp Depth | 0 | 99 | 0 | stepped
 49 | Extended/LFO 2 | Speed Range | 0 | 1 | 1 | stepped enum
 50 | Extended/LFO 2 | Extended Speed | 0 | 415 | 60 | stepped
+51 | Extended/Common | Pitch Velocity Sensitivity | -64 | 63 | 0 | stepped
 100 | Voice | Engine | 0 | 2 | 1 | stepped enum
 101 | Voice | Mono | 0 | 1 | 0 | stepped enum
 102 | Voice | Portamento Time | 0 | 99 | 0 | stepped

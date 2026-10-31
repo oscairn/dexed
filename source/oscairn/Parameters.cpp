@@ -113,6 +113,7 @@ static std::vector<Param> build() {
     extv(48, "Extended/LFO 2", "Amp Depth", 0, 99, ext::LfoAmpDepth);
     extv(49, "Extended/LFO 2", "Speed Range", 0, 1, ext::LfoSpeedRange, Text::Choice, speedRanges);
     extv(50, "Extended/LFO 2", "Extended Speed", 0, 415, ext::LfoExtSpeed);
+    extv(51, "Extended/Common", "Pitch Velocity Sensitivity", -64, 63, ext::PitchVelocityDepth, Text::Signed);
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
         const std::string env = op + "/Envelope", freq = op + "/Frequency", scale = op + "/Scaling",

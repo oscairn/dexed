@@ -49,7 +49,7 @@ constexpr double kDbPerStep = 32 * 6.020599913279624 / 256; // one DX7 output le
 } // namespace
 
 double extEgMsPerDb(int t) { return kDecayMsPerDb[clampi(t, 0, 99)]; }
-double extAttackMsPerDb(int t) { return kDecayMsPerDb[clampi(t, 0, 99)]; }
+double extAttackMsPerDb(int t) { return kAttackMsPerDb[clampi(t, 0, 99)]; }
 double extAttackOverDb() { return kAttackOverDb; }
 double extAttackStartDb() { return kAttackStartDb; }
 double extHoldMs(int t) { return kHoldMs[clampi(t, 0, 99)]; }
@@ -91,28 +91,51 @@ double extLevelVelocityDb(int sensitivity, int velocity) {
     return sensitivity < 0 ? -db : db;
 }
 
+// Fine 100-127 carries into the next coarse value (fine 100 on coarse 4 is ratio 5); past
+// coarse 31 the reference plays 0.5 at fine 100 and a fixed ratio above it.
 double extRatio(int coarse, int fine) {
-    return kCoarseRatio[clampi(coarse, 0, 31)] * (1.0 + kFineStep * clampi(fine, 0, 127));
+    coarse = clampi(coarse, 0, 31);
+    fine = clampi(fine, 0, 127);
+    if (fine >= 100) {
+        coarse++;
+        fine -= 100;
+        if (coarse == 32)
+            return fine == 0 ? kCoarseRatio[0] : kRatioPastTop;
+    }
+    return kCoarseRatio[coarse] * kFineFactor[fine];
 }
 
 double extDetuneCents(int detune, int midinote) {
-    return clampi(detune, -15, 15) * interpolate(kDetuneNotes, kDetuneCentsPerStep, midinote);
+    const int d = clampi(detune, -15, 15) + 15;
+    constexpr size_t rows = sizeof kDetuneNotes / sizeof kDetuneNotes[0];
+    if (midinote <= kDetuneNotes[0])
+        return kDetuneCents[0][d];
+    for (size_t i = 1; i < rows; i++)
+        if (midinote <= kDetuneNotes[i]) {
+            const double u = (midinote - kDetuneNotes[i - 1]) / (kDetuneNotes[i] - kDetuneNotes[i - 1]);
+            return kDetuneCents[i - 1][d] + u * (kDetuneCents[i][d] - kDetuneCents[i - 1][d]);
+        }
+    return kDetuneCents[rows - 1][d];
 }
 
 double extFixedHz(int coarse, int fine) {
-    return kFixedBaseHz * std::pow(2.0, kFixedCoarseOct * clampi(coarse, 0, 31) + kFixedFineOct * clampi(fine, 0, 127));
+    return std::min(kFixedMaxHz, kFixedBaseHz * std::pow(2.0, clampi(coarse, 0, 31) - 16 + clampi(fine, 0, 127) / 128.0));
 }
 
 double extKeyFollowCents(int sensitivity, int midinote) {
-    return kKeyFollowCentsPerKey * clampi(sensitivity, 0, 99) / 99.0 * (midinote - kKeyFollowCentre);
+    return interpolate(kKeyFollowX, kKeyFollowCentsPerKey, clampi(sensitivity, 0, 99)) * (midinote - kKeyFollowCentre);
 }
 
-double extPitchVelocityCents(int sensitivity, int velocity) {
-    return kPitchVelocityCents * clampi(sensitivity, -7, 7) / 7.0 * (clampi(velocity, 1, 127) - kPitchVelocityCentre) / 126.0;
+// The common depth sets the offset for every operator, scaled by velocity; the operator
+// sensitivity changed nothing in the reference renders (measured -7 to +7 at depths -64 and
+// +63), so it is kept as a parameter and not applied.
+double extPitchVelocityCents(int depth, int /*sensitivity*/, int velocity) {
+    return interpolate(kPitchVelocityDepth, kPitchVelocityDepthCents, clampi(depth, -64, 63)) *
+           interpolate(kPitchVelocityX, kPitchVelocityFactor, clampi(velocity, 0, 127));
 }
 
-double extPegCents(int level) { return kPegCentsPerStep * clampi(level, -50, 50); }
-double extPegMs(int t) { return kDecayMsPerDb[clampi(t, 0, 99)] * kPegMsPerDecayMs; }
+double extPegCents(int level) { return kPegCents[clampi(level, -50, 50) + 50]; }
+double extPegCentsPerMs(int t) { return kPegRate / kDecayMsPerDb[clampi(t, 0, 99)]; }
 
 double extLfoHz(int speed) { return kLfoNormalHz[clampi(speed, 0, 99)]; }
 double extLfoExtendedHz(int speed) { return interpolate(kLfoExtX, kLfoExtHz, clampi(speed, 0, 415)); }

@@ -35,60 +35,92 @@ constexpr int32_t kFullScale = ((((127 >> 1) << 6) + (127 << 5) - 4256) << 16);
 
 // The modern kernels with sample-by-sample rendering of multi-operator feedback loops.
 struct ExtKernels {
+    // each operator's per-sample gains for this block (ExtNote::compute), indexed by its
+    // FmOpParams index; `cur` is the operator renderGraph asked gains() about last
+    const int32_t (*gainOf)[N] = nullptr;
+    const FmOpParams *base = nullptr;
+    int cur = 0;
     bool gains(FmOpParams &p, int32_t &gain1, int32_t &gain2) {
         const int kLevelThresh = 1120;
-        gain1 = p.gain_out;
-        gain2 = Exp2::lookup(p.level_in - (14 * (1 << 24)));
+        cur = (int)(&p - base);
+        const int32_t *g = gainOf[cur];
+        gain1 = g[0];
+        gain2 = g[N - 1];
         p.gain_out = gain2;
-        return gain1 >= kLevelThresh || gain2 >= kLevelThresh;
+        int32_t most = 0;
+        for (int i = 0; i < N; i++)
+            most = std::max(most, g[i]);
+        return most >= kLevelThresh;
     }
+    void ramp(int32_t, int32_t, int32_t *g) const { std::copy(gainOf[cur], gainOf[cur] + N, g); }
     void compute(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
-        FmOpKernel::compute(o, in, ph, f, g1, g2, add);
+        int32_t g[N];
+        ramp(g1, g2, g);
+        for (int i = 0; i < N; i++, ph += f) {
+            const int32_t y = (int32_t)(((int64_t)Sin::lookup(ph + in[i]) * g[i]) >> 24);
+            o[i] = add ? o[i] + y : y;
+        }
     }
     void compute_pure(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
-        FmOpKernel::compute_pure(o, ph, f, g1, g2, add);
-    }
-    void compute_fb(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift, bool add) {
-        FmOpKernel::compute_fb(o, ph, f, g1, g2, fb, shift, add);
+        int32_t g[N];
+        ramp(g1, g2, g);
+        for (int i = 0; i < N; i++, ph += f) {
+            const int32_t y = (int32_t)(((int64_t)Sin::lookup(ph) * g[i]) >> 24);
+            o[i] = add ? o[i] + y : y;
+        }
     }
     void compute_fb_mod(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb,
                         int shift) {
-        FmOpKernel::compute_fb_mod(o, in, ph, f, g1, g2, fb, shift);
+        int32_t g[N];
+        ramp(g1, g2, g);
+        int32_t y0 = fb[0], y = fb[1];
+        for (int i = 0; i < N; i++, ph += f) {
+            const int32_t scaled = (y0 + y) >> (shift + 1);
+            y0 = y;
+            y = (int32_t)(((int64_t)Sin::lookup(ph + (in ? in[i] : 0) + scaled) * g[i]) >> 24);
+            o[i] = y;
+        }
+        fb[0] = y0;
+        fb[1] = y;
+    }
+    void compute_fb(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift, bool add) {
+        if (!add) {
+            compute_fb_mod(o, nullptr, ph, f, g1, g2, fb, shift);
+            return;
+        }
+        int32_t tmp[N];
+        compute_fb_mod(tmp, nullptr, ph, f, g1, g2, fb, shift);
+        for (int i = 0; i < N; i++)
+            o[i] += tmp[i];
     }
     int selfFeedbackShift(int shift) { return shift; }
     // A loop feedbackOp > ... > feedbackFrom (algorithms 12 and 14): every operator of the loop
-    // sample by sample, the first one taking the average of the last one's two latest outputs
-    // (as compute_fb does for itself), the others their modulators' sums.
+    // sample by sample, each from its modulators' sum, the first one also taking the average
+    // of the last one's two latest outputs (as compute_fb does for itself).
     bool loop(const CompiledAlgorithm &a, FmOpParams *params, int32_t g1first, int32_t g2first, int32_t *fb,
               int shift, AlignedBuf<int32_t, N> *bufs, bool *audible, uint8_t &rendered) {
         if (a.loopLength < 2)
             return false;
-        int32_t g1[8], g2[8], dgain[8], gain[8];
-        for (int k = 0; k < a.loopLength; k++) {
-            const int op = a.loop[k];
-            if (k == 0) {
-                g1[k] = g1first;
-                g2[k] = g2first;
-            } else {
-                gains(params[op], g1[k], g2[k]);
-            }
-            dgain[k] = (g2[k] - g1[k] + (N >> 1)) >> LG_N;
-            gain[k] = g1[k];
+        (void)g1first;
+        (void)g2first;
+        for (int k = 1; k < a.loopLength; k++) {
+            int32_t unused1, unused2;
+            gains(params[a.loop[k]], unused1, unused2); // (updates gain_out)
         }
         int32_t y0 = fb[0], y = fb[1];
         for (int i = 0; i < N; i++) {
             for (int k = 0; k < a.loopLength; k++) {
                 const int op = a.loop[k];
                 FmOpParams &p = params[op];
-                gain[k] += dgain[k];
+                const int32_t gain = gainOf[op][i];
                 int32_t in = 0;
                 for (int j = 0; j < a.count; j++)
                     if (((a.inputs[op] >> j) & 1) && audible[j] && j != op)
                         in += bufs[j].get()[i];
                 if (k == 0)
-                    in = (y0 + y) >> (shift + 1);
+                    in += (y0 + y) >> (shift + 1);
                 const int32_t ph = p.phase + p.freq * i;
-                const int32_t out = (int32_t)(((int64_t)Sin::lookup(ph + in) * gain[k]) >> 24);
+                const int32_t out = (int32_t)(((int64_t)Sin::lookup(ph + in) * gain) >> 24);
                 bufs[op].get()[i] = out;
                 if (k == a.loopLength - 1) {
                     y0 = y;
@@ -112,30 +144,29 @@ struct ExtKernels {
 
 // ---- envelope ----
 
-int32_t ExtEnv::target(int i) const { return targets_[i]; }
-
 void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
                        double sampleRate) {
-    const double blocksPerSecond = sampleRate / N;
+    constexpr double q32 = 4294967296.0;
+    full_ = (int64_t)outlevel << 8;
     for (int i = 0; i < 4; i++) {
         levels_[i] = std::clamp(levels[i], 0, 99);
         const double db = extEgLevelDb(levels_[i]);
-        targets_[i] = std::max(0, outlevel + dbToLog(db));
-        // segment i (attack, decay 1, decay 2, release): dB per block
+        targets_[i] = std::max<int64_t>(0, ((int64_t)outlevel << 8) + (int64_t)std::llround(db * kLog2PerDb * q32));
+        // segment i (attack, decay 1, decay 2, release): dB per sample
         const double msPerDb = (i == 0 ? extAttackMsPerDb(std::clamp(times[i], 0, 99))
                                        : extEgMsPerDb(std::clamp(times[i], 0, 99))) * timeScale;
-        const double dbPerBlock = 1000.0 / (msPerDb * blocksPerSecond);
-        inc_[i] = std::max(1, dbToLog(dbPerBlock));
+        const double dbPerSample = 1000.0 / (msPerDb * sampleRate);
+        inc_[i] = std::max<int64_t>(1, std::llround(dbPerSample * kLog2PerDb * q32));
         if (i == 0) {
-            // the attack approaches a point extAttackOverDb above its target exponentially
-            // in dB, at the segment's rate in doublings per second (see ext_tables.h)
-            const double perBlock = 1.0 - std::exp(-dbPerBlock / 6.020599913279624);
-            attackFrac_ = (int32_t)std::lround(perBlock * (1 << 30));
-            attackOver_ = dbToLog(extAttackOverDb());
-            attackStart_ = dbToLog(-extAttackStartDb());
+            // the attack starts extAttackStartDb below the operator's full level and approaches
+            // a point extAttackOverDb above full level exponentially in dB (as the DX7's
+            // does), at the segment's rate in doublings per second; it stops at its target
+            attackFrac_ = 1.0 - std::exp(-dbPerSample * kLog2PerDb);
+            attackOver_ = std::llround(extAttackOverDb() * kLog2PerDb * q32);
+            attackStart_ = std::llround(-extAttackStartDb() * kLog2PerDb * q32);
         }
     }
-    holdBlocks_ = (int)std::lround(extHoldMs(std::clamp(holdTime, 0, 99)) * timeScale * blocksPerSecond / 1000.0);
+    holdSamples_ = (int)std::lround(extHoldMs(std::clamp(holdTime, 0, 99)) * timeScale * sampleRate / 1000.0);
 }
 
 void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
@@ -143,7 +174,7 @@ void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t
     configure(levels, times, holdTime, outlevel, timeScale, sampleRate);
     down_ = true;
     level_ = targets_[3]; // the hold level
-    count_ = holdBlocks_;
+    count_ = holdSamples_;
     ix_ = count_ > 0 ? 0 : 1;
 }
 
@@ -155,18 +186,16 @@ void ExtEnv::update(const int levels[4], const int times[4], int holdTime, int32
 void ExtEnv::advance(int ix) { ix_ = ix; }
 
 int32_t ExtEnv::getsample() {
-    switch (ix_) {
-    case 0:
+    if (ix_ == 0) {
         if (--count_ <= 0)
             ix_ = 1;
-        return level_;
-    case 1: case 2: case 3: case 4: {
+    } else if (ix_ <= 4) {
         const int seg = ix_ - 1;
-        const int32_t t = targets_[seg];
+        const int64_t t = targets_[seg];
         if (seg == 0 && level_ < t) {
-            level_ = std::max(level_, t + attackStart_);
-            const int64_t step = ((int64_t)(t + attackOver_ - level_) * attackFrac_) >> 30;
-            level_ = std::min(t, level_ + (int32_t)std::max<int64_t>(step, 1));
+            level_ = std::max(level_, full_ + attackStart_);
+            const int64_t step = (int64_t)((double)(full_ + attackOver_ - level_) * attackFrac_);
+            level_ = std::min(t, level_ + std::max<int64_t>(step, 1));
         } else if (level_ < t) {
             level_ = std::min(t, level_ + inc_[seg]);
         } else if (level_ > t) {
@@ -176,11 +205,8 @@ int32_t ExtEnv::getsample() {
             ix_++;           // decay 2 holds its level while the key is down
         else if (level_ == t && ix_ == 4)
             ix_ = 5;
-        return level_;
     }
-    default:
-        return level_;
-    }
+    return (int32_t)(level_ >> 8);
 }
 
 void ExtEnv::keydown(bool down) {
@@ -197,23 +223,31 @@ void ExtPitchEnv::init(int initial, int attack, int attackTime, int decayTime, d
     const double blocksPerSecond = sampleRate / N;
     level_ = (int32_t)std::lround(extPegCents(initial) / 1200.0 * kQ24);
     attack_ = (int32_t)std::lround(extPegCents(attack) / 1200.0 * kQ24);
-    // octaves per block over the full range of the EG (from -50 to +50)
-    const double span = (extPegCents(50) - extPegCents(-50)) / 1200.0 * kQ24;
-    incA_ = std::max(1, (int)std::lround(span / (extPegMs(attackTime) * blocksPerSecond / 1000.0)));
-    incD_ = std::max(1, (int)std::lround(span / (extPegMs(decayTime) * blocksPerSecond / 1000.0)));
+    // each segment takes the time its time value gives for the EG's full upward range,
+    // whatever distance it covers (with initial and attack level equal, the level holds for
+    // the attack time), moving straight in cents
+    auto blocks = [&](int t) {
+        return std::max(1, (int)std::lround(extPegCents(50) / extPegCentsPerMs(t) * blocksPerSecond / 1000.0));
+    };
+    durA_ = blocks(attackTime);
+    durD_ = blocks(decayTime);
+    start_ = level_;
+    count_ = 0;
     ix_ = level_ == 0 && attack_ == 0 ? 2 : 0;
 }
 
 int32_t ExtPitchEnv::getsample() {
     if (ix_ < 2) {
         const int32_t t = ix_ == 0 ? attack_ : 0;
-        const int32_t inc = ix_ == 0 ? incA_ : incD_;
-        if (level_ < t)
-            level_ = std::min(t, level_ + inc);
-        else if (level_ > t)
-            level_ = std::max(t, level_ - inc);
-        if (level_ == t)
+        const int dur = ix_ == 0 ? durA_ : durD_;
+        count_++;
+        level_ = start_ + (int32_t)((int64_t)(t - start_) * count_ / dur);
+        if (count_ >= dur) {
+            level_ = t;
+            start_ = t;
+            count_ = 0;
             ix_++;
+        }
     }
     return level_;
 }
@@ -238,7 +272,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             reset_ |= (uint8_t)(1u << i);
         // frequency
         fixed_[i] = o(ext::Mode) != 0;
-        double cents = extPitchVelocityCents(o(ext::PitchVelocity), velocity);
+        double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity);
         int32_t pitch;
         if (fixed_[i]) {
             cents += extKeyFollowCents(o(ext::KeyFollow), midinote);
@@ -295,16 +329,25 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, int32_t 
         if (!fixed_[i])
             pitch += pmod;
         params_[i].freq = rate_->freqlut.lookup(pitch);
-        int32_t level = env_[i].getsample();
+        uint32_t pt = 0;
         if (ampSens_[i] != 0) {
             const uint32_t sensamp = (uint32_t)(((uint64_t)amd * (uint64_t)ampSens_[i]) >> 24);
-            const uint32_t pt = (uint32_t)std::exp(((float)sensamp) / 262144 * 0.07 + 12.2);
-            const uint32_t ldiff = (uint32_t)(((uint64_t)level * ((uint64_t)pt << 4)) >> 28);
-            level -= (int32_t)ldiff;
+            // (less its value at zero depth: the DX7 code lowers every level by 1.2 % even
+            // without modulation, which would slow every Extended envelope by as much)
+            pt = (uint32_t)(std::exp(((float)sensamp) / 262144 * 0.07 + 12.2) - std::exp(12.2f));
+        }
+        int32_t level = 0;
+        for (int s = 0; s < N; s++) {
+            level = env_[i].getsample();
+            if (pt != 0)
+                level -= (int32_t)(((uint64_t)level * ((uint64_t)pt << 4)) >> 28);
+            gains_[i][s] = Exp2::lookup(level - (14 * (1 << 24)));
         }
         params_[i].level_in = level;
     }
     ExtKernels k;
+    k.gainOf = gains_;
+    k.base = params_;
     renderGraph(k, extCompiled(algorithm_), buf, params_, fbBuf_, fbShift_, bufs_, sum_.get());
 }
 

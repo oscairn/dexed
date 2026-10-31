@@ -23,7 +23,8 @@ class TuningState;
 struct Controllers;
 
 // An amplitude envelope in MSFA's log format (Q24, 1 << 24 per doubling), advanced once per
-// N samples: hold (at the release level), attack, decay 1, decay 2 (sustained), release.
+// sample (segments as short as a millisecond keep their measured times): hold (at the
+// release level), attack, decay 1, decay 2 (sustained), release.
 class ExtEnv {
 public:
     // levels and times are the 0-99 panel values; outlevel is the operator's level in the same
@@ -32,38 +33,41 @@ public:
               double sampleRate);
     void update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
                 double sampleRate);
-    int32_t getsample();
+    int32_t getsample(); // one sample
     void keydown(bool down);
     bool isActive() const { return ix_ < 5 || levels_[3] > 0; }
     int segment() const { return ix_; }
     void transfer(const ExtEnv &src) { *this = src; }
 
 private:
-    int32_t target(int i) const;
     void advance(int ix);
     void configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
                    double sampleRate);
 
     int levels_[4] = {};
-    int32_t targets_[4] = {};  // per segment, log level
-    int32_t inc_[4] = {};      // per segment, log level per block
-    int32_t attackFrac_ = 0;   // attack: fraction (Q30) of the way to its asymptote per block
-    int32_t attackOver_ = 0;   // attack: how far above its target the asymptote lies
-    int32_t attackStart_ = 0;  // attack: where it starts, below its target
-    int holdBlocks_ = 0;
-    int32_t level_ = 0;
+    // levels in Q32 per doubling (the Q24 format with 8 more fraction bits, so the slowest
+    // segments' per-sample steps keep their precision)
+    int64_t targets_[4] = {};  // per segment
+    int64_t inc_[4] = {};      // per segment, per sample
+    double attackFrac_ = 0;    // attack: fraction of the way to its asymptote per sample
+    int64_t attackOver_ = 0;   // attack: how far above full level its asymptote lies
+    int64_t attackStart_ = 0;  // attack: where it starts, below full level
+    int64_t full_ = 0;         // the operator's level at EG level 99
+    int holdSamples_ = 0;
+    int64_t level_ = 0;
     int ix_ = 5;               // 0 hold, 1 attack, 2 decay 1, 3 decay 2, 4 release, 5 done
-    int count_ = 0;            // hold: blocks left
+    int count_ = 0;            // hold: samples left
     bool down_ = false;
 };
 
-// The operator pitch EG: initial level, attack time, attack level, decay time, then 0.
+// The operator pitch EG: initial level, attack time, attack level, decay time, then 0 (per block).
 class ExtPitchEnv {
 public:
     void init(int initial, int attack, int attackTime, int decayTime, double sampleRate);
     int32_t getsample(); // log frequency offset (Q24 per octave)
 private:
-    int32_t level_ = 0, attack_ = 0, incA_ = 0, incD_ = 0;
+    int32_t level_ = 0, attack_ = 0, start_ = 0;
+    int durA_ = 1, durD_ = 1, count_ = 0; // segment lengths and position, in blocks
     int ix_ = 2;
 };
 
@@ -99,6 +103,7 @@ private:
     int32_t ampSens_[8] = {};
     int32_t pitchDepth_ = 0, ampDepth_ = 0;
     int32_t fbBuf_[2] = {};
+    int32_t gains_[8][N];        // per operator, this block's gain per sample
     AlignedBuf<int32_t, N> bufs_[8];
     AlignedBuf<int32_t, N> sum_;
     const SynthRate *rate_ = nullptr;
