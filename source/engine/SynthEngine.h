@@ -29,6 +29,7 @@
 #include "msfa/controllers.h"
 #include "msfa/dx7note.h"
 #include "msfa/lfo.h"
+#include "msfa/synth_rate.h"
 #include "msfa/synth.h"
 #include "msfa/fm_core.h"
 #include "msfa/tuning.h"
@@ -132,6 +133,7 @@ private:
     EngineMkI engineMkI;
     EngineOpl engineOpl;
 
+    SynthRate rate;
     const uint8_t *patch = nullptr;
     std::shared_ptr<TuningState> tuningState;
     MTSClient *mtsClient = nullptr;

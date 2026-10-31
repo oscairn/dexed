@@ -19,11 +19,12 @@
 
 #include <stdint.h>
 
+// One set per engine instance: the rates depend on the sample rate (they used to be process-wide).
 struct Porta {
   public:
-    static void init_sr(double sampleRate);
-    static int32_t rates[128];
-    static int32_t rates_glissando[128];
+    void init_sr(double sampleRate);
+    int32_t rates[128];
+    int32_t rates_glissando[128];
 };
 
 #endif

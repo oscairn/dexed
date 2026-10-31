@@ -23,7 +23,6 @@
 #include "../debugger/Logger.h"
 //using namespace std;
 
-uint32_t Env::sr_multiplier = (1<<24);
 
 const int levellut[] = {
     0, 5, 9, 13, 17, 20, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 42, 43, 45, 46
@@ -46,10 +45,6 @@ const int statics[] = {
 
 Env::Env() {
     initialised_ = false;
-}
-
-void Env::init_sr(double sampleRate) {
-    sr_multiplier = (44100.0 / sampleRate) * (1<<24);
 }
 
 void Env::init(const int r[4], const int l[4], int ol, int rate_scaling) {

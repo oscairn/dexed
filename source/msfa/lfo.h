@@ -18,7 +18,7 @@
 
 class Lfo {
 public:
-    static void init(double sample_rate);
+    void init(double sample_rate);
 
     void reset(const uint8_t params[6]);
 
@@ -31,8 +31,9 @@ public:
     void keydown();
 
 private:
-    static uint32_t lforatio_;
-    static uint32_t unit_;
+    // per instance: they depend on the sample rate (they used to be process-wide)
+    uint32_t lforatio_ = 0;
+    uint32_t unit_ = 0;
 
     // phase, S/H and delay state used to be read uninitialised until a synced key-down
     uint32_t phase_ = 0; // Q32

@@ -14,8 +14,18 @@
  * limitations under the License.
  */
 
+#ifndef SYNTH_FREQLUT_H_
+#define SYNTH_FREQLUT_H_
+
+#include <stdint.h>
+
+// One table per engine instance: it depends on the sample rate (it used to be process-wide).
 class Freqlut {
  public:
-  static void init(double sample_rate);
-  static int32_t lookup(int32_t logfreq);
+  void init(double sample_rate);
+  int32_t lookup(int32_t logfreq) const;
+ private:
+  int32_t lut[(1 << 10) + 1];
 };
+
+#endif

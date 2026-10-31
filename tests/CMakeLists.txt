@@ -31,6 +31,7 @@ target_compile_definitions(dexed-render-engine PRIVATE DEXED_HEADLESS=1)
 
 add_test(NAME dx7-baseline-engine COMMAND dexed-render-engine --check ${DEXED_BASELINE})
 add_test(NAME dx7-baseline-engine-reverse COMMAND dexed-render-engine --check ${DEXED_BASELINE} --reverse)
+add_test(NAME dx7-baseline-engine-two-rates COMMAND dexed-render-engine --interleaved ${DEXED_BASELINE})
 
 # Oscairn's scanner and offline renderer (docs/plugin-porting.md), when an Oscairn build is
 # given: -DDEXED_OSCAIRN_BUILD_DIR=<oscairn build> with oscairn-plugin-scan, oscairn-render

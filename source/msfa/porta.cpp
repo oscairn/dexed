@@ -37,6 +37,3 @@ void Porta::init_sr(double sampleRate) {
         rates_glissando[i] = (int32_t) (0.5f + step * spp); // to pitch units
     }
 }
-
-int32_t Porta::rates[128];
-int32_t Porta::rates_glissando[128];

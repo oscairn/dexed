@@ -81,6 +81,8 @@ static inline uint16_t sinLog(uint16_t phi) {
 }
 
 EngineMkI::EngineMkI() {
+    // the tables are shared by every instance: build them once, thread-safely
+    static const bool tablesReady = [] {
     float bitReso = SINLOG_TABLESIZE;
     
     for(int i=0;i<SINLOG_TABLESIZE;i++) {
@@ -93,6 +95,9 @@ EngineMkI::EngineMkI() {
         float x1 = (pow(2, float(i)/bitReso)-1) * 4096;
         sinExpTable[i] = round(x1);
     }
+    return true;
+    }();
+    (void)tablesReady;
     
 #ifdef MKIDEBUG
     char buffer[4096];

@@ -63,9 +63,14 @@ static const int LFO_PARAMS = 137;
 static const int TRANSPOSE = 144;
 
 SynthEngine::SynthEngine() {
-    Exp2::init();
-    Tanh::init();
-    Sin::init();
+    // sample-rate independent tables shared by every instance: built once, thread-safely
+    static const bool sharedTablesReady = [] {
+        Exp2::init();
+        Tanh::init();
+        Sin::init();
+        return true;
+    }();
+    (void)sharedTablesReady;
 
     currentNote = -1;
     engineType = -1;
@@ -95,15 +100,12 @@ void SynthEngine::setTuning(std::shared_ptr<TuningState> t) {
 }
 
 void SynthEngine::prepare(double sampleRate) {
-    Freqlut::init(sampleRate);
-    Lfo::init(sampleRate);
-    PitchEnv::init(sampleRate);
-    Env::init_sr(sampleRate);
-    Porta::init_sr(sampleRate);
+    rate.init(sampleRate);
+    lfo.init(sampleRate);
     fx.init(sampleRate);
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
-        voices[note].dx7_note = new Dx7Note(tuningState, mtsClient);
+        voices[note].dx7_note = new Dx7Note(tuningState, mtsClient, &rate);
         voices[note].midi_note = -1;
         voices[note].keydown = false;
         voices[note].sustained = false;

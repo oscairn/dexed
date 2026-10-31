@@ -21,7 +21,8 @@
 
 class PitchEnv {
  public:
-  static void init(double sample_rate);
+  // the unit_ for a sample rate
+  static int unitFor(double sample_rate);
 
   // The rates and levels arrays are calibrated to match the Dx7 parameters
   // (ie, value 0..99).
@@ -31,8 +32,10 @@ class PitchEnv {
   int32_t getsample();
   void keydown(bool down);
   void getPosition(char *step);
+
+  // set by the voice from its engine's rate (it used to be process-wide)
+  int unit_ = 0;
  private:
-  static int unit_;
   int rates_[4];
   int levels_[4];
   int32_t level_;

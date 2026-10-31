@@ -29,6 +29,7 @@
 #include "fm_core.h"
 #include "tuning.h"
 #include "porta.h"
+#include "synth_rate.h"
 #include "libMTSClient.h"
 #include <memory>
 
@@ -40,7 +41,7 @@ struct VoiceStatus {
 
 class Dx7Note {
 public:
-    Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc);
+    Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc, const SynthRate *rate);
     void init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls);
     void initPortamento(const Dx7Note &srcNote);
 
@@ -99,6 +100,7 @@ private:
     double mtsFreq;
     static const int32_t mtsLogFreqToNoteLogFreq;
     MTSClient *mtsClient;
+    const SynthRate *rate_;
     int32_t osc_freq(int midinote, int mode, int coarse, int fine, int detune, int channel);
 };
 

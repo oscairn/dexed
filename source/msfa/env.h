@@ -49,7 +49,6 @@ class Env {
   static int scaleoutlevel(int outlevel);
   void getPosition(char *step);
     
-  static void init_sr(double sample_rate);
   void transfer(Env &src);
   bool isActive();
 
@@ -58,7 +57,11 @@ class Env {
 
   // PG: This code is normalized to 44100, need to put a multiplier
   // if we are not using 44100.
-  static uint32_t sr_multiplier;
+ public:
+  // (44100 / sample rate) in Q24, set by the voice from its engine's rate (it used to be
+  // process-wide)
+  uint32_t sr_multiplier = (1<<24);
+ private:
 
   int rates_[4];
   int levels_[4];

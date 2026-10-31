@@ -30,8 +30,6 @@
 
 #define MAX_LOGFREQ_INT 20
 
-int32_t lut[N_SAMPLES + 1];
-
 void Freqlut::init(double sample_rate) {
   double y = (1LL << (24 + MAX_LOGFREQ_INT)) / sample_rate;
   double inc = pow(2, 1.0 / N_SAMPLES);
@@ -43,7 +41,7 @@ void Freqlut::init(double sample_rate) {
 
 // Note: if logfreq is more than 20.0, the results will be inaccurate. However,
 // that will be many times the Nyquist rate.
-int32_t Freqlut::lookup(int32_t logfreq) {
+int32_t Freqlut::lookup(int32_t logfreq) const {
   int ix = (logfreq & 0xffffff) >> SAMPLE_SHIFT;
 
   int32_t y0 = lut[ix];

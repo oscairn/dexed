@@ -151,13 +151,15 @@ static const uint32_t ampmodsenstab[] = {
 
 const int32_t Dx7Note::mtsLogFreqToNoteLogFreq = (1 << 24) / log(2.);
 
-Dx7Note::Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc)
-: tuning_state_(ts), mtsClient(mtsc) {
+Dx7Note::Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc, const SynthRate *rate)
+: tuning_state_(ts), mtsClient(mtsc), rate_(rate) {
     initialised_ = false;
     for(int op=0;op<6;op++) {
         params_[op].phase = 0;
         params_[op].gain_out = 0;
+        env_[op].sr_multiplier = rate->envMultiplier;
     }
+    pitchenv_.unit_ = rate->pitchEnvUnit;
     // the feedback history was read before ever being written
     fb_buf_[0] = 0;
     fb_buf_[1] = 0;
@@ -287,11 +289,11 @@ void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Co
     int porta_rate;
     if ( ctrls->portamento_enable_cc ) {
         if ( ctrls->portamento_gliss_cc )
-            porta_rate = Porta::rates_glissando[ctrls->portamento_cc];
+            porta_rate = rate_->porta.rates_glissando[ctrls->portamento_cc];
         else
-            porta_rate = Porta::rates[ctrls->portamento_cc];
+            porta_rate = rate_->porta.rates[ctrls->portamento_cc];
     } else {
-        porta_rate = Porta::rates[0];
+        porta_rate = rate_->porta.rates[0];
     }
 
     // ==== OP RENDER ====
@@ -303,7 +305,7 @@ void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Co
             int32_t basepitch = basepitch_[op];
 
             if ( opMode[op] ) { 
-                params_[op].freq = Freqlut::lookup(basepitch + pitch_base);
+                params_[op].freq = rate_->freqlut.lookup(basepitch + pitch_base);
             } else {
                 if (porta_curpitch_[op] != basepitch_[op]) {
                     basepitch = porta_curpitch_[op];
@@ -322,7 +324,7 @@ void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Co
 
                     porta_curpitch_[op] = newpitch;
                 }
-                params_[op].freq = Freqlut::lookup(basepitch + pitch_mod);
+                params_[op].freq = rate_->freqlut.lookup(basepitch + pitch_mod);
             }
 
             int32_t level = env_[op].getsample();
