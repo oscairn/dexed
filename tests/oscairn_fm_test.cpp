@@ -33,6 +33,7 @@
 #include "msfa/synth.h"
 #include <oscairn-clap/sound-contexts.h>
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <fstream>
@@ -855,6 +856,40 @@ int extendedTest() {
                 pitchCase({ { 51, depth }, { 1036, pv } }, 60, vel / 127.0,
                           noteHz(60) * std::pow(2.0, extPitchVelocityCents(depth, pv, vel) / 1200),
                           "pitch velocity " + std::to_string(depth) + "/" + std::to_string(pv) + " velocity " + std::to_string(vel));
+    // -- operator pitch EG: each segment straight in cents at its time value's rate; with
+    // initial and attack level equal the decay starts at once (1 cent, 4 ms windows)
+    for (const auto &pc : std::vector<std::array<int, 4>>{ { 10, 10, 0, 40 }, { -10, -10, 0, 30 }, { 0, 10, 35, 99 } }) {
+        const auto x = renderExtended({ { 1037, pc[0] }, { 1038, pc[1] }, { 1039, pc[2] }, { 1040, pc[3] } }, 93, 1.0,
+                                      0.3, 0.3);
+        const double c0 = extPegCents(pc[0]), c1 = extPegCents(pc[1]);
+        const double ra = extPegCentsPerMs(pc[2]), rd = extPegCentsPerMs(pc[3]);
+        auto expected = [&](double ms) {
+            const double ta = std::fabs(c1 - c0) / ra;
+            if (ms < ta)
+                return c0 + (c1 > c0 ? 1 : -1) * ra * ms;
+            const double d = rd * (ms - ta);
+            return std::fabs(c1) <= d ? 0.0 : c1 - (c1 > 0 ? d : -d);
+        };
+        for (double ms = 4; ms < 60; ms += 8) {
+            // the mean frequency between the window's first and last rising zero crossings,
+            // compared with the expected pitch midway between them
+            double first = -1, last = -1;
+            int cycles = 0;
+            for (size_t i = (size_t)(ms * rate / 1000) + 1; i < (size_t)((ms + 4) * rate / 1000); i++)
+                if (x[i - 1] < 0 && x[i] >= 0) {
+                    const double t = (double)(i - 1) + x[i - 1] / (x[i - 1] - x[i]);
+                    cycles += first >= 0;
+                    first = first < 0 ? t : first;
+                    last = t;
+                }
+            const double mid = (first + last) / 2 / rate * 1000;
+            const double got = 1200 * std::log2(cycles * rate / (last - first) / (f69 * 4));
+            expect(cycles > 0 && std::fabs(got - expected(mid)) < 1.0,
+                   "pitch EG " + std::to_string(pc[0]) + "/" + std::to_string(pc[1]) + "/" + std::to_string(pc[2]) +
+                       "/" + std::to_string(pc[3]) + " at " + std::to_string(mid) + " ms: " + std::to_string(got) +
+                       " cents, expected " + std::to_string(expected(mid)));
+        }
+    }
     // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw; Extended
     // sounds advance it once per sample (every speed up to 1357 Hz)
     for (int range = 0; range < 2; range++)

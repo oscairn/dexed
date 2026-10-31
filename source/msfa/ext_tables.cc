@@ -135,7 +135,7 @@ double extPitchVelocityCents(int depth, int /*sensitivity*/, int velocity) {
 }
 
 double extPegCents(int level) { return kPegCents[clampi(level, -50, 50) + 50]; }
-double extPegCentsPerMs(int t) { return kPegRate / kDecayMsPerDb[clampi(t, 0, 99)]; }
+double extPegCentsPerMs(int t) { return kPegCentsPerMs[clampi(t, 0, 99)]; }
 
 double extLfoHz(int speed) { return kLfoNormalHz[clampi(speed, 0, 99)]; }
 double extLfoExtendedHz(int speed) { return interpolate(kLfoExtX, kLfoExtHz, clampi(speed, 0, 415)); }

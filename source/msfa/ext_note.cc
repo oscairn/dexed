@@ -228,36 +228,28 @@ void ExtEnv::keydown(bool down) {
 // ---- operator pitch EG ----
 
 void ExtPitchEnv::init(int initial, int attack, int attackTime, int decayTime, double sampleRate) {
-    const double blocksPerSecond = sampleRate / N;
-    level_ = (int32_t)std::lround(extPegCents(initial) / 1200.0 * kQ24);
-    attack_ = (int32_t)std::lround(extPegCents(attack) / 1200.0 * kQ24);
-    // each segment takes the time its time value gives for the EG's full upward range,
-    // whatever distance it covers (with initial and attack level equal, the level holds for
-    // the attack time), moving straight in cents
-    auto blocks = [&](int t) {
-        return std::max(1, (int)std::lround(extPegCents(50) / extPegCentsPerMs(t) * blocksPerSecond / 1000.0));
+    level_ = (int64_t)std::lround(extPegCents(initial) / 1200.0 * kQ24) << 16;
+    attack_ = (int64_t)std::lround(extPegCents(attack) / 1200.0 * kQ24) << 16;
+    auto inc = [&](int t) {
+        return std::max<int64_t>(1, std::llround(extPegCentsPerMs(t) / 1200.0 * kQ24 * 65536.0 * 1000.0 / sampleRate));
     };
-    durA_ = blocks(attackTime);
-    durD_ = blocks(decayTime);
-    start_ = level_;
-    count_ = 0;
+    incA_ = inc(attackTime);
+    incD_ = inc(decayTime);
     ix_ = level_ == 0 && attack_ == 0 ? 2 : 0;
 }
 
 int32_t ExtPitchEnv::getsample() {
     if (ix_ < 2) {
-        const int32_t t = ix_ == 0 ? attack_ : 0;
-        const int dur = ix_ == 0 ? durA_ : durD_;
-        count_++;
-        level_ = start_ + (int32_t)((int64_t)(t - start_) * count_ / dur);
-        if (count_ >= dur) {
-            level_ = t;
-            start_ = t;
-            count_ = 0;
+        const int64_t t = ix_ == 0 ? attack_ : 0;
+        const int64_t inc = ix_ == 0 ? incA_ : incD_;
+        if (level_ < t)
+            level_ = std::min(t, level_ + inc);
+        else if (level_ > t)
+            level_ = std::max(t, level_ - inc);
+        if (level_ == t)
             ix_++;
-        }
     }
-    return level_;
+    return level();
 }
 
 // ---- voice ----
@@ -340,18 +332,22 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
     }
     uint32_t phase0[ext::Ops];
     for (int i = 0; i < ext::Ops; i++) {
-        const int32_t pitch = basepitch_[i] + peg_[i].getsample() + pitchBase;
+        const int32_t pitch = basepitch_[i] + pitchBase;
         int32_t *f = freqs_[i];
-        if (!fixed_[i] && pitchSens_[i] != 0 && pitchMod) {
+        const bool lfoPitch = !fixed_[i] && pitchSens_[i] != 0 && pitchMod;
+        if (lfoPitch || peg_[i].active()) {
             for (int s = 0; s < N; s++) {
-                const int32_t senslfo = pitchSens_[i] * (lfo[s] - (1 << 23));
-                int32_t pmod = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
-                const int32_t pmodWheel = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
-                pmod = std::abs(pmod) >= std::abs(pmodWheel) ? pmod : pmodWheel;
-                f[s] = rate_->freqlut.lookup(pitch + pmod);
+                int32_t pmod = 0;
+                if (lfoPitch) {
+                    const int32_t senslfo = pitchSens_[i] * (lfo[s] - (1 << 23));
+                    pmod = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
+                    const int32_t pmodWheel = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
+                    pmod = std::abs(pmod) >= std::abs(pmodWheel) ? pmod : pmodWheel;
+                }
+                f[s] = rate_->freqlut.lookup(pitch + peg_[i].getsample() + pmod);
             }
         } else {
-            std::fill(f, f + N, rate_->freqlut.lookup(pitch));
+            std::fill(f, f + N, rate_->freqlut.lookup(pitch + peg_[i].level()));
         }
         params_[i].freq = f[0];
         phase0[i] = (uint32_t)params_[i].phase;

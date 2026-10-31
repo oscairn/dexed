@@ -37,7 +37,7 @@ double extFixedHz(int coarse, int fine);
 double extKeyFollowCents(int sensitivity, int midinote);  // fixed mode
 double extPitchVelocityCents(int depth, int sensitivity, int velocity); // common depth, operator sensitivity
 double extPegCents(int level);      // operator pitch EG level -50-+50
-double extPegCentsPerMs(int time);   // operator pitch EG: its rate, straight in cents
+double extPegCentsPerMs(int time);   // operator pitch EG: a segment's rate, straight in cents
 
 // LFO
 double extLfoHz(int speed);         // speed range Normal, 0-99

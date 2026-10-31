@@ -60,15 +60,21 @@ private:
     bool down_ = false;
 };
 
-// The operator pitch EG: initial level, attack time, attack level, decay time, then 0 (per block).
+// The operator pitch EG: from the initial level to the attack level, then to 0, each segment
+// straight in cents at its time value's rate (a segment of no distance takes no time), per
+// sample.
 class ExtPitchEnv {
 public:
     void init(int initial, int attack, int attackTime, int decayTime, double sampleRate);
     int32_t getsample(); // log frequency offset (Q24 per octave)
+    int32_t level() const { return (int32_t)(level_ >> 16); }
+    bool active() const { return ix_ < 2; }
 private:
-    int32_t level_ = 0, attack_ = 0, start_ = 0;
-    int durA_ = 1, durD_ = 1, count_ = 0; // segment lengths and position, in blocks
-    int ix_ = 2;
+    // Q24 per octave with 16 more fraction bits, so the slowest rates (about 6 Q24 steps a
+    // sample) keep their precision
+    int64_t level_ = 0, attack_ = 0;
+    int64_t incA_ = 1, incD_ = 1; // per sample
+    int ix_ = 2;                  // 0 attack, 1 decay, 2 done
 };
 
 class ExtNote {
