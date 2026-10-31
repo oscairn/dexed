@@ -1706,7 +1706,9 @@ plugin and native CLAP on arm64; the Extended test now also checks a quiet sine'
 without the rounding, each part value and macro against the operator or filter values it stands
 for, the velocity transform and its NOTE_END, detune, signed bend ranges, the level velocity
 table and the output highpass), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of
-164 identical), ASan/UBSan 19/19, TSan 19/19. CI results are in the session report.
+164 identical), ASan/UBSan 19/19, TSan 19/19. For `c5fbc05` the sanitizer runs were on its tree before a
+one-word comment fix in `ext_voice.h`; Release CTest ran after it. CI results are in the session
+report.
 
 The Octet renders used for comparisons are made with `forks/measurements/m4/octet_render.py`
 (local, now mapping the part values and macros); the equivalence searches with `m7fit.py` and
