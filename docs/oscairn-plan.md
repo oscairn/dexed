@@ -1123,6 +1123,29 @@ fixed frequencies below 20 Hz.
     filter (about 20 Hz) stays for Extended sounds too, 1 dB lower at 33 Hz (note 24).
 14. CI: the macOS job of `oscairn-tests` now runs on macos-15 (GitHub's macos-14 brownout);
     `dexed-pipeline` is left as upstream has it.
+15. Filter type values (M6): Octet's Type parameter (60) numbers the 19 types 0-18 in the
+    documented order (18 Thru, the default); the reference's own values skip 9, 18 and 20
+    (0-8, 10-17, 19, 21), so the converter maps them. The choices are shown with the
+    documented abbreviations (LPF24D ... LPF12+BPF6, Thru), which are generic filter names.
+16. Cutoff and HPF key follow are shown as signed steps (-64..+63, 3.125 % each; +63 plays
+    +200 %) rather than percent.
+17. The reference overloads at high resonance (LPF24D, HPF24D, BPF12D above resonance 80 give
+    an output full of harmonics); Octet does not model that, it only bounds the filter's
+    states. Its filter runs in floating point after the operators and before Dexed's
+    16-bit rounding of each voice.
+18. Filter coefficients and the filter EG are updated once per 64-sample block, ramping the
+    coefficients linearly across it (the FEG's fastest measured segments, 0-20, are instant
+    in the reference and take one block in Octet).
+19. FEG time velocity sensitivity is kept as a parameter and not applied (the reference made
+    a segment instant at velocity 127 with both -64 and +63; unresolved); negative FEG time
+    key follow mirrors the positive rule, though the reference measured shorter there too.
+20. Octet's FEG segments run straight in cents; the reference's bend slightly (up to about 90
+    cents along a 1200-cent segment).
+21. A sound whose filter is not Thru at gain 255 does not convert back to Classic (Dexed's
+    output filter is a plugin setting, not part of the sound).
+22. Carrier feedback (found in M6): the feedback amount fitted in M4 now acts on a carrier's
+    signal before the reference's output level, which `312febe` added later and which had
+    halved the feedback (decision 10's level applies to the output only).
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1193,45 +1216,130 @@ frequency only (pitch EG, LFO and bend moves are not followed; marked as a short
 `ext_note.cc`); Extended sounds could use the reference's 10.3 Hz output highpass instead of
 Dexed's DC filter (1 dB at 33 Hz).
 
-### M6 (started 2026-10-31: filter measurements only, nothing in the engine yet)
+### M6 (in progress, 2026-10-31: the filter and filter EG are in the engine)
 
-Measurement code: oscairn/measurement `fm/filter.py` (`be859e5`). Renders in
-`forks/measurements/m4/filt` (every type at cutoffs 256/512/768, resonance 0/127), `filt2`
-(cutoff every 32nd value, key follow, invalid types) and `filt3` (cutoff every 8th value from
-96 to 896 for LPF12+HPF12 and HPF12, resonance sweeps of four types at cutoff 512). Source: a
-feedback-7 sine at note 36 through the filter, against the same tone through Thru. Whether this
-filter is the same as the analog engine's (RFC 0014/0015's open question) is not settled here;
-the analog agent's own measurements are in `analog/`, not compared yet.
+Commits: `57b5e1a` (the filter, its EG and their parameters), `70ef883` (MSVC), `10d59f1` (carrier
+feedback after the output level change, found while measuring the filter). Measurement code:
+oscairn/measurement `fm/filter.py` (`be859e5`, analog prototypes, superseded),
+`fm/fit_filter.py`, `fm/compare_filter.py`, `fm/compare_feg.py` (`8f9ff9a`). Renders in
+`forks/measurements/m4/`: `filt`, `filt2`, `filt3` (earlier sessions), `filt4` (every cutoff
+value near each segment boundary and above 819, key follow and velocity with a thru per note,
+LPF18s, BPFw, LPF12+BPF6, the HPF of types 4/5, Distance, Filter Gain), `feg` and `feg2` (the
+filter EG through a sine at note 84 and HPF12 near 1 kHz: the sine's level against thru gives
+the cutoff at every sample; decay times at every second value, holds every fourth, release,
+depth, depth velocity per curve, time velocity and key follow, resonance and cutoff velocity,
+cutoff scaling).
 
-- **Type values.** The reference refuses filter types 9, 18 and 20 (the recorder keeps the
-  previous filter; checked by rendering each after a distinctive filter), so the 19 named types
-  are 0-8, 10-17, 19 and 21: 0 LPF24D, 1 LPF24A, 2 LPF18, 3 LPF18s, 4 LPF12+HPF12,
-  5 LPF6+HPF12, 6 HPF24D, 7 HPF12, 8 BPF12D, 10 BPFw, 11 BPF6, 12 BEF12, 13 BEF6, 14 DualLPF,
-  15 DualHPF, 16 DualBPF, 17 DualBEF, 19 LPF12+BPF6, 21 Thru (the default). The first `filt`
-  campaign's types 9, 18 and 20 are therefore copies of the previous render; type 17 (DualBEF,
-  Distance 0) measures identical to type 12.
-- **Shapes at resonance 0** (cutoff 256, about 88 Hz, every type at the same frequency): LPF24D
-  is four identical one-pole low-passes, LPF18 three, LPF12 a two-pole with Q 0.49, LPF24A a
-  Q-1 two-pole times two one-poles, HPF24D/HPF12 the high-pass mirrors, BPF12D two Q-0.5
-  band-passes (-12 dB), BPFw two Q-1 band-passes, DualLPF/DualHPF the 12 dB shapes +6 dB; all
-  within 0.03 dB. LPF6, BPF6, DualBPF and LPF12+BPF6 fit their prototypes only within 0.4-1.3 dB;
-  the band-eliminate types and LPF18s have no fitted model yet.
-- **Resonance:** Q = 0.5 x 2^(resonance / 16) (HPF12 at cutoff 512: 0.98, 1.98, 3.98, 7.99,
-  15.99 at resonance 16-80, residual 0.00 dB; LPF12 the same within 0.2 dB). LPF24D and BPF12D
-  with resonance do not fit their prototypes (resonance on one section only, presumably;
-  unmeasured).
-- **Cutoff:** the cutoff frequency rises in segments about 104 values long (boundaries near
-  204, 308, 412, 516, 616 and 716), roughly an octave each, with the step shrinking within a
-  segment (0.13-0.15 octave per 8 values after a boundary, 0.04-0.05 before the next): 96 ->
-  27 Hz, 256 -> 88.7 Hz, 512 -> 464 Hz, 704 -> 1965 Hz (HPF12 fits, residual 0.05 dB or less
-  up to 704). Above about 720 (2.2 kHz) the analog prototypes stop fitting (the high-pass types
-  read 4-20 dB above 0 dB over the cutoff), so the top of the range needs a model of the
-  digital filter itself; key follow renders (`filt2`, kf 0/64/96/128 at four notes) are not
-  analysed yet.
-- **Next:** fit the band-eliminate types and LPF18s; model the filter above 2 kHz; analyse key
-  follow; then the engine: a per-voice filter for Extended sounds (cascaded one-pole and
-  two-pole TPT sections with the cutoff table at every 8th value), its test, FEG and the other
-  M6 blocks.
+**What the filter is.** Every type is built from two digital sections, which the reference's
+responses fit with no free shape parameter: a Chamberlin state-variable filter at 44.1 kHz
+(coefficient F = 2 sin(pi fc / fs), damping 1/Q; low-pass, band-pass, high-pass and notch =
+low-pass + high-pass outputs) and a one-pole low-pass with the same F. HPF12 at resonance 0
+fits it with Q 0.500 and a gain offset of 0.00 dB at every cutoff (the analog prototypes of
+the last session needed a gain offset and stopped fitting near 2.2 kHz: those were the
+Chamberlin filter's own shape near a sixth of the rate). Per type, with Q = 0.5 x 2^(res/16)
+(confirmed to 0.01 at 16-127 on HPF12):
+
+| Type | Structure |
+| --- | --- |
+| LPF24D | LP(Q) then LP(Q) |
+| LPF24A | LP(Q 1) then LP(Q) |
+| LPF18 | LP(Q) then one-pole |
+| LPF18s | one-pole at the cutoff, then LP(Q) with F about 10 times the one-pole's (9.5-10.4, per cutoff value, no trend), F up to 1.75 |
+| LPF12+HPF12, LPF6+HPF12 | LP(Q) or one-pole, then HP(Q 1) at the HPF cutoff (same table) |
+| HPF24D, HPF12 | HP(Q) twice, HP(Q) |
+| BPF12D, BPF6 | BP(Q) twice, BP(Q) |
+| BPFw | HP(Q 1) at the low edge then LP(Q 1) at the high edge; the edges move apart by 3.207 cutoff values per width step (the upper one 31.5 values late, the lower 19.7 early) |
+| BEF12, BEF6 | notch(Q) twice, notch(Q) |
+| DualLPF, DualHPF, DualBPF | the sum of two sections, the second's F times 2^(Distance / 16) |
+| DualBEF | two notches in series, the second's F times 2^(Distance / 16) |
+| LPF12+BPF6 | approximately LP(Q) + BP(1.13 Q) (0.5-1 dB residual; not resolved) |
+
+- **Cutoff:** a table of every value 0-1023 (`kFilterCutoffHz`, Hz of the 44.1 kHz filter),
+  linear in Hz between measured values: the reference's cutoff is piecewise linear in Hz with
+  the slope changing at every value but jumping about 3.7 times once per octave (near 203,
+  305, 408, 511, 614, 716, 819; every value within 10 of each measured). From 819 (3.57 kHz)
+  the reference raises the minimum Q (doubling over about 102 values) and stops the cutoff at
+  7350.2 Hz (F = 1) with Q 1 from about 921: the damping is limited by cutoff frequency, which
+  also keeps the section stable (at F 0.84, Q 0.5 would be unstable).
+- **Key follow:** centre note 60; steps of 3.125 % (+63 = +200 %); the move is straight in
+  frequency within each octave (+31.25 % one octave up: x 1.3125, not 2^0.3125), exact at whole
+  octaves; the HPF's key follow the same. Residual up to 16 cents at fractional octaves.
+- **Velocity:** cutoff velocity sensitivity +63 moves the cutoff by a measured curve (-9609
+  cents at velocity 1, 0 near 114, +1201 at 127; negative sensitivities mirror the velocity),
+  downward in cents in proportion, upward in frequency ratio in proportion. Resonance
+  velocity divides the Q by 1 + (sensitivity share) h(127 - velocity), h measured (0.25 at 7,
+  1 at 31, 3 at 63). -64 and +63 are both full scale.
+- **Scaling:** 37.5 cents per offset step, straight between the break points by note,
+  constant outside.
+- **Filter Gain:** 0.375 dB per step below 255 (also through Thru); 0 is silent.
+- **2nd LFO filter depth:** 68 cents per step at the LFO's peak, the triangle starting at its
+  top (measured at depth 25 only; the reference's modulation shrank by about 15 % per second
+  in that render, unexplained).
+- **Filter EG:** levels 75 cents per step; depth -64..+63 as a share (-1, -0.497, 0, 0.274,
+  0.505, 0.704, 1.004 at -64, -32, 0, 16, 32, 48, 63); each segment takes its time value's
+  duration whatever its distance (decay 1 at time 64 from +600, +1200, +2400 cents: 725, 758,
+  768 ms to 50 cents); attack, decay 1, decay 2 and release share one table (release measured
+  within 2 % of decay plus about 15 ms note-off latency); durations measured at every second
+  value 22-92 and 100/108 (0-20 instant, 96 and up all 11.85 s), holds every fourth value
+  0-96; depth velocity sensitivity per curve (curve 2 at 5 velocities, curves 0, 1, 3, 4 at
+  2). The segments are straight in cents in Octet; the reference's bend slightly (on a
+  1200-cent decay it is a quarter of the way at 0.19 of the time, half at 0.51, three quarters
+  at 0.78; up to about 90 cents from Octet's path), apparently following the cutoff segments.
+- **Engine** (`msfa/ext_filter.*`, data `msfa/ext_filter_data.h` written by
+  `fm/fit_filter.py`; parameters 60-95, `ExtendedVoice` common values): per voice, Extended
+  sounds only, after the operators and before the voice's 16-bit rounding, in floating point;
+  coefficients and the FEG per 64-sample block with linear ramps of F, damping and gain.
+  Thru at gain 255 (the default) skips the filter, so existing Extended sounds render
+  unchanged. Classic sounds never reach it; a sound with a filter does not convert to Classic.
+- **CPU:** the filter section costs about 7-10 ns per sample per voice on this Mac (arm64,
+  `-O2`, coefficients moving every block; Thru 4 ns of the benchmark's own overhead), so 16
+  voices at 48 kHz are under 1 % of a core here. Not measured on the target hardware.
+- **RFC 0014/0015 (same filter as the analog engine?):** they appear to be different models.
+  The analog engine's cutoff curve has its kinks every 85.33 values (1024/12) with steep rises
+  after each (`forks/surge/doc/oscairn-plan.md`); the FM filter's segments are about 103
+  values long. The FM types fit Chamberlin sections exactly with no gain offset; the analog
+  side's best fits were Surge's analog-style filters with gain offsets (-3 to +6 dB). Not
+  checked: whether the analog renders fit Chamberlin sections too.
+
+**Gate** (`fm/compare_filter.py`: each side's response against its own thru, every harmonic
+the reference passes within 40 dB, below 16 kHz, and at most 60 dB below the strongest
+harmonic in either render and in Octet's thru, within 1 dB; `fm/compare_feg.py`: segment
+durations within 2 % or 2 ms, static levels within 15 cents). The level limit is there because
+each Octet voice is rounded to 16 bits (Dexed's design) and on a periodic tone the rounding
+lands on the harmonics, about 70 dB below this source's strongest.
+
+| Gate | Result |
+| --- | --- |
+| Filter response within 1 dB, per type (`filt`, `filt3`, `filt4`, `feg2` filter cases: 670 of 697 met) | **Met:** LPF24A 6/6, LPF18 6/6, LPF18s 24/24, LPF12+HPF12 126/126, LPF6+HPF12 7/7, HPF12 397/397 (every cutoff, resonance 0-127, key follow, velocity, scaling), BPF6 6/6, BEF12 6/6, BEF6 6/6, DualLPF 12/12, DualHPF 6/6, DualBEF 12/12; worst 0.88 dB. **Not met:** LPF24D, HPF24D and BPF12D at resonance 96-127 (8-51 dB: the reference overloads, its output full of harmonics, which Octet does not model; at 0-80 they meet, worst 0.67), BPF12D at cutoff 512 resonance 0 in `filt` (2.9 dB in the deep stop band; the same case in `filt3` meets), BPFw 14/16 (1.1-1.3 dB at cutoff 256, widths 64 and 127), DualBPF at Distance +127 (8.1 dB; the second section's limit above F = 1 is a guess), LPF12+BPF6 13/21 (1.0-4.0 dB, the model is approximate) |
+| FEG times within 2 % | **Met** in `feg2` (the campaign the tables were fitted from) for 91 of 92 cases: decay 1 at every second value 0-92 and at 100 and 108, holds 0-96, depth velocity; decay 42 misses by 2.0 ms. In `feg` (an earlier campaign, same probe) 43 of 49: attack, decay 2 and hold at 0-16 and 64-80 meet; 6 cases at 24-48 do not (4-18 %): the reference itself differs between campaigns by up to 7.3 ms at the same setting (decay 48: 132.5 and 139.8 ms; hold 48: 192.4 and 185.1 ms), so short segments cannot be gated at 2 % |
+| FEG levels, depth and depth velocity (15 cents) | **Met:** all `feg` and `feg2` static cases |
+
+Unmeasured or unresolved: FEG time velocity sensitivity (the reference made the segment
+instant at velocity 127 with both -64 and +63 and left it at velocity 1; not applied), FEG
+time key follow below zero (the reference was shorter for -64 too; the positive rule is
+mirrored), FEG holds above 96, the FEG segment bend, the 2nd LFO filter depth other than 25,
+resonance overload, LPF12+BPF6's exact structure, BPFw's lower edge at low cutoffs, the dual
+types' second section above F = 1, FEG depth velocity curves 0, 1, 3, 4 at velocities other
+than 32 and 96.
+
+**Carrier feedback** (`10d59f1`). Measuring the filter showed Octet's feedback-7 sine far
+weaker in its upper harmonics than the reference's (harmonic 20 about -100 dB against -35).
+The feedback amount was fitted (`abc697b`) before carriers got the reference's output level
+(`312febe`: algorithm gain and -6.57 dB overall), which also lowered the signal a carrier
+feeds back. A carrier's feedback now takes its signal before that level: against the reference's
+`modidx` renders, feedback 7 is within 0.1 dB at harmonics 2-8, feedback 5 within 0.3 dB at
+2-6 (1.4 dB at harmonic 7, 75 dB down) and feedback 3 within 0.3 dB at 2-4 (the rest lie near
+-90 dB); harmonic 2 was 4 dB (feedback 7) and 7 dB (feedback 5) low before. The M4 topology comparison with feedback 5 (`topo` f1-f88) was re-run after this: 87 of 88 match, the one left is f72, the same intermodulation line as before.
+
+**Tests run locally** (on `10d59f1`, and on `57b5e1a` before it): Release CTest 36/36 (the
+164 Classic cases bit-identical through engine, JUCE plugin and native CLAP on arm64; the
+Extended test now checks every filter type against its model within 0.1 dB, the cutoff and
+gain tables, the damping limit, key follow, FEG segment durations, and HPF12 through the
+plugin), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of 164 identical),
+ASan/UBSan 19/19, TSan 19/19.
+
+**Other M6 blocks not started:** Part PEG, Part LFO with user steps and tempo sync, key-on
+delay, stereo output and pan modes, random pitch, pitch key follow.
 
 ### How to run the tests
 
