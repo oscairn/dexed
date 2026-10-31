@@ -9,6 +9,7 @@
  *   oscairn-fm-test state                            round trip, active load, rejected states
  *   oscairn-fm-test no-alloc                         process never allocates
  *   oscairn-fm-test threads                          main-thread calls while processing (TSan)
+ *   oscairn-fm-test topology                         the 32 algorithm graphs, against renders
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
  * linked in, which no-alloc needs.
@@ -24,6 +25,7 @@
 #include "dx7_cases.h"
 #include "baseline_file.h"
 #include "oscairn/Parameters.h"
+#include "msfa/algorithms.h"
 
 #include <atomic>
 #include <cmath>
@@ -459,6 +461,119 @@ int threadsTest() {
     return 0;
 }
 
+// ---- algorithm topology ----
+
+// Renders note 60 with only the operators in `on` at full level (simple ratio-1 sine
+// operators with instant envelopes), with the given algorithm, feedback and engine.
+std::vector<float> renderOperators(int algorithm, unsigned on, int feedback, int engine) {
+    Host h(entry);
+    h.activate(48000, 512);
+    EventList in;
+    in.events.reserve(256);
+    in.param(0, 1, algorithm);
+    in.param(0, 2, feedback);
+    in.param(0, 100, engine);
+    for (int n = 1; n <= 6; n++) {
+        const uint32_t id = 1000 * n;
+        for (int k = 1; k <= 4; k++)
+            in.param(0, id + k, 99); // rates
+        for (int k = 5; k <= 8; k++)
+            in.param(0, id + k, 99); // levels
+        in.param(0, id + 16, 0);     // velocity sensitivity
+        in.param(0, id + 17, (on >> (n - 1)) & 1 ? 99 : 0);
+        in.param(0, id + 19, 1);     // coarse 1 (ratio 1)
+        in.param(0, id + 20, 0);
+        in.param(0, id + 21, 0);
+    }
+    h.process(512, in);
+    in.clear();
+    in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60, 0.8);
+    std::vector<float> out;
+    for (int b = 0; b < 4; b++) {
+        h.process(512, in);
+        in.clear();
+        out.insert(out.end(), h.left.begin(), h.left.begin() + 512);
+    }
+    return out;
+}
+
+bool audible(const std::vector<float> &x) {
+    for (float v : x)
+        if (std::fabs(v) > 1e-3f)
+            return true;
+    return false;
+}
+
+int topologyTest() {
+    int failures = 0;
+    auto expect = [&](bool ok, int alg, int engine, const std::string &what) {
+        if (!ok) {
+            std::fprintf(stderr, "algorithm %d, engine %d: %s\n", alg, engine, what.c_str());
+            failures++;
+        }
+    };
+    for (int a = 1; a <= 32; a++) {
+        const OperatorGraph &g = dx7Algorithms[a - 1];
+        // ancestors[k]: every operator whose output reaches operator k
+        unsigned ancestors[6];
+        for (int k = 0; k < 6; k++) {
+            unsigned m = g.inputs[k], prev = 0;
+            while (m != prev) {
+                prev = m;
+                for (int j = 0; j < 6; j++)
+                    if (m & (1u << j))
+                        m |= g.inputs[j];
+            }
+            ancestors[k] = m;
+        }
+        for (int engine = 0; engine < 3; engine++) {
+            std::vector<float> alone[6];
+            for (int k = 0; k < 6; k++) {
+                alone[k] = renderOperators(a, 1u << k, 0, engine);
+                const bool carrier = (g.carriers >> k) & 1;
+                expect(audible(alone[k]) == carrier, a, engine, "operator " + std::to_string(k + 1) + (carrier ? " should" : " should not") + " be heard alone");
+            }
+            // Every edge: with operator m and everything it reaches on (its path to the
+            // output), adding operator j changes that path iff j directly modulates an
+            // operator on it; otherwise j is just heard beside it (or not at all).
+            for (int m = 0; m < 6; m++) {
+                unsigned path = 1u << m, modulators = 0;
+                for (int k = 0; k < 6; k++)
+                    if ((ancestors[k] >> m) & 1)
+                        path |= 1u << k;
+                for (int k = 0; k < 6; k++)
+                    if ((path >> k) & 1)
+                        modulators |= g.inputs[k];
+                const auto base = renderOperators(a, path, 0, engine);
+                for (int j = 0; j < 6; j++) {
+                    if ((path >> j) & 1)
+                        continue;
+                    const bool modulates = (modulators >> j) & 1;
+                    const auto both = renderOperators(a, path | (1u << j), 0, engine);
+                    // without modulation: the path plus j alone (up to per-voice rounding)
+                    float worst = 0;
+                    for (size_t i = 0; i < both.size(); i++)
+                        worst = std::max(worst, std::fabs(both[i] - (base[i] + alone[j][i])));
+                    expect((worst > 1e-3f) == modulates, a, engine,
+                           "operator " + std::to_string(j + 1) + (modulates ? " should" : " should not") +
+                               " modulate the path of operator " + std::to_string(m + 1));
+                }
+            }
+            // Feedback acts on the operator it goes into: with that operator and everything it
+            // reaches on, feedback changes the sound.
+            const int to = g.feedbackTo - 1;
+            unsigned path = 1u << to;
+            for (int k = 0; k < 6; k++)
+                if ((ancestors[k] >> to) & 1)
+                    path |= 1u << k;
+            path |= 1u << (g.feedbackFrom - 1);
+            expect(renderOperators(a, path, 7, engine) != renderOperators(a, path, 0, engine), a, engine, "feedback changes nothing");
+        }
+    }
+    std::printf("32 algorithms x 3 engines: carriers, modulation paths and feedback %s\n", failures ? "DIFFER" : "match the graphs");
+    return failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -495,6 +610,8 @@ int main(int argc, char **argv) {
         return noAllocTest();
     if (cmd == "threads")
         return threadsTest();
+    if (cmd == "topology")
+        return topologyTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }

@@ -921,6 +921,21 @@ section 4.6), `7f0204b` (render tests and baseline), `c121a49` (engine split), `
   the native CLAP does not use; Dexed 1.0/1.1 state loading (not applicable: the native CLAP
   has its own ID, so hosts never give it Dexed states); a Windows build of the native CLAP.
 
+### M2 (started)
+
+- `source/msfa/algorithms.h`: the 32 DX7 algorithms as operator graphs (inputs per
+  operator, carriers, feedback from/to), derived from the bus flags of
+  `FmCore::algorithms` (a script check found no difference). Not used by the renderers yet.
+- `oscairn-fm-test topology`: for every algorithm and each of Modern, Mark I and OPL, each
+  operator alone is heard iff it is a carrier, each direct modulation edge changes the
+  sound of its target's path and no other operator does, and feedback changes the sound of
+  its loop. It passes against the current renderers. Note for the graph renderer:
+  `FmCore::isCarrier` (used by `isPlaying()`) counts operators that add to bus 1 or 2 as
+  carriers too (for example operator 4 in algorithm 7); keeping voice stealing identical
+  means keeping that mask, not the graph's carriers.
+- Remaining: the compiled-graph renderer for the three engines, bit-identical to the
+  baseline.
+
 ### How to run the tests
 
 ```

@@ -58,6 +58,7 @@ add_test(NAME oscairn-fm-two-rates COMMAND oscairn-fm-test two-rates ${DEXED_BAS
 add_test(NAME oscairn-fm-params COMMAND oscairn-fm-test params ${fm_params} ${fm_module})
 add_test(NAME oscairn-fm-notes COMMAND oscairn-fm-test notes ${fm_module})
 add_test(NAME oscairn-fm-state COMMAND oscairn-fm-test state ${fm_module})
+add_test(NAME oscairn-fm-topology COMMAND oscairn-fm-test topology ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)
 add_test(NAME oscairn-fm-threads COMMAND oscairn-fm-test-linked threads)
 
