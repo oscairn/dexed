@@ -1401,6 +1401,33 @@ int extendedTest() {
             expect(std::fabs(hp - thru - want) < 0.2, "HPF12 at cutoff 512 through the plugin: " +
                                                           std::to_string(hp - thru) + " dB, model " + std::to_string(want));
         }
+        // the part LFO's cutoff destination moves the cutoff value by 8 per depth step: a square
+        // wave at depth 8 plays HPF12 at cutoff 512 + 64 in its top half and 512 - 64 in its bottom
+        {
+            const auto x = renderExtended({ { 1048, 0 }, { 60, Hpf12 }, { 61, 512 }, { 63, 0 }, { 85, 0 },
+                                            { 210, ext::PartLfoCutoff }, { 211, 8 }, { 201, 6 }, { 202, 24 } },
+                                          36, 1.0, 2.5, 2.5);
+            const auto t = renderExtended({ { 1048, 0 } }, 36, 1.0, 1.0, 1.0);
+            const double half = 0.5 / extPartLfoHz(24) * 48000;
+            auto db = [](const std::vector<float> &y, double from, double to) {
+                double e = 0;
+                for (size_t i = (size_t)from; i < (size_t)to; i++)
+                    e += (double)y[i] * y[i];
+                return 10 * std::log10(e / (to - from));
+            };
+            auto model = [&](int value) {
+                float F, d;
+                extFilterCoefficients(extFilterCutoffHz(value), 0.5, 48000, F, d);
+                const double f = 440 * std::exp2((36 - 69) / 12.0);
+                const C zi = std::polar(1.0, -2 * M_PI * f / 48000), a = 1.0 - zi;
+                return 20 * std::log10(std::abs(1.0 / (1.0 + (double)F * (double)F * zi / (a * a) + (double)d * zi * (double)F / a)));
+            };
+            const double thru = db(t, 12000, 36000);
+            const double top = db(x, 0.3 * half, 0.9 * half) - thru, bottom = db(x, 1.3 * half, 1.9 * half) - thru;
+            expect(std::fabs(top - model(576)) < 0.2 && std::fabs(bottom - model(448)) < 0.2,
+                   "part LFO to cutoff: " + std::to_string(top) + " / " + std::to_string(bottom) + " dB, model " +
+                       std::to_string(model(576)) + " / " + std::to_string(model(448)));
+        }
         // key follow: +100 % one octave above note 60 doubles the cutoff, +31.25 % adds 31.25 %
         expect(std::fabs(extFilterKeyFollowRatio(32, 72) - 2.0) < 1e-12 &&
                    std::fabs(extFilterKeyFollowRatio(10, 72) - 1.3125) < 1e-12 &&

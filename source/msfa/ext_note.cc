@@ -562,6 +562,12 @@ void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bo
                    extFegDepthVelocity(v.common(FegDepthVelocity), v.common(FegDepthVelocityCurve), velocity) /
                    1200.0; // (the FEG runs in cents)
     f.lfoOctaves = extFilterLfoOctaves(v.common(LfoFilterDepth));
+    // the part LFO moves the cutoff value itself: 8 values per depth step at its top (measured
+    // at depths 2-32 with a square wave, within 0.2 values per step)
+    f.partLfoValues = 0;
+    for (int d = 0; d < 3; d++)
+        if (v.common((Common)(PartLfoDest1 + 2 * d)) == PartLfoCutoff)
+            f.partLfoValues += 8.0 * std::clamp(v.common((Common)(PartLfoDepth1 + 2 * d)), 0, 127);
     f.active = f.type != extfilter::Thru || f.gain != 1.0;
     const int levels[5] = { v.common(FegHoldLevel), v.common(FegAttackLevel), v.common(FegDecay1Level),
                             v.common(FegDecay2Level), v.common(FegReleaseLevel) };
@@ -581,7 +587,7 @@ void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bo
 
 // The voice's block through its filter: the operators' sum (buf, MSFA's output scale) in
 // floating point, full scale 1.0.
-void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay) {
+void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, double partValue) {
     const FilterState &f = filt_;
     double oct = feg_.getblock(N) * f.fegOctaves;
     // the LFO at the block's end, bipolar and inverted (the reference's triangle starts at the
@@ -591,12 +597,12 @@ void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay) {
     const double move = std::exp2(oct) * f.ratio;
     ExtFilter::Setting st;
     st.type = f.type;
-    st.fc = extFilterCutoffHz(f.value) * move;
+    st.fc = extFilterCutoffHz(std::clamp(f.value + partValue, 0.0, 1023.0)) * move;
     st.q = f.q;
     st.ratio2 = f.ratio2;
     if (f.type == extfilter::BpfWide) {
-        st.fc = extFilterCutoffHz(f.value + f.widthHigh) * move;
-        st.fcLow = extFilterCutoffHz(f.value - f.widthLow) * move;
+        st.fc = extFilterCutoffHz(std::clamp(f.value + partValue + f.widthHigh, 0.0, 1023.0)) * move;
+        st.fcLow = extFilterCutoffHz(std::clamp(f.value + partValue - f.widthLow, 0.0, 1023.0)) * move;
     }
     st.hpf = f.hpf;
     st.gain = f.gain;
@@ -720,7 +726,8 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
         AlignedBuf<int32_t, N> out;
         std::fill(out.get(), out.get() + N, 0);
         renderGraph(k, extCompiled(algorithm_), out.get(), params_, fbBuf_, fbShift_, bufs_, sum_.get());
-        filterBlock(out.get(), lfo, lfo_delay);
+        filterBlock(out.get(), lfo, lfo_delay,
+                    part_lfo != nullptr ? part_lfo[N - 1] * filt_.partLfoValues : 0.0);
         for (int s = 0; s < N; s++)
             buf[s] += out.get()[s];
     } else {

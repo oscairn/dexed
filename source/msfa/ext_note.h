@@ -164,7 +164,8 @@ private:
     void render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
                 const Controllers *ctrls, const float *part_lfo);
     void setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start);
-    void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay);
+    // partValue: the part LFO's move of the cutoff value this block
+    void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, double partValue);
 
     bool initialised_ = false;
     int algorithm_ = 0;
@@ -211,6 +212,7 @@ private:
         double gain = 1;
         double fegOctaves = 0;   // FEG depth: octaves per cent of FEG level (0: no FEG)
         double lfoOctaves = 0;   // LFO filter depth: octaves at the LFO's peak
+        double partLfoValues = 0; // part LFO cutoff destination: cutoff values at the LFO's top
         bool active = false;     // false: Thru at unity gain (the operators' sum goes out unchanged)
     } filt_;
     ExtFilter filter_;
