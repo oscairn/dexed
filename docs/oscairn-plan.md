@@ -938,20 +938,26 @@ tracking in the engine), `8d0f288` (native CLAP and its tests).
   the native CLAP does not use; Dexed 1.0/1.1 state loading (not applicable: the native CLAP
   has its own ID, so hosts never give it Dexed states); a Windows build of the native CLAP.
 
-### M2 (started)
+### M2 (done 2026-10-31)
 
 - `source/msfa/algorithms.h`: the 32 DX7 algorithms as operator graphs (inputs per
-  operator, carriers, feedback from/to), derived from the bus flags of
-  `FmCore::algorithms` (a script check found no difference). Not used by the renderers yet.
-- `oscairn-fm-test topology`: for every algorithm and each of Modern, Mark I and OPL, each
-  operator alone is heard iff it is a carrier, each direct modulation edge changes the
-  sound of its target's path and no other operator does, and feedback changes the sound of
-  its loop. It passes against the current renderers. Note for the graph renderer:
-  `FmCore::isCarrier` (used by `isPlaying()`) counts operators that add to bus 1 or 2 as
-  carriers too (for example operator 4 in algorithm 7); keeping voice stealing identical
-  means keeping that mask, not the graph's carriers.
-- Remaining: the compiled-graph renderer for the three engines, bit-identical to the
-  baseline.
+  operator, carriers, feedback from/to), derived from the old bus flags of
+  `FmCore::algorithms` (a script check found no difference), and `compileAlgorithm()`, which
+  turns a graph of 6 or 8 operators into a render order, per-operator input masks, the
+  output mask and the feedback loop. The bus flag table is gone.
+- `renderGraph()` (`msfa/fm_core.h`) renders every operator into its own buffer from the sum
+  of its audible modulators; Modern, Mark I and OPL supply only their gain mapping, level
+  threshold and kernels. Multi-operator feedback is part of the graph: Mark I renders the
+  loops of algorithms 4 and 6 sample by sample with its existing `compute_fb3`/`compute_fb2`;
+  Modern and OPL keep feeding back only the loop's first operator, as before.
+- Kept for identical classic output: `FmCore::isCarrier` (used by `isPlaying()`) still counts
+  operators that used to add into bus 1 or 2 (`dx7ExtraActive`), so voice stealing is
+  unchanged.
+- Gate: the 164 baseline cases (every algorithm, each of Modern, Mark I and OPL) are
+  bit-identical through the engine, the JUCE plugin and the native CLAP; the topology test
+  passes for all 32 algorithms and three engines; ASan+UBSan pass. Disabling the Mark I loop
+  path makes five baseline cases (algorithms 4 and 6 on Mark I) differ, so the baseline
+  covers it.
 
 ### How to run the tests
 

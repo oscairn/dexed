@@ -23,36 +23,82 @@
 #include "controllers.h"
 
 
-class FmOperatorInfo {
-public:
-    int in;
-    int out;
-};
+#include "algorithms.h"
 
-enum FmOperatorFlags {
-    OUT_BUS_ONE = 1 << 0,
-    OUT_BUS_TWO = 1 << 1,
-    OUT_BUS_ADD = 1 << 2,
-    IN_BUS_ONE = 1 << 4,
-    IN_BUS_TWO = 1 << 5,
-    FB_IN = 1 << 6,
-    FB_OUT = 1 << 7
-};
-
-class FmAlgorithm {
-public:
-    int ops[6];
-};
+// Renders one voice through a compiled algorithm (docs/oscairn-plan.md, section 3.6). Each
+// operator renders into its own buffer from the sum of its audible modulators; carriers add
+// into output. K is an engine's kernel set:
+//   bool gains(FmOpParams &, int32_t &gain1, int32_t &gain2)  sets gain_out, says if audible
+//   compute, compute_pure, compute_fb                          the engine's operator kernels
+//   int selfFeedbackShift(int shift)                           shift for single-operator feedback
+//   bool loop(...)                                             renders a multi-operator feedback
+//                                                              loop, or returns false
+// Integer sums wrap (-fwrapv), so the order of summing gives the same bits as the DX7 bus
+// renderers this replaced.
+template <class K>
+void renderGraph(K &k, const CompiledAlgorithm &a, int32_t *output, FmOpParams *params,
+                 int32_t *fb_buf, int fb_shift, AlignedBuf<int32_t, N> *bufs, int32_t *sum) {
+    bool audible[8] = {};
+    uint8_t rendered = 0;
+    for (int n = 0; n < a.count; n++) {
+        const int op = a.order[n];
+        if (rendered & (1u << op))
+            continue; // rendered inside a feedback loop
+        FmOpParams &p = params[op];
+        int32_t gain1, gain2;
+        if (k.gains(p, gain1, gain2)) {
+            int32_t *out = bufs[op].get();
+            const int32_t *in = nullptr;
+            int live = 0;
+            for (int i = 0; i < a.count; i++) {
+                if (((a.inputs[op] >> i) & 1) && audible[i]) {
+                    if (live == 0) {
+                        in = bufs[i].get();
+                    } else {
+                        if (live == 1) {
+                            for (int j = 0; j < N; j++)
+                                sum[j] = in[j];
+                            in = sum;
+                        }
+                        const int32_t *b = bufs[i].get();
+                        for (int j = 0; j < N; j++)
+                            sum[j] += b[j];
+                    }
+                    live++;
+                }
+            }
+            if (live > 0) {
+                k.compute(out, in, p.phase, p.freq, gain1, gain2, false);
+            } else if (op == a.feedbackOp && fb_shift < 16) {
+                if (k.loop(a, params, gain1, gain2, fb_buf, fb_shift, bufs, audible, rendered))
+                    continue;
+                k.compute_fb(out, p.phase, p.freq, gain1, gain2, fb_buf, k.selfFeedbackShift(fb_shift), false);
+            } else {
+                k.compute_pure(out, p.phase, p.freq, gain1, gain2, false);
+            }
+            audible[op] = true;
+        }
+        p.phase += p.freq << LG_N;
+        rendered |= (uint8_t)(1u << op);
+    }
+    for (int i = 0; i < a.count; i++) {
+        if (((a.outputs >> i) & 1) && audible[i]) {
+            const int32_t *b = bufs[i].get();
+            for (int j = 0; j < N; j++)
+                output[j] += b[j];
+        }
+    }
+}
 
 class FmCore {
 public:
     virtual ~FmCore() {};
-    static void dump();
+    // whether operator op's envelope keeps a voice playing (FmOpParams index)
     static bool isCarrier(int algorithm, int op);
     virtual void render(int32_t *output, FmOpParams *params, int algorithm, int32_t *fb_buf, int32_t feedback_gain);
 protected:
-    AlignedBuf<int32_t, N>buf_[2];
-    const static FmAlgorithm algorithms[32];
+    AlignedBuf<int32_t, N> buf_[8]; // one per operator
+    AlignedBuf<int32_t, N> sum_;    // modulator sums
 };
 
 #endif  // __FM_CORE_H

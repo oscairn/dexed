@@ -300,73 +300,54 @@ void EngineMkI::compute_fb3(int32_t *output, FmOpParams *parms, int32_t gain01, 
     fb_buf[1] = y;
 }
 
-void EngineMkI::render(int32_t *output, FmOpParams *params, int algorithm, int32_t *fb_buf, int32_t feedback_shift) {
-    const int kLevelThresh = ENV_MAX-100;
-    FmAlgorithm alg = algorithms[algorithm];
-    bool has_contents[3] = { true, false, false };
-    bool fb_on = feedback_shift < 16;
-
-    switch(algorithm) {
-        case 3 : case 5 :
-            if ( fb_on )
-                alg.ops[0] = 0xc4;
-    }
-    
-    for (int op = 0; op < 6; op++) {
-        int flags = alg.ops[op];
-        bool add = (flags & OUT_BUS_ADD) != 0;
-        FmOpParams &param = params[op];
-        int inbus = (flags >> 4) & 3;
-        int outbus = flags & 3;
-        int32_t *outptr = (outbus == 0) ? output : buf_[outbus - 1].get();
-        int32_t gain1 = param.gain_out == 0 ? (ENV_MAX-1) : param.gain_out;
-        int32_t gain2 = ENV_MAX-(param.level_in >> (28-ENV_BITDEPTH));
-        param.gain_out = gain2;
-        
-        if (gain1 <= kLevelThresh || gain2 <= kLevelThresh) {
-            
-            if (!has_contents[outbus]) {
-                add = false;
-            }
-            
-            if (inbus == 0 || !has_contents[inbus]) {
-                // PG: this is my 'dirty' implementation of FB for 2 and 3 operators...
-                if ((flags & 0xc0) == 0xc0 && fb_on) {
-                    switch ( algorithm ) {
-                        // three operator feedback, process exception for ALGO 4
-                        case 3 :
-                            compute_fb3(outptr, params, gain1, gain2, fb_buf, min((feedback_shift+2), 16));
-                            params[1].phase += params[1].freq << LG_N; // hack, we already processed op-5 - op-4
-                            params[2].phase += params[2].freq << LG_N; // yuk yuk
-                            op += 2; // ignore the 2 other operators
-                            break;
-                        // two operator feedback, process exception for ALGO 6
-                        case 5 :
-                            compute_fb2(outptr, params, gain1, gain2, fb_buf, min((feedback_shift+2), 16));
-                            params[1].phase += params[1].freq << LG_N;  // yuk, hack, we already processed op-5
-                            op++; // ignore next operator;
-                            break;
-                        case 31 :
-                            // one operator feedback, process exception for ALGO 32
-                            compute_fb(outptr, param.phase, param.freq, gain1, gain2, fb_buf, min((feedback_shift+2), 16), add);
-                            break;
-                        default:
-                            // one operator feedback, normal process
-                            compute_fb(outptr, param.phase, param.freq, gain1, gain2, fb_buf, feedback_shift, add);
-                            break;
-                    }
-                } else {
-                    compute_pure(outptr, param.phase, param.freq, gain1, gain2, add);
-                }
-            } else {
-                compute(outptr, buf_[inbus - 1].get(), param.phase, param.freq, gain1, gain2, add);
-            }
-            
-            has_contents[outbus] = true;
-        } else if (!add) {
-            has_contents[outbus] = false;
+namespace {
+    // The Mark I kernels, with its multi-operator feedback loops for algorithms 4 and 6 and
+    // its stronger feedback shift for algorithm 32.
+    struct MarkIKernels {
+        EngineMkI &e;
+        int algorithm;
+        bool gains(FmOpParams &p, int32_t &gain1, int32_t &gain2) {
+            const int kLevelThresh = ENV_MAX-100;
+            gain1 = p.gain_out == 0 ? (ENV_MAX-1) : p.gain_out;
+            gain2 = ENV_MAX-(p.level_in >> (28-ENV_BITDEPTH));
+            p.gain_out = gain2;
+            return gain1 <= kLevelThresh || gain2 <= kLevelThresh;
         }
-        param.phase += param.freq << LG_N;
-    }
+        void compute(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
+            e.compute(o, in, ph, f, g1, g2, add);
+        }
+        void compute_pure(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
+            e.compute_pure(o, ph, f, g1, g2, add);
+        }
+        void compute_fb(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift, bool add) {
+            e.compute_fb(o, ph, f, g1, g2, fb, shift, add);
+        }
+        int selfFeedbackShift(int shift) { return algorithm == 31 ? min((shift+2), 16) : shift; }
+        bool loop(const CompiledAlgorithm &a, FmOpParams *params, int32_t gain1, int32_t gain2, int32_t *fb_buf,
+                  int shift, AlignedBuf<int32_t, N> *bufs, bool *audible, uint8_t &rendered) {
+            // compute_fb2/3 take the loop's operators as consecutive params, first one first
+            if (a.loopLength < 2 || a.loopLength > 3)
+                return false;
+            for (int i = 0; i < a.loopLength; i++)
+                if (a.loop[i] != a.loop[0] + i)
+                    return false;
+            const int last = a.loop[a.loopLength - 1];
+            if (a.loopLength == 3)
+                e.compute_fb3(bufs[last].get(), params + a.loop[0], gain1, gain2, fb_buf, min((shift+2), 16));
+            else
+                e.compute_fb2(bufs[last].get(), params + a.loop[0], gain1, gain2, fb_buf, min((shift+2), 16));
+            for (int i = 0; i < a.loopLength; i++) {
+                FmOpParams &p = params[a.loop[i]];
+                p.phase += p.freq << LG_N;
+                rendered |= (uint8_t)(1u << a.loop[i]);
+            }
+            audible[last] = true;
+            return true;
+        }
+    };
 }
 
+void EngineMkI::render(int32_t *output, FmOpParams *params, int algorithm, int32_t *fb_buf, int32_t feedback_shift) {
+    MarkIKernels k { *this, algorithm };
+    renderGraph(k, dx7Compiled(algorithm), output, params, fb_buf, feedback_shift, buf_, sum_.get());
+}

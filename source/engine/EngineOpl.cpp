@@ -168,49 +168,36 @@ void EngineOpl::compute_fb(int32_t *output, int32_t phase0, int32_t freq,
 }
 
 
+namespace {
+    // The OPL kernels.
+    struct OplKernels {
+        EngineOpl &e;
+        bool gains(FmOpParams &p, int32_t &gain1, int32_t &gain2) {
+            const int kLevelThresh = 507;  // really ????
+            gain1 = p.gain_out == 0 ? 511 : p.gain_out;
+            gain2 = 512-(p.level_in >> 19);
+            p.gain_out = gain2;
+            return gain1 <= kLevelThresh || gain2 <= kLevelThresh;
+        }
+        void compute(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
+            e.compute(o, in, ph, f, g1, g2, add);
+        }
+        void compute_pure(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
+            e.compute_pure(o, ph, f, g1, g2, add);
+        }
+        void compute_fb(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift, bool add) {
+            e.compute_fb(o, ph, f, g1, g2, fb, shift, add);
+        }
+        int selfFeedbackShift(int shift) { return shift; }
+        bool loop(const CompiledAlgorithm &, FmOpParams *, int32_t, int32_t, int32_t *, int,
+                  AlignedBuf<int32_t, N> *, bool *, uint8_t &) { return false; }
+    };
+}
+
 void EngineOpl::render(int32_t *output, FmOpParams *params, int algorithm,
                         int32_t *fb_buf, int32_t feedback_shift) {
-    const int kLevelThresh = 507;  // really ????
-    const FmAlgorithm alg = algorithms[algorithm];
-    bool has_contents[3] = { true, false, false };
-    for (int op = 0; op < 6; op++) {
-        int flags = alg.ops[op];
-        bool add = (flags & OUT_BUS_ADD) != 0;
-        FmOpParams &param = params[op];
-        int inbus = (flags >> 4) & 3;
-        int outbus = flags & 3;
-        int32_t *outptr = (outbus == 0) ? output : buf_[outbus - 1].get();
-        int32_t gain1 = param.gain_out == 0 ? 511 : param.gain_out;
-        int32_t gain2 = 512-(param.level_in >> 19);
-        param.gain_out = gain2;
-        
-        if (gain1 <= kLevelThresh || gain2 <= kLevelThresh) {
-            if (!has_contents[outbus]) {
-                add = false;
-            }
-            if (inbus == 0 || !has_contents[inbus]) {
-                // todo: more than one op in a feedback loop
-                if ((flags & 0xc0) == 0xc0 && feedback_shift < 16) {
-                    // cout << op << " fb " << inbus << outbus << add << endl;
-                    compute_fb(outptr, param.phase, param.freq,
-                                           gain1, gain2,
-                                           fb_buf, feedback_shift, add);
-                } else {
-                    // cout << op << " pure " << inbus << outbus << add << endl;
-                    compute_pure(outptr, param.phase, param.freq,
-                                             gain1, gain2, add);
-                }
-            } else {
-                // cout << op << " normal " << inbus << outbus << " " << param.freq << add << endl;
-                compute(outptr, buf_[inbus - 1].get(),
-                                    param.phase, param.freq, gain1, gain2, add);
-            }
-            has_contents[outbus] = true;
-        } else if (!add) {
-            has_contents[outbus] = false;
-        }
-        param.phase += param.freq << LG_N;
-    }
+    OplKernels k { *this };
+    renderGraph(k, dx7Compiled(algorithm), output, params, fb_buf, feedback_shift, buf_, sum_.get());
 }
 
 
