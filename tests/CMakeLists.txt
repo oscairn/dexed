@@ -65,6 +65,9 @@ add_test(NAME oscairn-fm-params COMMAND oscairn-fm-test params ${fm_params} ${fm
 add_test(NAME oscairn-fm-notes COMMAND oscairn-fm-test notes ${fm_module})
 add_test(NAME oscairn-fm-state COMMAND oscairn-fm-test state ${fm_module})
 add_test(NAME oscairn-fm-topology COMMAND oscairn-fm-test topology ${fm_module})
+# the module exports nothing but its entry point
+add_test(NAME oscairn-fm-exports COMMAND ${CMAKE_COMMAND} -DNM=${CMAKE_NM} -DMODULE=$<TARGET_FILE:oscairn_fm>
+    -DAPPLE=${APPLE} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_exports.cmake)
 add_test(NAME oscairn-fm-contexts COMMAND oscairn-fm-test contexts ${fm_module})
 add_test(NAME oscairn-fm-state-active COMMAND oscairn-fm-test state-active ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)

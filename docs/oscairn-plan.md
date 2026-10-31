@@ -923,6 +923,10 @@ section 4.6), `7f0204b` (render tests and baseline), `a915d9c` (engine split), `
   both CLAPs and renders them with `oscairn-render` (512 and 37 frames, twice, and in
   Oscairn's plugin worker) and compares the files. These ran on macOS only; CI does not build
   Oscairn.
+  TODO: run these in CI too. That needs Oscairn built in the workflow (a checkout of the
+  Oscairn repository and its tools); not done yet.
+- CTest checks that `oscairn-fm.clap` exports nothing but `clap_entry` (`oscairn-fm-exports`),
+  on every CI platform.
 
 ### M1 (done 2026-10-31, except where listed)
 
