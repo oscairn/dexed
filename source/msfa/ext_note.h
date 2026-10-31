@@ -20,7 +20,7 @@
 #include "synth_rate.h"
 
 class TuningState;
-struct Controllers;
+class Controllers;
 
 // An amplitude envelope in MSFA's log format (Q24, 1 << 24 per doubling), advanced once per
 // sample (segments as short as a millisecond keep their measured times): hold (at the
