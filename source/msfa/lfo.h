@@ -27,6 +27,9 @@ public:
     void reset(const ExtendedVoice &v);
     // The rate of DX7 LFO speed 0-99 as this class plays it, in Hz.
     static double classicHz(int speed);
+    // After reset(ExtendedVoice) the LFO advances once per sample (getsample() N times a
+    // block), so extended speeds up to 1357 Hz play; otherwise once per block.
+    bool perSample() const { return perSample_; }
 
     // result is 0..1 in Q24
     int32_t getsample();
@@ -40,7 +43,8 @@ private:
     // per instance: they depend on the sample rate (they used to be process-wide)
     uint32_t lforatio_ = 0;
     uint32_t unit_ = 0;
-    double hzToDelta_ = 0; // phase increment per block for 1 Hz
+    double hzToDelta_ = 0; // phase increment per sample for 1 Hz
+    bool perSample_ = false;
     uint32_t startPhase_ = (1U << 31) - 1; // the phase a key-on reset starts from
 
     // phase, S/H and delay state used to be read uninitialised until a synced key-down

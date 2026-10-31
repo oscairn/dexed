@@ -38,6 +38,9 @@ struct ExtKernels {
     // each operator's per-sample gains for this block (ExtNote::compute), indexed by its
     // FmOpParams index; `cur` is the operator renderGraph asked gains() about last
     const int32_t (*gainOf)[N] = nullptr;
+    // each operator's phase increment per sample (the LFO moves pitch per sample); the `f`
+    // arguments below are ignored
+    const int32_t (*freqOf)[N] = nullptr;
     const FmOpParams *base = nullptr;
     int cur = 0;
     bool gains(FmOpParams &p, int32_t &gain1, int32_t &gain2) {
@@ -53,28 +56,31 @@ struct ExtKernels {
         return most >= kLevelThresh;
     }
     void ramp(int32_t, int32_t, int32_t *g) const { std::copy(gainOf[cur], gainOf[cur] + N, g); }
-    void compute(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
+    void compute(int32_t *o, const int32_t *in, int32_t ph, int32_t, int32_t g1, int32_t g2, bool add) {
         int32_t g[N];
         ramp(g1, g2, g);
-        for (int i = 0; i < N; i++, ph += f) {
+        const int32_t *f = freqOf[cur];
+        for (int i = 0; i < N; i++, ph += f[i - 1]) {
             const int32_t y = (int32_t)(((int64_t)Sin::lookup(ph + in[i]) * g[i]) >> 24);
             o[i] = add ? o[i] + y : y;
         }
     }
-    void compute_pure(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, bool add) {
+    void compute_pure(int32_t *o, int32_t ph, int32_t, int32_t g1, int32_t g2, bool add) {
         int32_t g[N];
         ramp(g1, g2, g);
-        for (int i = 0; i < N; i++, ph += f) {
+        const int32_t *f = freqOf[cur];
+        for (int i = 0; i < N; i++, ph += f[i - 1]) {
             const int32_t y = (int32_t)(((int64_t)Sin::lookup(ph) * g[i]) >> 24);
             o[i] = add ? o[i] + y : y;
         }
     }
-    void compute_fb_mod(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb,
+    void compute_fb_mod(int32_t *o, const int32_t *in, int32_t ph, int32_t, int32_t g1, int32_t g2, int32_t *fb,
                         int shift) {
         int32_t g[N];
         ramp(g1, g2, g);
+        const int32_t *f = freqOf[cur];
         int32_t y0 = fb[0], y = fb[1];
-        for (int i = 0; i < N; i++, ph += f) {
+        for (int i = 0; i < N; i++, ph += f[i - 1]) {
             const int32_t scaled = (y0 + y) >> (shift + 1);
             y0 = y;
             y = (int32_t)(((int64_t)Sin::lookup(ph + (in ? in[i] : 0) + scaled) * g[i]) >> 24);
@@ -108,10 +114,12 @@ struct ExtKernels {
             gains(params[a.loop[k]], unused1, unused2); // (updates gain_out)
         }
         int32_t y0 = fb[0], y = fb[1];
+        int32_t ph[8];
+        for (int k = 0; k < a.loopLength; k++)
+            ph[k] = params[a.loop[k]].phase;
         for (int i = 0; i < N; i++) {
             for (int k = 0; k < a.loopLength; k++) {
                 const int op = a.loop[k];
-                FmOpParams &p = params[op];
                 const int32_t gain = gainOf[op][i];
                 int32_t in = 0;
                 for (int j = 0; j < a.count; j++)
@@ -119,8 +127,8 @@ struct ExtKernels {
                         in += bufs[j].get()[i];
                 if (k == 0)
                     in += (y0 + y) >> (shift + 1);
-                const int32_t ph = p.phase + p.freq * i;
-                const int32_t out = (int32_t)(((int64_t)Sin::lookup(ph + in) * gain) >> 24);
+                const int32_t out = (int32_t)(((int64_t)Sin::lookup(ph[k] + in) * gain) >> 24);
+                ph[k] += freqOf[op][i];
                 bufs[op].get()[i] = out;
                 if (k == a.loopLength - 1) {
                     y0 = y;
@@ -311,33 +319,51 @@ void ExtNote::update(const ExtendedVoice &v, int midinote, int velocity, const S
     setup(v, midinote, velocity, rate, tuning, false);
 }
 
-void ExtNote::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, int32_t pitchBase, const Controllers *ctrls) {
-    // LFO pitch and amplitude modulation as the DX7 voice computes them, per operator
+void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
+                      int32_t pitchBase, const Controllers *ctrls) {
+    // LFO pitch and amplitude modulation as the DX7 voice computes them, per operator, but at
+    // every sample when the LFO runs per sample
+    int32_t lfo[N];
+    for (int s = 0; s < N; s++)
+        lfo[s] = lfo_samples ? lfo_samples[s] : lfo_val;
     const uint32_t pmd = (uint32_t)pitchDepth_ * (uint32_t)lfo_delay; // Q32
-    const int32_t lfoBipolar = lfo_val - (1 << 23);
-    const int32_t lfoInv = (1 << 24) - lfo_val;
-    uint32_t amd = (uint32_t)(((int64_t)ampDepth_ * (int64_t)lfo_delay) >> 8);
-    amd = (uint32_t)(((int64_t)amd * (int64_t)lfoInv) >> 24);
-    const uint32_t amodWheel = (uint32_t)(((int64_t)ctrls->amp_mod * (int64_t)lfoInv) >> 7);
-    amd = std::max(amd, amodWheel);
+    const bool pitchMod = pmd != 0 || ctrls->pitch_mod != 0;
+    const uint32_t amdDepth = (uint32_t)(((int64_t)ampDepth_ * (int64_t)lfo_delay) >> 8);
+    uint32_t amd[N];
+    bool ampMod = false;
+    for (int s = 0; s < N; s++) {
+        const int32_t lfoInv = (1 << 24) - lfo[s];
+        const uint32_t a = (uint32_t)(((int64_t)amdDepth * (int64_t)lfoInv) >> 24);
+        const uint32_t w = (uint32_t)(((int64_t)ctrls->amp_mod * (int64_t)lfoInv) >> 7);
+        amd[s] = std::max(a, w);
+        ampMod |= amd[s] != 0;
+    }
+    uint32_t phase0[ext::Ops];
     for (int i = 0; i < ext::Ops; i++) {
-        const int32_t senslfo = pitchSens_[i] * lfoBipolar;
-        int32_t pmod = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
-        const int32_t pmodWheel = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
-        pmod = std::abs(pmod) >= std::abs(pmodWheel) ? pmod : pmodWheel;
-        int32_t pitch = basepitch_[i] + peg_[i].getsample() + pitchBase;
-        if (!fixed_[i])
-            pitch += pmod;
-        params_[i].freq = rate_->freqlut.lookup(pitch);
-        uint32_t pt = 0;
-        if (ampSens_[i] != 0) {
-            const uint32_t sensamp = (uint32_t)(((uint64_t)amd * (uint64_t)ampSens_[i]) >> 24);
-            // (less its value at zero depth: the DX7 code lowers every level by 1.2 % even
-            // without modulation, which would slow every Extended envelope by as much)
-            pt = (uint32_t)(std::exp(((float)sensamp) / 262144 * 0.07 + 12.2) - std::exp(12.2f));
+        const int32_t pitch = basepitch_[i] + peg_[i].getsample() + pitchBase;
+        int32_t *f = freqs_[i];
+        if (!fixed_[i] && pitchSens_[i] != 0 && pitchMod) {
+            for (int s = 0; s < N; s++) {
+                const int32_t senslfo = pitchSens_[i] * (lfo[s] - (1 << 23));
+                int32_t pmod = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
+                const int32_t pmodWheel = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
+                pmod = std::abs(pmod) >= std::abs(pmodWheel) ? pmod : pmodWheel;
+                f[s] = rate_->freqlut.lookup(pitch + pmod);
+            }
+        } else {
+            std::fill(f, f + N, rate_->freqlut.lookup(pitch));
         }
+        params_[i].freq = f[0];
+        phase0[i] = (uint32_t)params_[i].phase;
+        uint32_t pt = 0;
         int32_t level = 0;
         for (int s = 0; s < N; s++) {
+            if (ampSens_[i] != 0 && ampMod && (s == 0 || amd[s] != amd[s - 1])) {
+                const uint32_t sensamp = (uint32_t)(((uint64_t)amd[s] * (uint64_t)ampSens_[i]) >> 24);
+                // (less its value at zero depth: the DX7 code lowers every level by 1.2 % even
+                // without modulation, which would slow every Extended envelope by as much)
+                pt = (uint32_t)(std::exp(((float)sensamp) / 262144 * 0.07 + 12.2) - std::exp(12.2f));
+            }
             level = env_[i].getsample();
             if (pt != 0)
                 level -= (int32_t)(((uint64_t)level * ((uint64_t)pt << 4)) >> 28);
@@ -347,8 +373,16 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, int32_t 
     }
     ExtKernels k;
     k.gainOf = gains_;
+    k.freqOf = freqs_;
     k.base = params_;
     renderGraph(k, extCompiled(algorithm_), buf, params_, fbBuf_, fbShift_, bufs_, sum_.get());
+    // every operator moved by its per-sample increments (renderGraph assumed `freq` throughout)
+    for (int i = 0; i < ext::Ops; i++) {
+        uint32_t ph = phase0[i];
+        for (int s = 0; s < N; s++)
+            ph += (uint32_t)freqs_[i][s];
+        params_[i].phase = (int32_t)ph;
+    }
 }
 
 void ExtNote::keyup() {

@@ -855,7 +855,8 @@ int extendedTest() {
                 pitchCase({ { 51, depth }, { 1036, pv } }, 60, vel / 127.0,
                           noteHz(60) * std::pow(2.0, extPitchVelocityCents(depth, pv, vel) / 1200),
                           "pitch velocity " + std::to_string(depth) + "/" + std::to_string(pv) + " velocity " + std::to_string(vel));
-    // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw
+    // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw; Extended
+    // sounds advance it once per sample (every speed up to 1357 Hz)
     for (int range = 0; range < 2; range++)
         for (int speed = 0; speed <= (range ? 415 : 99); speed += range ? 5 : 1) {
             ExtendedVoice v = oscairn_fm::extDefaults();
@@ -865,11 +866,10 @@ int extendedTest() {
             Lfo lfo;
             lfo.init(rate);
             lfo.reset(v);
+            expect(lfo.perSample(), "the Extended LFO runs per sample");
             const double hz = range ? extLfoExtendedHz(speed) : extLfoHz(speed);
-            if (hz > rate / N / 4)
-                continue; // beyond what a once-per-block LFO can play (lfo.cc)
-            const double blockRate = rate / N;
-            const long blocks = (long)std::min(5e7, blockRate * 20 / hz) + 2;
+            const double blockRate = rate; // (ticks: samples)
+            const long blocks = (long)std::min(2e8, blockRate * 20 / hz) + 2;
             long first = -1, last = -1, wraps = 0;
             int32_t prev = lfo.getsample();
             for (long b = 1; b < blocks; b++) {
@@ -883,7 +883,7 @@ int extendedTest() {
                 }
                 prev = y;
             }
-            // within one block of the true wrap: compare with the rate over many cycles
+            // within one sample of the true wrap: compare with the rate over many cycles
             const double measured = wraps > 0 ? wraps * blockRate / (double)(last - first) : 0;
             expect(std::fabs(measured / hz - 1) < 0.01, std::string(range ? "extended" : "normal") + " LFO speed " +
                                                             std::to_string(speed) + ": " + std::to_string(measured) +

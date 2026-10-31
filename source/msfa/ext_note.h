@@ -76,8 +76,10 @@ public:
     void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
     // the voice's values changed while it plays (envelopes keep their state)
     void update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
-    // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency)
-    void compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, int32_t pitchBase, const Controllers *ctrls);
+    // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency); lfo_samples is
+    // the LFO at every sample of the block, or null to use lfo_val throughout
+    void compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
+                 const Controllers *ctrls);
     void keyup();
     bool isPlaying() const;
     void oscSync();            // the operators with Key On Reset start from phase 0
@@ -104,6 +106,7 @@ private:
     int32_t pitchDepth_ = 0, ampDepth_ = 0;
     int32_t fbBuf_[2] = {};
     int32_t gains_[8][N];        // per operator, this block's gain per sample
+    int32_t freqs_[8][N];        // per operator, this block's phase increment per sample
     AlignedBuf<int32_t, N> bufs_[8];
     AlignedBuf<int32_t, N> sum_;
     const SynthRate *rate_ = nullptr;

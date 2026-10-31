@@ -60,7 +60,7 @@ void Lfo::init(double sample_rate) {
 
     double ratio = 4437500000.0 * N;
     Lfo::lforatio_ = ratio / sample_rate;
-    hzToDelta_ = 4294967296.0 * N / sample_rate;
+    hzToDelta_ = 4294967296.0 / sample_rate;
 }
 
 void Lfo::reset(const uint8_t params[6]) {
@@ -80,6 +80,7 @@ void Lfo::reset(const uint8_t params[6]) {
     waveform_ = params[5];
     sync_ = params[4] != 0;
     startPhase_ = (1U << 31) - 1;
+    perSample_ = false;
 }
 
 void Lfo::reset(const ExtendedVoice &v) {
@@ -88,10 +89,9 @@ void Lfo::reset(const ExtendedVoice &v) {
     reset(p);
     const double hz = v.common(ext::LfoSpeedRange) == 0 ? extLfoHz(v.common(ext::LfoSpeed))
                                                         : extLfoExtendedHz(v.common(ext::LfoExtSpeed));
-    // shortcut: the LFO advances once per 64-sample block, so it cannot run faster than half
-    // the block rate (344 Hz at 44.1 kHz); the extended range goes to 1357 Hz. Upgrade to a
-    // per-sample LFO for Extended sounds when that range matters.
+    // per sample: the extended range goes to 1357 Hz, past half the block rate
     delta_ = (uint32_t)std::min(hz * hzToDelta_ + 0.5, 2147483647.0);
+    perSample_ = true;
     // shortcut: phase 0 is taken as the start of the wave as Lfo draws it; the reference's
     // start point is not measured yet
     startPhase_ = (uint32_t)v.common(ext::LfoPhase) << 30;

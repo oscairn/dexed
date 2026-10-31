@@ -359,12 +359,19 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                 audiobuf.get()[j] = 0;
             }
             int32_t lfovalue[MAX_CONTEXTS], lfodelay[MAX_CONTEXTS];
+            int32_t lfosamples[MAX_CONTEXTS][N]; // Extended sounds: the LFO per sample
             for (int c = 0; c < MAX_CONTEXTS; c++) {
                 if ( !active[c] )
                     continue;
                 for (int j = 0; j < N; ++j)
                     sumbuf[c][j] = 0;
-                lfovalue[c] = contexts[c].lfo.getsample();
+                if ( contexts[c].lfo.perSample() ) {
+                    for (int j = 0; j < N; ++j)
+                        lfosamples[c][j] = contexts[c].lfo.getsample();
+                    lfovalue[c] = lfosamples[c][0];
+                } else {
+                    lfovalue[c] = contexts[c].lfo.getsample();
+                }
                 lfodelay[c] = contexts[c].lfo.getdelay();
             }
 
@@ -378,7 +385,8 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                     if (checkMTSESPRetuning)
                         voices[note].dx7_note->updateBasePitches();
 
-                    voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &voiceCtrl(c, voices[note].channel));
+                    voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &voiceCtrl(c, voices[note].channel),
+                                                   contexts[c].lfo.perSample() ? lfosamples[c] : nullptr);
 
                     ProcessorVoice &v = voices[note];
                     for (int j=0; j < N; ++j) {

@@ -277,9 +277,10 @@ int32_t Dx7Note::bendAndTune(const Controllers *ctrls) {
     return pb + ctrls->masterTune;
 }
 
-void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Controllers *ctrls) {
+void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Controllers *ctrls,
+                      const int32_t *lfo_samples) {
     if (extended_) {
-        ext_.compute(buf, lfo_val, lfo_delay, bendAndTune(ctrls), ctrls);
+        ext_.compute(buf, lfo_val, lfo_samples, lfo_delay, bendAndTune(ctrls), ctrls);
         return;
     }
     // ==== PITCH ====

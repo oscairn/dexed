@@ -51,8 +51,9 @@ public:
 
     // Note: this _adds_ to the buffer. Interesting question whether it's
     // worth it...
+    // lfo_samples: the LFO's value at every sample of the block (Extended sounds), or null
     void compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay,
-                 const Controllers *ctrls);
+                 const Controllers *ctrls, const int32_t *lfo_samples = nullptr);
     
     void keyup();
     
