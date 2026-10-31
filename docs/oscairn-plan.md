@@ -766,10 +766,11 @@ still small enough.
 - **Shared blocks.** The filter/FEG/LFO library is used by the AGPL Sampler and this GPL plugin.
   Jacob owns that code, so it can be licensed permissively (Apache-2.0 or MIT) or dual-licensed.
   AGPL-only blocks would also combine with GPLv3 under §13, but would make the fork's binary
-  partly AGPL in a second place. Decision needed (section 10).
+  partly AGPL in a second place. Decided: GPL-3.0-or-later (section 10).
 - **Copying Oscairn code into the fork.** `SoundContexts.h`, the allocation guard and test
   helpers are AGPL in Oscairn. Copying them into the GPL fork is allowed under §13 but brings
-  AGPL terms with them; or Jacob relicenses those helpers. Same decision.
+  AGPL terms with them; or Jacob relicenses those helpers. Decided: test helpers are MIT
+  (section 10); none were copied, the fork's own were written fresh.
 - Keep all notices; credit Dexed, MSFA and their authors in Oscairn's CREDITS.
 
 ### IP rules (RFC 0013)
@@ -834,30 +835,42 @@ UI or show the graph only is for review.
 - **Algorithm table accuracy.** `fmx_algorithms.json` was transcribed by eye; edges are not
   verified against hardware and algorithm 65 is ambiguous. The topology tests in M4 must be
   measured against renders.
-- **Licence mixing.** AGPL helpers copied into a GPL plugin, and AGPL JUCE in the binary,
-  need clear notices.
+- **Licence mixing.** AGPL JUCE in the desktop binary needs clear notices.
 
-**Open questions for Jacob**
+**Decisions (Jacob, 2026-10-31)**
 
-1. Licence of the shared filter/FEG/LFO library and of the Oscairn test helpers copied into
-   the fork (permissive, dual, or AGPL).
-2. One plugin with two profiles (proposed), or a separate Classic plugin.
-3. Plugin name and CLAP ID (proposed "Oscairn FM", `org.oscairn.fm`).
-4. Voice pool size and context count on the device (after measurement).
-5. Where the measurement harness lives: shared with RFC 0013 in Oscairn (proposed) or in the
-   fork.
-6. Whether the desktop JUCE editor gets the new features at all, or Oscairn's generated and
-   described editors are enough.
-7. Whether to keep MTS-ESP in the Oscairn build at all.
+These answer the seven questions this section used to list.
 
-**Decisions taken while implementing (conservative choices, for Jacob to confirm)**
+1. **Licences.** The shared DSP blocks (filter, FEG, LFOs) are GPL-3.0-or-later. Test helpers
+   (test host, allocation guard, render-comparison tools) are MIT. No Oscairn AGPL code has
+   been copied into the fork.
+2. **One plugin, two profiles**, Classic and Extended, as section 5 describes, with one
+   interface. DX7 imports come in as Classic; Extended-only controls are hidden or disabled
+   through the editor description, never by changing the parameter list. FM-X conversions
+   come in as Extended. Two init sounds ship: the Dexed/DX7 init voice (Classic) and an FM-X
+   init (Extended) built only from the Data List's documented defaults, with no Yamaha preset
+   content. A "convert to Extended" action maps a Classic sound's values and is labelled
+   approximate, because where the tables differ the result may sound slightly different.
+   Converting back to Classic only works when the sound stays within the Classic subset.
+3. **Name and ID.** The CLAP ID stays `org.oscairn.fm`; the display name is "Octet" (it may
+   change again).
+4. **Voice pool size and context count: on hold.** Voice stealing is being discussed with
+   Oscairn. Voice allocation and stealing policy do not change beyond what bit-exactness
+   needs.
+5. **Measurement harness:** its own repository, `oscairn/measurement` (private, MIT). It holds
+   only analysis code (pitch, level, spectrum and envelope comparison against reference
+   renders) and the pass/fail tolerances: `common/` for shared analysis, `fm/` for FM checks
+   (another project adds `analog/`). It never contains renders, test performances, the
+   recorder, Yamaha names in identifiers, or anything read from a Yamaha binary. Pull and
+   rebase before pushing; never rewrite others' history.
+6. **Desktop JUCE editor:** it should eventually show every feature, but that is careful UI
+   work, deferred and not part of these milestones.
+7. **No MTS-ESP in the Oscairn build.** FM-X micro tuning is stored in the plugin state as
+   Scala data. A host-level Oscairn tuning feature comes later and is not part of this plan.
+   The desktop Dexed keeps MTS-ESP.
 
-- Q3: the native CLAP is called "Oscairn FM" with ID `org.oscairn.fm` (the proposal), version
-  0.1.0. Easy to change before anything depends on it.
-- Q7: the native CLAP has no MTS-ESP and no Scala/KBM tuning yet (standard tuning only); the
-  desktop Dexed keeps both.
-- Q1: no Oscairn (AGPL) code was copied into the fork. The test host, allocation guard and
-  state format were written for the fork (GPL-3.0-or-later); only the MIT CLAP headers are used.
+**Notes from implementation**
+
 - The desktop Dexed, when loaded (also by `oscairn-render`), creates
   `~/Library/Application Support/DigitalSuburban/Dexed` (or the XDG equivalent) with the
   built-in cartridges and reads `Dexed.xml` from it; the engine type in `Dexed.xml` overrides
