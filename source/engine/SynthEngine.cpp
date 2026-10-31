@@ -230,6 +230,14 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
 }
 
 void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo) {
+    NoteRef ref;
+    ref.port = 0;
+    ref.channel = (int16_t)(channel - 1);
+    ref.key = pitch;
+    keydown(channel, pitch, velo, ref);
+}
+
+void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const NoteRef &ref) {
     if ( velo == 0 ) {
         keyup(channel, pitch, velo);
         return;
@@ -276,6 +284,11 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo) {
         lfo.keydown();
 
     note = bestNote;
+
+    if ( voices[note].noteActive )
+        endNote(note); // stolen
+    voices[note].ref = ref;
+    voices[note].noteActive = true;
 
     currentNote = (note + 1) % MAX_ACTIVE_NOTES;
     voices[note].channel = channel;
@@ -348,6 +361,10 @@ void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
         return;
     }
 
+    keyupVoice(note);
+}
+
+void SynthEngine::keyupVoice(int note) {
     if ( monoMode ) {
         int highNote = -1;
         int target = 0;
@@ -370,6 +387,48 @@ void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
     } else {
         voices[note].dx7_note->keyup();
     }
+}
+
+static bool matches(const NoteRef &voice, const NoteRef &match) {
+    if ( match.id >= 0 )
+        return voice.id == match.id;
+    return (match.port < 0 || match.port == voice.port) &&
+           (match.channel < 0 || match.channel == voice.channel) &&
+           (match.key < 0 || match.key == voice.key);
+}
+
+void SynthEngine::releaseNotes(const NoteRef &match) {
+    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+        if ( voices[note].keydown && voices[note].noteActive && matches(voices[note].ref, match) ) {
+            voices[note].keydown = false;
+            keyupVoice(note);
+        }
+    }
+}
+
+void SynthEngine::chokeNotes(const NoteRef &match) {
+    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+        if ( voices[note].noteActive && matches(voices[note].ref, match) ) {
+            voices[note].keydown = false;
+            voices[note].sustained = false;
+            voices[note].live = false;
+            endNote(note);
+        }
+    }
+}
+
+void SynthEngine::collectEndedNotes() {
+    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+        ProcessorVoice &v = voices[note];
+        if ( v.noteActive && !v.keydown && (!v.live || !v.dx7_note->isPlaying()) )
+            endNote(note);
+    }
+}
+
+void SynthEngine::endNote(int note) {
+    voices[note].noteActive = false;
+    if ( noteEndSink != nullptr )
+        noteEndSink->noteEnded(voices[note].ref);
 }
 
 void SynthEngine::panic() {

@@ -37,17 +37,26 @@
 #include "engine/EngineOpl.h"
 #include "PluginFx.h"
 
-struct ProcessorVoice {
-    int channel;
-    int midi_note;
-    int velocity;
-    bool keydown;
-    bool sustained;
-    bool live;
-    int32_t keydown_seq;
+// Which host note a voice plays, for CLAP note IDs and NOTE_END. -1 is "any" or "none".
+struct NoteRef {
+    int32_t id = -1;
+    int16_t port = -1, channel = -1, key = -1;
+};
 
-    int mpePitchBend;
-    Dx7Note *dx7_note;
+struct ProcessorVoice {
+    int channel = 0;
+    int midi_note = -1;
+    int velocity = 0;
+    bool keydown = false;
+    bool sustained = false;
+    bool live = false;
+    int32_t keydown_seq = -1;
+
+    int mpePitchBend = 8192;
+    Dx7Note *dx7_note = nullptr;
+
+    NoteRef ref;             // the note that started this voice
+    bool noteActive = false; // the host has not been told the note ended
 };
 
 enum DexedEngineResolution {
@@ -65,6 +74,12 @@ public:
         virtual ~EventSource() = default;
         // Apply every pending event whose sample position is at or before samplePos.
         virtual void dispatchUntil(int samplePos) = 0;
+    };
+
+    // Told when a voice's note has ended (finished sounding, stolen or choked).
+    struct NoteEndSink {
+        virtual ~NoteEndSink() = default;
+        virtual void noteEnded(const NoteRef &note) = 0;
     };
 
     // What processMidiMessage left for the caller to do.
@@ -95,8 +110,17 @@ public:
     MidiResult processMidiMessage(const uint8_t *buf, int channel);
 
     void keydown(uint8_t chan, uint8_t pitch, uint8_t velo);
+    void keydown(uint8_t chan, uint8_t pitch, uint8_t velo, const NoteRef &ref);
     void keyup(uint8_t chan, uint8_t pitch, uint8_t velo);
     void panic();
+
+    // CLAP note-off and choke: every held (note-off) or sounding (choke) voice whose note
+    // matches; a note ID >= 0 matches by ID alone, otherwise -1 fields match anything.
+    void releaseNotes(const NoteRef &match);
+    void chokeNotes(const NoteRef &match);
+    // Reports, through the sink, every note whose voice is released and no longer sounding.
+    void collectEndedNotes();
+    void setNoteEndSink(NoteEndSink *sink) { noteEndSink = sink; }
 
     // Re-reads the patch into the playing voices and the LFO.
     void refreshVoices();
@@ -140,4 +164,8 @@ private:
 
     int lastActiveVoice = 0;
     int32_t nextKeydownSeq;
+
+    NoteEndSink *noteEndSink = nullptr;
+    void keyupVoice(int note);
+    void endNote(int note);
 };
