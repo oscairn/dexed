@@ -30,6 +30,7 @@
 #include "msfa/algorithms.h"
 #include "msfa/ext_filter.h"
 #include "msfa/ext_note.h"
+#include "msfa/ext_part_lfo.h"
 #include "msfa/ext_tables.h"
 #include "msfa/ext_waves.h"
 #include "msfa/ext_waves_data.h"
@@ -1077,6 +1078,70 @@ int extendedTest() {
             }
         }
         expect(side[0][0] > 4 * side[0][1] && side[1][1] > 4 * side[1][0], "alternate pan: left, then right");
+    }
+    // -- the part LFO: rate, the waves' shapes and phase, the envelope's delay, the user wave's
+    // steps and slopes, and through the plugin its operator frequency destination
+    {
+        ExtendedVoice v = oscairn_fm::extDefaults();
+        v.v[ext::ProfileSel] = ext::Extended;
+        v.v[ext::PartLfoDest1] = ext::PartLfoOpFrequency;
+        v.v[ext::PartLfoDepth1] = 8;
+        auto run = [&](std::vector<float> &out, size_t n) {
+            ExtPartLfo l;
+            l.init(48000);
+            l.configure(v, 120);
+            l.keydown(true);
+            out.assign(n, 0);
+            for (size_t i = 0; i < n; i += 64)
+                l.render(out.data() + i, (int)std::min<size_t>(64, n - i));
+        };
+        std::vector<float> x;
+        v.v[ext::PartLfoSpeed] = 48;
+        run(x, 48000);
+        const double period = 48000 / extPartLfoHz(48); // samples
+        auto at = [&](double cycles) { return x[(size_t)std::lround(cycles * period)]; };
+        expect(std::fabs(at(0.25) - 1) < 1e-3 && std::fabs(at(0.5)) < 1e-3 && std::fabs(at(0.75) + 1) < 1e-3 &&
+                   std::fabs(at(1.25) - 1) < 1e-3,
+               "part LFO triangle at its rate: " + std::to_string(at(0.25)) + " " + std::to_string(at(0.75)));
+        const struct { int wave; double p; float want; } shapes[] = {
+            { ExtPartLfo::TrianglePlus, 0.5, 1 }, { ExtPartLfo::TrianglePlus, 0.9, 0.2f }, { ExtPartLfo::SawUp, 0.6, 0.6f },
+            { ExtPartLfo::SawDown, 0.6, -0.6f }, { ExtPartLfo::Square14, 0.2, 1 }, { ExtPartLfo::Square14, 0.3, -1 },
+            { ExtPartLfo::Square34, 0.7, 1 }, { ExtPartLfo::Trapezoid, 0.1, 0.8f }, { ExtPartLfo::Trapezoid, 0.3, 1 } };
+        for (const auto &sh : shapes) {
+            v.v[ext::PartLfoWave] = sh.wave;
+            run(x, 48000);
+            expect(std::fabs(at(sh.p) - sh.want) < 2e-3, "part LFO wave " + std::to_string(sh.wave) + " at " +
+                                                            std::to_string(sh.p) + ": " + std::to_string(at(sh.p)));
+        }
+        v.v[ext::PartLfoWave] = ExtPartLfo::Triangle;
+        v.v[ext::PartLfoPhase] = 1; // 90 degrees: starts at the top
+        run(x, 4800);
+        expect(std::fabs(x[0] - 1) < 1e-3, "part LFO phase 90 degrees starts at the top");
+        v.v[ext::PartLfoPhase] = 0;
+        v.v[ext::PartLfoDelay] = 64;
+        run(x, 48000);
+        const size_t d = (size_t)std::lround(extPartLfoDelayMs(64) * 48);
+        expect(x[d - 2] == 0 && x[d + 480] != 0, "part LFO delay");
+        v.v[ext::PartLfoDelay] = 0;
+        // user wave, 4 steps: +63 (full), -64, +32, -32; slope up ramps towards a higher next step
+        v.v[ext::PartLfoWave] = ExtPartLfo::User;
+        v.v[ext::PartLfoUserCycle] = 2;
+        const int steps[4] = { 63, -64, 32, -32 };
+        for (int i = 0; i < 4; i++)
+            v.v[ext::PartLfoStep1 + i] = (int16_t)steps[i];
+        v.v[ext::PartLfoUserSlope] = 1;
+        run(x, 48000);
+        expect(std::fabs(at(0.1) - 1) < 1e-3 && std::fabs(at(0.375) - (-1 + 1.5 * 0.5)) < 2e-3 &&
+                   std::fabs(at(0.6) - 0.5) < 1e-3,
+               "part LFO user steps and slope up: " + std::to_string(at(0.1)) + " " + std::to_string(at(0.375)) + " " +
+                   std::to_string(at(0.6)));
+        // through the plugin: a square wave at depth 8 moves the operator by the table's cents
+        const double cents = extPartLfoPitchCents(8);
+        const auto y = renderExtended({ { 210, ext::PartLfoOpFrequency }, { 211, 8 }, { 201, ExtPartLfo::Square },
+                                        { 202, 24 } }, 69, 1.0, 1.0, 1.0);
+        const double up = 1200 * std::log2(zeroCrossingHz(y, 2400, 24000) / f69);
+        expect(std::fabs(up - cents) < 1.0, "part LFO to operator frequency: " + std::to_string(up) + " cents, table " +
+                                                std::to_string(cents));
     }
     // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
     // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic

@@ -146,8 +146,9 @@ public:
     void update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
     // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency); lfo_samples is
     // the LFO at every sample of the block, or null to use lfo_val throughout
+    // part_lfo: the sound's part LFO at every sample of the block (-1..+1), or null
     void compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
-                 const Controllers *ctrls);
+                 const Controllers *ctrls, const float *part_lfo = nullptr);
     bool waiting() const { return delay_ > 0; } // in its key-on delay
     void keyup();
     bool isPlaying() const;
@@ -161,7 +162,7 @@ public:
 private:
     void setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning, bool start);
     void render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
-                const Controllers *ctrls);
+                const Controllers *ctrls, const float *part_lfo);
     void setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start);
     void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay);
 
@@ -184,6 +185,7 @@ private:
     int32_t basepitch_[8] = {};
     bool fixed_[8] = {};
     int32_t pitchSens_[8] = {};  // LFO pitch depth offset, as DX7 pitch modulation sensitivity
+    float partLfoPitch_[8] = {}; // part LFO to this operator's frequency: Q24 log frequency at +1
     int32_t ampSens_[8] = {};
     int32_t pitchDepth_ = 0, ampDepth_ = 0;
     int32_t fbBuf_[2] = {};

@@ -31,6 +31,7 @@
 #include "msfa/controllers.h"
 #include "msfa/dx7note.h"
 #include "msfa/ext_voice.h"
+#include "msfa/ext_part_lfo.h"
 #include "msfa/lfo.h"
 #include "msfa/synth_rate.h"
 #include "msfa/synth.h"
@@ -79,6 +80,7 @@ struct SynthContext {
     bool extended() const { return ext != nullptr && ext->extended(); }
     Controllers ctrl;               // settings and controller values
     Lfo lfo;
+    ExtPartLfo partLfo; // Extended sounds' part LFO
     PluginFx fx;
     PluginFx fxRight; // the right channel's output filter (stereo rendering), fx's settings
     bool monoMode = false;
@@ -150,7 +152,15 @@ public:
     void setTuning(std::shared_ptr<TuningState> tuning);
     void setMtsClient(MTSClient *client) { mtsClient = client; }
     // The host's tempo (beats per minute), for tempo-synced key-on delays; 120 without one.
-    void setTempo(double bpm) { tempo = bpm > 0 ? bpm : 120; }
+    void setTempo(double bpm) {
+        const double t = bpm > 0 ? bpm : 120;
+        if ( t != tempo ) { // tempo-synced part LFOs follow
+            tempo = t;
+            for (int c = 0; c < MAX_CONTEXTS; c++)
+                if ( contexts[c].extended() )
+                    contexts[c].partLfo.configure(*contexts[c].ext, tempo);
+        }
+    }
 
     // maxFrames: the largest block render() will get; contexts other than 0 can only play
     // when it is given.

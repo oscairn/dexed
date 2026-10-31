@@ -55,6 +55,14 @@ double extKeyOnDelayBeats(int note); // tempo-synced key-on delay 0-16 (16th ...
 void extPanGains(int position, float &left, float &right);
 int extScalingPanPosition(int depth, int midinote); // scaling pan -64-+63
 int extRandomPanPosition(int depth, uint32_t random); // random pan 0-127
+// the part LFO
+double extPartLfoHz(int speed);          // 0-63
+double extPartLfoTempoBeats(int length); // tempo sync 0-19 (16th ... 4th x 64), in beats per cycle
+double extPartLfoDelayMs(int time);      // 0-127
+double extPartLfoFadeInMs(int time);     // 0-127
+double extPartLfoHoldMs(int time);       // 0-126
+double extPartLfoFadeOutMs(int time);    // 0-127
+double extPartLfoPitchCents(int depth);  // operator frequency destination: cents at the LFO's peak, depth 0-127
 
 // LFO
 double extLfoHz(int speed);         // speed range Normal, 0-99

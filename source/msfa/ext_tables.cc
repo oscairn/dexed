@@ -438,3 +438,52 @@ int extRandomPanPosition(int depth, uint32_t random) {
     const int range = (int)std::lround(64 * d * d);
     return (int)(random % (uint32_t)(2 * range + 1)) - range;
 }
+
+// ---- the part LFO ----
+
+// Speed by value, Hz (measured at every value: a triangle fitted to the pitch it moves, from
+// whole cycles above 50; speed 0 stood still for 20 s, speed 1 from the slope of a 20 s rise)
+static const double kPartLfoHz[64] = {
+    0, 0.00193, 0.0617357, 0.0673294, 0.0733623, 0.0799999, 0.0872035, 0.0950541,
+    0.103675, 0.113039, 0.123234, 0.134347, 0.14652, 0.159664, 0.174096, 0.189761,
+    0.206914, 0.225567, 0.245929, 0.268086, 0.292265, 0.31858, 0.347287, 0.378543,
+    0.412699, 0.449924, 0.490483, 0.534823, 0.583041, 0.635359, 0.692989, 0.755392,
+    0.823748, 0.897714, 0.979524, 1.06707, 1.16296, 1.26842, 1.38253, 1.50683,
+    1.64324, 1.79076, 1.95106, 2.13021, 2.32028, 2.52856, 2.75859, 3.0068,
+    3.27771, 3.57596, 3.89713, 4.25193, 4.65818, 5.02516, 5.51046, 5.97692,
+    6.52348, 7.10192, 7.747, 8.44421, 9.2199, 10.0336, 10.9748, 11.8615,
+};
+double extPartLfoHz(int speed) { return kPartLfoHz[clampi(speed, 0, 63)]; }
+
+double extPartLfoTempoBeats(int length) {
+    // 16th, 8th triplet, dotted 16th, 8th, quarter triplet, dotted 8th, quarter, half triplet,
+    // dotted quarter, half, whole triplet, dotted half, then 4-8, 16, 32 and 64 quarters
+    static const double beats[20] = { 0.25, 1 / 3.0, 0.375, 0.5, 2 / 3.0, 0.75, 1, 4 / 3.0, 1.5, 2, 8 / 3.0, 3,
+                                      4, 5, 6, 7, 8, 16, 32, 64 };
+    return beats[clampi(length, 0, 19)];
+}
+
+// The LFO's delay, fade in, hold and fade out share one time table (the four measured at every
+// eighth value agree within the measurement's resolution from 48 up); measured from the delay's
+// onset at every eighth value, straight in log time between (shortcut: the values between and the
+// fastest times, below about 100 ms, are not resolved; the fades were read at one LFO cycle's
+// resolution, 0.26 s)
+static double partLfoTimeMs(int time) {
+    static const double x[17] = { 0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 127 };
+    static const double ms[17] = { 0, 31, 55, 67, 95, 152, 207, 294, 450, 680, 1024, 1524, 2306, 3483, 5264, 7978, 11509 };
+    const int t = clampi(time, 0, 127);
+    int i = 0;
+    while (i < 15 && t > x[i + 1])
+        i++;
+    const double f = (t - x[i]) / (x[i + 1] - x[i]);
+    if (i == 0)
+        return ms[1] * f;
+    return ms[i] * std::pow(ms[i + 1] / ms[i], f);
+}
+double extPartLfoDelayMs(int time) { return partLfoTimeMs(time); }
+double extPartLfoFadeInMs(int time) { return partLfoTimeMs(time); }
+double extPartLfoHoldMs(int time) { return partLfoTimeMs(time); }
+double extPartLfoFadeOutMs(int time) { return partLfoTimeMs(time); }
+// operator frequency destination: 3600 / 127 cents per depth step (measured at 17 depths, within
+// 0.3 cents)
+double extPartLfoPitchCents(int depth) { return clampi(depth, 0, 127) * 3600.0 / 127; }

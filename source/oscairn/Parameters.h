@@ -9,7 +9,7 @@
  * (at your option) any later version.
  *
  * IDs are explicit and never change between versions (tests/oscairn_params.cpp checks a
- * fingerprint of the table). Voice parameters: 1-99. Plugin settings: 100-199. Operator n:
+ * fingerprint of the table). Voice parameters: 1-99 and 200-299. Plugin settings: 100-199. Operator n:
  * 1000 * n + 1..99, so operators 7 and 8 can be added without moving anything.
  */
 #pragma once

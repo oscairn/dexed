@@ -130,6 +130,8 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
     rate.init(sampleRate);
     for (int c = 0; c < MAX_CONTEXTS; c++) {
         contexts[c].lfo.init(sampleRate);
+        contexts[c].partLfo = ExtPartLfo();
+        contexts[c].partLfo.init(sampleRate);
         contexts[c].fx.init(sampleRate);
         contexts[c].noteRandom = 0x2545F491u + (uint32_t)c;
         contexts[c].noteCount = 0;
@@ -208,9 +210,10 @@ void SynthEngine::refreshVoices(int c) {
 
 void SynthEngine::resetLfo(int c) {
     SynthContext &x = contexts[c];
-    if ( x.extended() )
+    if ( x.extended() ) {
         x.lfo.reset(*x.ext);
-    else
+        x.partLfo.configure(*x.ext, tempo);
+    } else
         x.lfo.reset(x.patch + LFO_PARAMS);
 }
 
@@ -374,6 +377,8 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             }
             int32_t lfovalue[MAX_CONTEXTS], lfodelay[MAX_CONTEXTS];
             int32_t lfosamples[MAX_CONTEXTS][N]; // Extended sounds: the LFO per sample
+            float partlfo[MAX_CONTEXTS][N];      // Extended sounds: the part LFO per sample
+            bool partActive[MAX_CONTEXTS] = {};
             for (int c = 0; c < MAX_CONTEXTS; c++) {
                 if ( !active[c] )
                     continue;
@@ -387,6 +392,10 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     lfovalue[c] = contexts[c].lfo.getsample();
                 }
                 lfodelay[c] = contexts[c].lfo.getdelay();
+                if ( contexts[c].extended() && contexts[c].partLfo.active() ) {
+                    contexts[c].partLfo.render(partlfo[c], N);
+                    partActive[c] = true;
+                }
             }
 
             bool checkMTSESPRetuning = tuningState->is_standard_tuning() &&
@@ -400,7 +409,8 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                         voices[note].dx7_note->updateBasePitches();
 
                     voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &voiceCtrl(c, voices[note].channel),
-                                                   contexts[c].lfo.perSample() ? lfosamples[c] : nullptr);
+                                                   contexts[c].lfo.perSample() ? lfosamples[c] : nullptr,
+                                                   partActive[c] ? partlfo[c] : nullptr);
 
                     ProcessorVoice &v = voices[note];
                     float gainLeft = 1, gainRight = 1;
@@ -549,6 +559,8 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
 
     if ( triggerLfo )
         x.lfo.keydown();
+    if ( x.extended() )
+        x.partLfo.keydown(triggerLfo);
 
     int note = VoiceStealing::choose(voices, MAX_ACTIVE_NOTES, currentNote, pitch);
 

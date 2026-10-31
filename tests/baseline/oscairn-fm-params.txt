@@ -115,6 +115,41 @@
 131 | Filter | Cutoff | 0 | 1 | 1 | continuous
 132 | Filter | Resonance | 0 | 1 | 0 | continuous
 133 | Amp | Output | 0 | 1 | 1 | continuous
+200 | Extended/Part LFO | Phase | 0 | 5 | 0 | stepped enum
+201 | Extended/Part LFO | Wave | 0 | 12 | 0 | stepped enum
+202 | Extended/Part LFO | Speed | 0 | 63 | 32 | stepped
+203 | Extended/Part LFO | Tempo Sync | 0 | 1 | 0 | stepped enum
+204 | Extended/Part LFO | Tempo Speed | 0 | 19 | 6 | stepped enum
+205 | Extended/Part LFO | Delay | 0 | 127 | 0 | stepped
+206 | Extended/Part LFO | Fade In | 0 | 127 | 0 | stepped
+207 | Extended/Part LFO | Hold | 0 | 127 | 127 | stepped
+208 | Extended/Part LFO | Fade Out | 0 | 127 | 64 | stepped
+209 | Extended/Part LFO | Key On Reset | 0 | 2 | 2 | stepped enum
+210 | Extended/Part LFO | Destination 1 | 0 | 9 | 0 | stepped enum
+211 | Extended/Part LFO | Depth 1 | 0 | 127 | 0 | stepped
+212 | Extended/Part LFO | Destination 2 | 0 | 9 | 0 | stepped enum
+213 | Extended/Part LFO | Depth 2 | 0 | 127 | 0 | stepped
+214 | Extended/Part LFO | Destination 3 | 0 | 9 | 0 | stepped enum
+215 | Extended/Part LFO | Depth 3 | 0 | 127 | 0 | stepped
+216 | Extended/Part LFO | User Cycle | 0 | 6 | 6 | stepped enum
+217 | Extended/Part LFO | User Slope | 0 | 3 | 0 | stepped enum
+218 | Extended/Part LFO | User Step 1 | -64 | 63 | 0 | stepped
+219 | Extended/Part LFO | User Step 2 | -64 | 63 | 0 | stepped
+220 | Extended/Part LFO | User Step 3 | -64 | 63 | 0 | stepped
+221 | Extended/Part LFO | User Step 4 | -64 | 63 | 0 | stepped
+222 | Extended/Part LFO | User Step 5 | -64 | 63 | 0 | stepped
+223 | Extended/Part LFO | User Step 6 | -64 | 63 | 0 | stepped
+224 | Extended/Part LFO | User Step 7 | -64 | 63 | 0 | stepped
+225 | Extended/Part LFO | User Step 8 | -64 | 63 | 0 | stepped
+226 | Extended/Part LFO | User Step 9 | -64 | 63 | 0 | stepped
+227 | Extended/Part LFO | User Step 10 | -64 | 63 | 0 | stepped
+228 | Extended/Part LFO | User Step 11 | -64 | 63 | 0 | stepped
+229 | Extended/Part LFO | User Step 12 | -64 | 63 | 0 | stepped
+230 | Extended/Part LFO | User Step 13 | -64 | 63 | 0 | stepped
+231 | Extended/Part LFO | User Step 14 | -64 | 63 | 0 | stepped
+232 | Extended/Part LFO | User Step 15 | -64 | 63 | 0 | stepped
+233 | Extended/Part LFO | User Step 16 | -64 | 63 | 0 | stepped
+234 | Extended/Part LFO | Random Speed | 0 | 127 | 0 | stepped
 1001 | Operator 1/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 1002 | Operator 1/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 1003 | Operator 1/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -170,6 +205,12 @@
 1060 | Operator 1/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 1061 | Operator 1/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 1062 | Operator 1/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+1063 | Operator 1/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+1064 | Operator 1/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+1065 | Operator 1/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+1066 | Operator 1/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+1067 | Operator 1/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+1068 | Operator 1/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped
 2001 | Operator 2/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 2002 | Operator 2/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 2003 | Operator 2/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -225,6 +266,12 @@
 2060 | Operator 2/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 2061 | Operator 2/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 2062 | Operator 2/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+2063 | Operator 2/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+2064 | Operator 2/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+2065 | Operator 2/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+2066 | Operator 2/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+2067 | Operator 2/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+2068 | Operator 2/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped
 3001 | Operator 3/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 3002 | Operator 3/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 3003 | Operator 3/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -280,6 +327,12 @@
 3060 | Operator 3/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 3061 | Operator 3/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 3062 | Operator 3/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+3063 | Operator 3/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+3064 | Operator 3/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+3065 | Operator 3/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+3066 | Operator 3/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+3067 | Operator 3/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+3068 | Operator 3/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped
 4001 | Operator 4/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 4002 | Operator 4/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 4003 | Operator 4/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -335,6 +388,12 @@
 4060 | Operator 4/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 4061 | Operator 4/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 4062 | Operator 4/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+4063 | Operator 4/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+4064 | Operator 4/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+4065 | Operator 4/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+4066 | Operator 4/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+4067 | Operator 4/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+4068 | Operator 4/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped
 5001 | Operator 5/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 5002 | Operator 5/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 5003 | Operator 5/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -390,6 +449,12 @@
 5060 | Operator 5/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 5061 | Operator 5/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 5062 | Operator 5/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+5063 | Operator 5/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+5064 | Operator 5/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+5065 | Operator 5/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+5066 | Operator 5/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+5067 | Operator 5/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+5068 | Operator 5/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped
 6001 | Operator 6/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 6002 | Operator 6/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 6003 | Operator 6/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -445,6 +510,12 @@
 6060 | Operator 6/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 6061 | Operator 6/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 6062 | Operator 6/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+6063 | Operator 6/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+6064 | Operator 6/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+6065 | Operator 6/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+6066 | Operator 6/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+6067 | Operator 6/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+6068 | Operator 6/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped
 7030 | Operator 7/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
 7031 | Operator 7/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
 7032 | Operator 7/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
@@ -478,6 +549,12 @@
 7060 | Operator 7/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 7061 | Operator 7/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 7062 | Operator 7/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+7063 | Operator 7/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+7064 | Operator 7/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+7065 | Operator 7/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+7066 | Operator 7/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+7067 | Operator 7/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+7068 | Operator 7/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped
 8030 | Operator 8/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
 8031 | Operator 8/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
 8032 | Operator 8/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
@@ -511,3 +588,9 @@
 8060 | Operator 8/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
 8061 | Operator 8/Extended/Wave | Spread | 0 | 7 | 0 | stepped
 8062 | Operator 8/Extended/Wave | Formant | 0 | 99 | 0 | stepped
+8063 | Operator 8/Extended/Part LFO | Destination 1 | 0 | 1 | 1 | stepped enum
+8064 | Operator 8/Extended/Part LFO | Destination 2 | 0 | 1 | 1 | stepped enum
+8065 | Operator 8/Extended/Part LFO | Destination 3 | 0 | 1 | 1 | stepped enum
+8066 | Operator 8/Extended/Part LFO | Depth Ratio 1 | 0 | 127 | 127 | stepped
+8067 | Operator 8/Extended/Part LFO | Depth Ratio 2 | 0 | 127 | 127 | stepped
+8068 | Operator 8/Extended/Part LFO | Depth Ratio 3 | 0 | 127 | 127 | stepped

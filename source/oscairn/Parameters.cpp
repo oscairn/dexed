@@ -74,6 +74,13 @@ static ExtendedVoice buildExtDefaults() {
     e.v[PitchKeyFollow] = 96; // +100 %
     e.v[PitchKeyCentre] = 60;
     e.v[KeyOnDelayNote] = 9; // 1/2 (the documented default)
+    // the part LFO's documented defaults (its destinations map to Octet's list: Off here)
+    e.v[PartLfoSpeed] = 32;
+    e.v[PartLfoTempoSpeed] = 6; // 1/4
+    e.v[PartLfoHold] = 127;     // hold for ever
+    e.v[PartLfoFadeOut] = 64;
+    e.v[PartLfoKeyReset] = 2;   // first key
+    e.v[PartLfoUserCycle] = 6;  // 16 steps
     for (int n = 1; n <= Ops; n++) {
         int16_t *o = e.v + op(n, KeyOnReset);
         o[KeyOnReset] = 1;
@@ -84,6 +91,8 @@ static ExtendedVoice buildExtDefaults() {
         o[BreakPoint] = 39;
         o[PitchDepthOffset] = 3;
         o[AmpDepthOffset] = 3;
+        o[PartLfoBox1] = o[PartLfoBox2] = o[PartLfoBox3] = 1;
+        o[PartLfoRatio1] = o[PartLfoRatio2] = o[PartLfoRatio3] = 127;
     }
     return e;
 }
@@ -209,6 +218,44 @@ static std::vector<Param> build() {
         extv(53, c, "Alternate Pan", -64, 63, ext::AlternatePan, Text::Signed);
         extv(54, c, "Scaling Pan", -64, 63, ext::ScalingPan, Text::Signed);
     }
+    {
+        const std::string l = "Extended/Part LFO";
+        static const char *const phases6[] = { "0 degrees", "90 degrees", "120 degrees", "180 degrees", "240 degrees",
+                                               "270 degrees", nullptr };
+        static const char *const pwaves[] = { "Triangle", "Triangle unipolar", "Saw up", "Saw down", "Square 1/4",
+                                              "Square 1/3", "Square", "Square 2/3", "Square 3/4", "Trapezoid",
+                                              "Sample and hold 1", "Sample and hold 2", "User", nullptr };
+        static const char *const lengths[] = { "1/16", "1/8 triplet", "1/16 dotted", "1/8", "1/4 triplet", "1/8 dotted",
+                                               "1/4", "1/2 triplet", "1/4 dotted", "1/2", "1/1 triplet", "1/2 dotted",
+                                               "4 beats", "5 beats", "6 beats", "7 beats", "8 beats", "16 beats",
+                                               "32 beats", "64 beats", nullptr };
+        static const char *const resets[] = { "Off", "Each key", "First key", nullptr };
+        static const char *const dests[] = { "Off", "Pan", "LFO 2 Speed", "Filter Cutoff", "Filter Resonance", "Feedback",
+                                             "Operator Frequency", "Operator Wave", "Operator Detune", "Operator Level",
+                                             nullptr };
+        static const char *const cycles[] = { "2 steps", "3 steps", "4 steps", "6 steps", "8 steps", "12 steps",
+                                              "16 steps", nullptr };
+        static const char *const slopes[] = { "Off", "Up", "Down", "Up and down", nullptr };
+        extv(200, l, "Phase", 0, 5, ext::PartLfoPhase, Text::Choice, phases6);
+        extv(201, l, "Wave", 0, 12, ext::PartLfoWave, Text::Choice, pwaves);
+        extv(202, l, "Speed", 0, 63, ext::PartLfoSpeed);
+        extv(203, l, "Tempo Sync", 0, 1, ext::PartLfoSync, Text::Switch, offOn);
+        extv(204, l, "Tempo Speed", 0, 19, ext::PartLfoTempoSpeed, Text::Choice, lengths);
+        extv(205, l, "Delay", 0, 127, ext::PartLfoDelay);
+        extv(206, l, "Fade In", 0, 127, ext::PartLfoFadeIn);
+        extv(207, l, "Hold", 0, 127, ext::PartLfoHold);
+        extv(208, l, "Fade Out", 0, 127, ext::PartLfoFadeOut);
+        extv(209, l, "Key On Reset", 0, 2, ext::PartLfoKeyReset, Text::Choice, resets);
+        for (int d = 0; d < 3; d++) {
+            extv(210 + 2 * d, l, "Destination " + std::to_string(d + 1), 0, 9, ext::PartLfoDest1 + 2 * d, Text::Choice, dests);
+            extv(211 + 2 * d, l, "Depth " + std::to_string(d + 1), 0, 127, ext::PartLfoDepth1 + 2 * d);
+        }
+        extv(216, l, "User Cycle", 0, 6, ext::PartLfoUserCycle, Text::Choice, cycles);
+        extv(217, l, "User Slope", 0, 3, ext::PartLfoUserSlope, Text::Choice, slopes);
+        for (int i = 0; i < 16; i++)
+            extv(218 + i, l, "User Step " + std::to_string(i + 1), -64, 63, ext::PartLfoStep1 + i, Text::Signed);
+        extv(234, l, "Random Speed", 0, 127, ext::PartLfoRandomSpeed);
+    }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
         const std::string env = op + "/Envelope", freq = op + "/Frequency", scale = op + "/Scaling",
@@ -249,6 +296,11 @@ static std::vector<Param> build() {
         x(60, wave, "Wave", 0, 6, ext::Wave, Text::Choice, waves);
         x(61, wave, "Spread", 0, 7, ext::WaveSpread);
         x(62, wave, "Formant", 0, 99, ext::WaveFormant);
+        const std::string plfo = op + "/Part LFO";
+        for (int d = 0; d < 3; d++) {
+            x(63 + d, plfo, "Destination " + std::to_string(d + 1), 0, 1, (ext::Op)(ext::PartLfoBox1 + d), Text::Switch, offOn);
+            x(66 + d, plfo, "Depth Ratio " + std::to_string(d + 1), 0, 127, (ext::Op)(ext::PartLfoRatio1 + d));
+        }
     }
 
     setting(100, "Voice", "Engine", 0, 2, 1, Setting::Engine, Text::Choice, engines);
@@ -471,6 +523,9 @@ bool convertToClassic(std::vector<double> &values) {
         return false; // key-on delay
     if (x.geti(52) != 0 || x.geti(53) != 0 || x.geti(54) != 0)
         return false; // pan (Classic voices are mono)
+    for (uint32_t id = 211; id <= 215; id += 2)
+        if (x.geti(id - 1) != 0 && x.geti(id) != 0)
+            return false; // the part LFO
     for (int d = 1; d <= 6; d++) {
         const uint32_t e = 1000 * m.op[d - 1];
         if (x.geti(e + 30) != keySync || x.geti(e + 58) != pitchSens)

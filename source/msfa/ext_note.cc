@@ -449,6 +449,18 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         if (start)
             peg_[i].init(o(ext::PegInitial), o(ext::PegAttack), o(ext::PegAttackTime), o(ext::PegDecayTime), sampleRate);
         pitchSens_[i] = extPitchDepthOffset(std::clamp(o(ext::PitchDepthOffset), 0, 7));
+        // the part LFO's operator frequency destinations that reach this operator: the depth
+        // times the operator's ratio / 128 rounded down, ratio 127 as 128 (measured); ratio mode
+        // only, as the 2nd LFO (shortcut: unmeasured on fixed-frequency operators)
+        partLfoPitch_[i] = 0;
+        if (!fixed_[i])
+            for (int d = 0; d < 3; d++)
+                if (v.common((ext::Common)(ext::PartLfoDest1 + 2 * d)) == ext::PartLfoOpFrequency && o((ext::Op)(ext::PartLfoBox1 + d))) {
+                    const int ratio = std::clamp(o((ext::Op)(ext::PartLfoRatio1 + d)), 0, 127);
+                    const int depth = std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) *
+                                      (ratio == 127 ? 128 : ratio) / 128;
+                    partLfoPitch_[i] += (float)(extPartLfoPitchCents(depth) / 1200.0 * kQ24);
+                }
         ampSens_[i] = extAmpDepthOffset(std::clamp(o(ext::AmpDepthOffset), 0, 7));
     }
     if (start) {
@@ -585,7 +597,7 @@ void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay) {
 }
 
 void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
-                      int32_t pitchBase, const Controllers *ctrls) {
+                      int32_t pitchBase, const Controllers *ctrls, const float *part_lfo) {
     if (!initialised_)
         return; // (released within its key-on delay)
     if (delay_ >= N) {
@@ -598,12 +610,12 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
         std::fill(carry_, carry_ + N, 0);
     }
     if (shift_ == 0) {
-        render(buf, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls);
+        render(buf, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls, part_lfo);
         return;
     }
     // started within a block: every block runs shift_ samples late
     int32_t tmp[N] = {};
-    render(tmp, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls);
+    render(tmp, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls, part_lfo);
     for (int s = 0; s < shift_; s++)
         buf[s] += carry_[s];
     for (int s = shift_; s < N; s++)
@@ -612,7 +624,7 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
 }
 
 void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
-                     int32_t pitchBase, const Controllers *ctrls) {
+                     int32_t pitchBase, const Controllers *ctrls, const float *part_lfo) {
     // LFO pitch and amplitude modulation as the DX7 voice computes them, per operator, but at
     // every sample when the LFO runs per sample
     int32_t lfo[N];
@@ -642,14 +654,15 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
         int32_t *f = freqs_[i];
         const bool lfoPitch = !fixed_[i] && pitchSens_[i] != 0 && pitchMod;
         const int32_t *pp = fixed_[i] ? kNoPitch : ppeg;
-        if (lfoPitch || peg_[i].active() || (ppegMoving && !fixed_[i])) {
+        const bool partPitch = part_lfo != nullptr && partLfoPitch_[i] != 0;
+        if (lfoPitch || peg_[i].active() || (ppegMoving && !fixed_[i]) || partPitch) {
             for (int s = 0; s < N; s++) {
-                int32_t pmod = 0;
+                int32_t pmod = partPitch ? (int32_t)std::lrint(part_lfo[s] * partLfoPitch_[i]) : 0;
                 if (lfoPitch) {
                     const int32_t senslfo = pitchSens_[i] * (lfo[s] - (1 << 23));
-                    pmod = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
+                    const int32_t lfo2 = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
                     const int32_t pmodWheel = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
-                    pmod = std::abs(pmod) >= std::abs(pmodWheel) ? pmod : pmodWheel;
+                    pmod += std::abs(lfo2) >= std::abs(pmodWheel) ? lfo2 : pmodWheel;
                 }
                 f[s] = rate_->freqlut.lookup(pitch + peg_[i].getsample() + pmod + pp[s]);
             }

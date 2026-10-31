@@ -71,6 +71,24 @@ enum Common {
     RandomPan,          // 0-127
     AlternatePan,       // -64-+63 (left 64 ... right 63)
     ScalingPan,         // -64-+63
+    // the part LFO (msfa/ext_part_lfo.h)
+    PartLfoPhase,       // 0-5: 0, 90, 120, 180, 240, 270 degrees
+    PartLfoWave,        // 0-12 (ExtPartLfo::Wave)
+    PartLfoSpeed,       // 0-63
+    PartLfoSync,        // 0-1: tempo sync
+    PartLfoTempoSpeed,  // 0-19: 16th ... 4th x 64 (extPartLfoTempoBeats)
+    PartLfoDelay,       // 0-127
+    PartLfoFadeIn,      // 0-127
+    PartLfoHold,        // 0-127 (127: hold for ever)
+    PartLfoFadeOut,     // 0-127
+    PartLfoKeyReset,    // 0 off, 1 each key-on, 2 the first key-on
+    PartLfoDest1, PartLfoDepth1, PartLfoDest2, PartLfoDepth2, PartLfoDest3, PartLfoDepth3, // destination 0-9 (extPartLfoDest), depth 0-127
+    PartLfoUserCycle,   // 0-6: 2, 3, 4, 6, 8, 12, 16 steps
+    PartLfoUserSlope,   // 0-3: off, up, down, up and down
+    PartLfoStep1, PartLfoStep2, PartLfoStep3, PartLfoStep4, PartLfoStep5, PartLfoStep6, PartLfoStep7, PartLfoStep8,
+    PartLfoStep9, PartLfoStep10, PartLfoStep11, PartLfoStep12, PartLfoStep13, PartLfoStep14, PartLfoStep15,
+    PartLfoStep16,      // -64-+63
+    PartLfoRandomSpeed, // 0-127
     CommonCount
 };
 
@@ -100,8 +118,14 @@ enum Op {
     Wave,         // 0-6: sine, all harmonics 1 and 2, odd harmonics 1 and 2, formant 1 and 2
     WaveSpread,   // 0-7
     WaveFormant,  // 0-99 (formant waves)
+    PartLfoBox1, PartLfoBox2, PartLfoBox3,       // 0-1: the part LFO's destinations 1-3 reach this operator
+    PartLfoRatio1, PartLfoRatio2, PartLfoRatio3, // 0-127: their depth on this operator
     OpCount
 };
+
+// part LFO destinations (PartLfoDest1-3)
+enum PartLfoDest { PartLfoNone, PartLfoPan, PartLfoLfo2Speed, PartLfoCutoff, PartLfoResonance, PartLfoFeedback,
+                   PartLfoOpFrequency, PartLfoOpWave, PartLfoOpDetune, PartLfoOpLevel };
 
 constexpr int Ops = 8;
 constexpr int Count = CommonCount + Ops * OpCount;
