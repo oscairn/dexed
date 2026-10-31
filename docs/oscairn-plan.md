@@ -1018,12 +1018,15 @@ tracking in the engine), `8d0f288` (native CLAP and its tests).
   question 4): a raw MIDI note-off releases the first matching voice slot, which is not always
   the oldest press; no note expressions.
 
-### M4 (in progress, 2026-10-31)
+### M4 (done 2026-10-31, gates met where measurable; see the table)
 
 Commits: `02c6811` (Extended voice, 88 algorithms, parameters, conversion), `c2ad09a` (fitted
 tables, per-sample envelopes, init sounds, Extended test), `1a26b42` (attack and hold refit), the extended LFO table commit below. Measurement code: oscairn/measurement
 `f12fb53` (`fm/eg.py`, `fit_eg.py`, `lfo.py`, `fit_tables.py`, `make_tables.py`, `calibrate.py`,
-`compare.py`, `topology.py`).
+`compare.py`, `topology.py`). Second session: `7cc0925` (per-sample Extended LFO), `9a0aa9a` (algorithm 70),
+`33ae421` (rate-based operator pitch EG, per time value), `abc697b` (modulation index and
+feedback), `2976b05` (odd holds, attack 95, decay 85), `a14e132` (holds 94-99, attacks 96-99);
+measurement `a126d92`, `6b83d7b`.
 
 - **Profile.** Parameter 5 (Classic, Extended) per sound. Extended values have their own IDs:
   40-51 common, 1000 n + 30..59 for operators 1-8; the Classic IDs are unchanged and the
@@ -1034,7 +1037,7 @@ tables, per-sample envelopes, init sounds, Extended test), `1a26b42` (attack and
 - **Extended voice** (`msfa/ext_note.*`): 8 operators through the compiled graph with
   `extAlgorithms[88]`; multi-operator feedback (12, 14) rendered sample by sample;
   per-sample envelopes (hold at the release level, attack, decay 1, decay 2, release) with
-  each operator's per-sample gains passed to its own kernels; time-based operator pitch EG;
+  each operator's per-sample gains passed to its own kernels; rate-based operator pitch EG stepped per sample; per-sample LFO and per-sample phase increments; a modulator level curve of its own and the measured feedback amount;
   fixed-mode key follow; per-operator key-on reset; common pitch velocity depth; 2nd LFO
   start phase and extended speed range (`Lfo::reset(ExtendedVoice)`). Tables in
   `msfa/ext_tables_data.h`, written by `fm/make_tables.py`.
@@ -1059,22 +1062,24 @@ queued on the shared recorder when this was written):
 
 | Gate | Result |
 | --- | --- |
-| Topology, all 88 | In-fork test (graph against Octet's render, solo and pairwise) passes for all 88 and the 32 DX7 graphs. Against the reference, 170 of 177 cases show the same spectral peak pattern. **Algorithm 65 resolved:** the transcribed reading (operators 3 and 4 both modulate 5-8) matches; the alternative (4 modulates 5 only) differs at many strong peaks. **Not met:** algorithm 70 (with and without feedback) has a strong reference-only line at f4 + 2 f1 + f3 (-19 dB), so its graph differs from the chart transcription somewhere not yet found (adding 1 > 3 made it worse); algorithms 2, 69 and 79 show only weak engine-only lines (-37 to -43 dB) on deep chains, probably modulation-depth calibration, unverified |
-| EG segment times 2 % | Decay 1 at all 100 time values, release and decay 2 (every even value 0-30, and 55-99): pass (fast values on the 4.19 kHz carrier; the 262 Hz carrier cannot resolve decays faster than about 1 ms per dB). Attack: pass at 0-40 (even), 40-90 and the extra values 56-64, including attack to a lower EG level and lower operator levels; 95 is 2.1 % fast after three calibration passes (its note barely finishes in the 40 s render). Hold: pass at 2-40 (even, 4.19 kHz carrier) and 40-90; hold 0 is 0.011 ms (half a sample) short; holds at 95-99 last longer than the 30 s renders, unmeasured; odd values below 40 were only rendered on the 262 Hz carrier, which cannot time steps that short, so they are interpolated and unverified. **Not met:** operator pitch EG segment times (rate spread 23.6-24.9 across time values, about 5 %) |
-| Pitch 1 cent | Pass for every measurable case: coarse 0-31, fine 0-127 at several coarse values, detune -15..+15 at 8 notes, fixed mode 20 Hz-14 kHz with fine, key follow 0-99 at 5 notes, common pitch velocity depth -64..+63 at 9 velocities. Exceptions: coarse 31 with fine above 100 (the reference gave 13.0 in one campaign and 6.658 in another, so its behaviour there is not stable), fixed frequencies below about 20 Hz (not measurable in short notes), common pitch velocity +32 at velocity 1 (1.11 cents). Operator pitch EG levels -49..+50: pass at every level (101 values, 0.6 s notes); with initial and attack level equal the reference drifts slowly towards 0 over a longer note (about 3 cents off on average over 1 s) where Octet holds the level, not modelled |
-| LFO rate 1 % | Normal speeds 0-99: all 100 pass (0-20 re-rendered with 5-13 cycles per note; the first renders held only 1.7-5 cycles and measured up to 4 % apart). Extended speeds (measured every fifth value): pass from 1 to 350 except 15 and 25 (1.1-1.2 %, slow-tremolo measurement noise as above); speed 0 plays about 0.002 Hz, too slow to measure in 40 s. **Not met above 350 (355-415, 377-1357 Hz):** Octet's LFO advances once per 64-sample block and cannot run faster than half the block rate; that needs a per-sample LFO for Extended sounds. Values between the measured ones are interpolated; the table is piecewise linear, so speeds next to a slope change are unverified. In-fork test: Octet's LFO matches its tables within 1 % at every normal speed and every fifth extended speed |
+| Topology, all 88 | **Met for the graphs.** In-fork test (graph against Octet's render, solo and pairwise) passes for all 88 and the 32 DX7 graphs. Against the reference, 172 of 177 cases show the same spectral peak pattern and the other five differ only in weak lines. **Algorithm 65 resolved:** the transcribed reading (operators 3 and 4 both modulate 5-8) matches; the alternative (4 modulates 5 only) differs at many strong peaks. **Algorithm 70 resolved:** operators 1 and 2 both modulate 3 (the chart reading had 1 > 2 > 3); found by trying single-edge changes with `fm/topology.py` against Octet renders of an edited table; with it, algorithm 70 matches with and without feedback (the other one-edge changes tried, 1 > 5, 6, 7 or 8 added or moved, 1 > 4 moved, each left or added strong lines). The weak engine-only lines at algorithms 2, 69 and 79 (-37 to -43 dB) were modulation depth: Octet's index was 12 % (1 dB) higher than the reference's at operator level 75; with the modulator level curve and feedback amount fitted (below) they are gone. Now 176 of 177 cases match; the one left, f72 (algorithm 72 with feedback), has a reference line at -40 dB (Octet: -56 dB) whose frequency is only reachable by mixing the two separate carrier chains (f1 + f4 + f6 + 2 f8, or similar), so it is intermodulation in the reference's output, not a graph edge |
+| Modulation depth (not a gate; found while checking topology) | Modulation index by modulator level, from the sideband pattern of a two-operator pair at every third level: Octet within 0.01 dB of the reference at all 32 measured levels (6-99). A modulator's level curve is its own (0.75 dB per step, -1.13 dB at 99, audible down to level 6, where a carrier measures silent below 12). Self feedback 1-7: 0.1845 times the DX7's amount at every value; harmonic 2 within 0.1 dB and harmonics 3-5 within 1.2 dB wherever they are above -75 dB (0.5 dB or better from feedback 3 up) (at feedback 1 and 2 harmonics 3-5 lie at -78 to -110 dB, near the renders' noise, and differ by up to 6 dB) |
+| EG segment times 2 % | **Met.** Decay 1 at all 100 time values, release and decay 2 (every even value 0-30, and 55-99): pass (fast values on the 4.19 kHz carrier; the 262 Hz carrier cannot resolve decays faster than about 1 ms per dB). Decay time 85 was a measurement error (its 12-second note decayed only 14 dB, 467 ms/dB); it now takes the release measurement at 85 (877 ms/dB, the same as its pair 86); a 30-second render of decay 85 confirms it (876 ms/dB). Attack: pass at 0-40 (even), 40-90, the extra values 56-64 and 95-97 (95 in a 70-second note, 96-97 in 75-second notes), including attack to a lower EG level and lower operator levels, and 98-99 (66.5 s to 1 dB below the target, 75-second notes). Hold: pass at 0-40 (every value; the odd values now on the 4.19 kHz carrier) and 40-99; hold 0 is 0.011 ms (half a sample) short; holds 94-99 in 75-second notes (hold 99: 46.1 s) pass. **Operator pitch EG: met.** Every segment moves straight in cents at its time value's rate whatever its distance, so a segment of no distance takes no time; the rate table now has one value per time value (measured from full-range decays at all 100 values, slope of the instantaneous pitch, three calibration passes), the EG steps per sample with 16 extra fraction bits. Decay at all 100 values and attack at 0-80 (every tenth) and 5-85 (every tenth from 5) pass within 2 %; attack at 90, 95 and 99 does not move far enough in the 10-12 s reference notes to measure (it shares the decay's table, which passes there). This also models the slow drift towards 0 with initial and attack level equal (it is the decay, 12.6 cents per second at decay time 99, at every level) |
+| Pitch 1 cent | **Met where measurable.** Coarse 0-31, fine 0-127 at several coarse values, detune -15..+15 at 8 notes, fixed mode 20 Hz-14 kHz with fine, key follow 0-99 at 5 notes, common pitch velocity depth -64..+63 at 9 velocities. Exceptions: coarse 31 with fine above 100 (the reference gave 13.0 in one campaign and 6.658 in another, so its behaviour there is not stable), fixed frequencies below about 20 Hz (not measurable in short notes), common pitch velocity +32 at velocity 1 (1.11 cents). Operator pitch EG levels -50..+50: pass at all 101 levels, refitted by extrapolating the pitch back to the note-on (the decay towards 0 starts at once, see below; the old table, read from a 0.05-0.5 s window, was about 3.5 cents towards 0) |
+| LFO rate 1 % | **Met where measurable.** Normal speeds 0-99: all 100 pass (0-20 re-rendered with 5-13 cycles per note; the first renders held only 1.7-5 cycles and measured up to 4 % apart). Extended speeds (measured every fifth value): pass from 1 to 415, including 355-415 (377-1357 Hz) since Extended sounds run the LFO once per sample (pitch and amplitude modulation per sample, per-sample phase increments in the Extended kernels); Classic sounds keep the per-block LFO and stay bit-identical. 15 and 25 measured 1.1-1.2 % apart in 2-second notes (2.5 cycles); see the re-render note below. Speed 0 plays about 0.002 Hz, too slow to measure in 40 s. Values between the measured ones are interpolated; the table is piecewise linear, so speeds next to a slope change are unverified. In-fork test: the LFO, stepped per sample, matches its tables within 1 % at every normal speed and every fifth extended speed |
 
-**Tests run locally:** Release CTest 36/36 (164 Classic cases bit-identical through engine,
-JUCE plugin and native CLAP; topology 32 + 88; Extended test; Oscairn scanner and renderer),
-ASan/UBSan 19/19 and TSan 19/19 (those trees build without the Oscairn tools, so the scanner and renderer tests run only in Release), rerun on `7cb51af`. CI (`oscairn-tests`) for `c2ad09a`: green on Linux x86_64, Linux ARM64, macOS, ASan+UBSan and TSan.
+**Tests run locally** (second session, on the commits through `222f1dc`): Release CTest 36/36
+(164 Classic cases bit-identical through engine, JUCE plugin and native CLAP; topology 32 + 88;
+Extended test, now with the per-sample LFO at every speed, the operator pitch EG and the wave
+harmonics; Oscairn scanner and renderer), ASan/UBSan 19/19 and TSan 19/19 (those trees build
+without the Oscairn tools). CI (`oscairn-tests`) for `f1a1678`: green on Linux x86_64, Linux
+ARM64, macOS, ASan+UBSan and TSan.
 
-**Where M4 stopped (2026-10-31).** M4 is not complete, and M5 has not been started. Gates
-that are not met: the algorithm 70 graph (and the weak extra lines at 2, 69 and 79); operator
-pitch EG segment times; extended LFO speeds above 350 (this needs a per-sample LFO); attack
-95 (2.1 %). Unmeasured: holds 95-99, and the odd hold values below 40 on a fast carrier.
-Next steps: find the algorithm 70 edge (try other one-edge changes with `fm/topology.py`
-against Octet renders of a temporarily edited table); make the Extended LFO per sample; fit a
-per-time-value pitch EG rate table.
+**What is left of M4.** Polyphony and CPU on the target ARM64 hardware are not measured (no
+access to it here); the per-sample LFO, pitch EG and wave lookups add work per operator, so
+this matters before any voice-count claim. Unmeasured values: LFO speed 0 (about 0.002 Hz),
+pitch EG attack at time 90-99 (the decay at those times, sharing the table, passes),
+fixed frequencies below 20 Hz.
 
 **Decisions taken while implementing (for Jacob to confirm)**
 
@@ -1092,6 +1097,64 @@ per-time-value pitch EG rate table.
    values), time key follow, LFO depth offsets, LFO delay; the LFO start phase is taken as the
    start of the drawn wave.
 6. The init sounds are named "Classic Init" and "Extended Init" (no product names).
+7. Measured differences Octet keeps on purpose (second session): the operator waves are
+   band-limited (the reference's are not, and alias audibly at the top of the keyboard), and a
+   formant wave whose centre is above Nyquist is silent (the reference plays a non-harmonic
+   tone near Nyquist there). Both are departures from the reference's behaviour; the gate's
+   aliasing bound asks for the first, the second follows from it.
+8. Operator wave names: Wave (Sine, All harmonics 1, All harmonics 2, Odd harmonics 1, Odd
+   harmonics 2, Formant 1, Formant 2), Spread, Formant (parameters 1000 n + 60..62).
+9. The wave tables take 7.7 MB, built once per process in SynthEngine's constructor (the
+   desktop Dexed builds them too, since it shares the engine).
+10. A modulator's level follows its own measured curve (0.75 dB per step, audible down to
+    level 6), different from a carrier's; an operator is a modulator when its algorithm does
+    not route it to the output (no algorithm does both).
+
+### M5 (in progress, 2026-10-31)
+
+- **Operator waves** (the spectral forms, section 3.7; neutral names: Wave, Spread, Formant;
+  parameters 1000 n + 60..62; Classic conversion refused unless every operator in the DX7
+  graph is a sine). Measured first: every wave and spread as an unmodulated carrier at note 48,
+  the formant waves over a formant sweep at three spreads, every wave at notes 24-108, and the
+  formant waves at every spread with their centre at harmonics 10 and 46 (`fm/spectral.py`:
+  least-squares harmonic amplitudes and phases, and the power off the harmonics).
+- What the renders show: the all- and odd-harmonic waves have the same spectrum at every note
+  (no band-limiting in the reference: at note 108 its odd-harmonic wave 2 has aliases only 14 dB
+  below its harmonics); spread 0 is a sine for the all-harmonic waves, a fundamental with the
+  third harmonic at -10 dB for the odd ones; each spread step widens the spectrum. The formant
+  waves are a symmetric sideband pattern centred on harmonic formant + 1 (the strongest line
+  checked at formant 0, 9, ..., 99 at note 48 and at formant 50 at notes 24 and 36), with the
+  same shape at centres 10 and 19 (spreads 3 and 7), so Octet plays them
+  as a window table times a sine at the centre harmonic; when the centre is above Nyquist the
+  reference plays a non-harmonic tone near Nyquist (an artefact Octet does not copy: it is
+  silent there).
+- **Engine** (`msfa/ext_waves.*`, data `msfa/ext_waves_data.h` written by
+  `fm/make_waves.py`): single-cycle tables of 2048 samples built once in SynthEngine's
+  constructor from the measured amplitudes and phases, in versions holding the first 1-16
+  harmonics exactly and more in quarter-octave steps (every harmonic below Nyquist up to the
+  16th is kept; nothing above Nyquist is), chosen per operator at note-on from its frequency;
+  7.7 MB (940 tables), shared by every instance. The Extended kernels call a per-operator wave function;
+  the sine path is unchanged and Classic voices never reach it.
+
+- **Gate** (`fm/compare_waves.py`: first 16 harmonic levels relative to a sine at the same
+  operator level, within 1 dB, harmonics more than 60 dB below the case's strongest not
+  checked; aliasing at most the reference's). In-fork test: harmonics 1-8 of waves 1-4 at
+  spread 3 within 0.5 dB of their table data.
+
+| Gate | Result |
+| --- | --- |
+| Waves 1-4, every spread | **Met:** 32 of 32 cases, worst 0.22 dB |
+| Waves 1-4 and sine at notes 24-108 | **Met:** 35 of 35 (all harmonics below Nyquist kept up to the 16th); aliasing -64 dB or lower (the renders' floor), where the reference's reaches -14 dB at note 108 |
+| Formant waves, every spread (formant 0) | Formant 2: met at spreads 0-3, 6 and 7 (worst 0.31 dB); **not met** at 4 (1.2 dB) and 5 (14.5 dB at harmonic 16, -53 dB). Formant 1: met at 0-2 (0.91 dB); **not met** at 3-7 (1.5-3.8 dB, largest at harmonic 1), so at formant 0 formant 1 is not exactly the window model with its sign-flipped fold, while formant 2 is |
+| Formant sweep (0-99 every ninth, spreads 0, 3, 7; and centre 10 at every spread) | Spread 0: met; spread 3: 19 of 24 met. **Not met:** the far side of the window on the low harmonics (centre 10: harmonics 1-3, 30-60 dB down, 2-10 dB off), and spread 7 with the centre above harmonic 18, where the first 16 harmonics lie further from the centre than the measured window reaches (45 components; renders with the centre at harmonic 100 of note 24, `spec4`, are generated and not yet recorded). f6s3r54 fails on aliasing only (-28 dB against the reference's -43; its harmonics match), unexplained |
+| Formant waves at notes 24-84 (formant 50, spread 3) | Met where the centre is below Nyquist (6 cases); above it the reference plays a non-harmonic tone near Nyquist and Octet is silent (not compared) |
+| Waves as modulators | Renders queued (`spec3`), not yet compared |
+
+**Where M5 stopped.** M5 is not complete: the formant wave gate rows above are not met, and
+waves as modulators are not checked. Next steps: record `spec4` (wider windows) and `spec3`,
+then refit; find what formant 1 does at formant 0 with wider spreads (its spectrum there is
+not the window model's fold); the wave choice follows the note-on frequency only (pitch EG,
+LFO and bend moves are not followed; marked as a shortcut in `ext_note.cc`).
 
 ### How to run the tests
 
