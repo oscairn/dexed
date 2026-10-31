@@ -827,7 +827,113 @@ int contextsTest() {
         r = { &bad, 0 };
         check(!b.ctx->state->load(b.host.plugin, &is), "a bad snapshot is refused");
     }
-    std::printf("held sounds, parts, note ownership, sustain, capacity, queue, reclamation, patch text, block sizes and snapshots\n");
+    {
+        // Controllers per channel. Two notes on MIDI channel 2 first, so MPE (where channel 1
+        // is the master for all) is off, as it is for any non-MPE source.
+        auto setup = [](Instrument &t) {
+            // mod wheel to pitch and amp, an LFO for it to scale, amp mod sensitivity on op 1
+            t.in.param(0, 110, 99);
+            t.in.param(0, 111, 1);
+            t.in.param(0, 112, 1);
+            t.in.param(0, 10, 60);
+            t.in.param(0, 16, 7);
+            t.in.param(0, 1015, 3);
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 1, 60);
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 1, 64);
+            t.run();
+        };
+        auto channelTwo = [&](const uint8_t *message, int size) {
+            Instrument t;
+            setup(t);
+            if (message != nullptr)
+                t.in.midi(0, message, size);
+            std::vector<float> r;
+            for (int k = 0; k < 8; k++) {
+                const auto &o = t.run();
+                r.insert(r.end(), o.begin(), o.end());
+            }
+            check(audible(r), "channel 2 is heard");
+            return r;
+        };
+        const auto plain = channelTwo(nullptr, 0);
+        const uint8_t wheel1[] = { 0xB0, 1, 127 }, wheel2[] = { 0xB1, 1, 127 };
+        const uint8_t bend1[] = { 0xE0, 0, 127 }, bend2[] = { 0xE1, 0, 127 };
+        const uint8_t press1[] = { 0xD0, 127 };
+        check(channelTwo(wheel1, 3) == plain, "the mod wheel on channel 1 does not change channel 2");
+        check(channelTwo(wheel2, 3) != plain, "the mod wheel on channel 2 changes channel 2");
+        check(channelTwo(bend1, 3) == plain, "pitch bend on channel 1 does not bend channel 2");
+        check(channelTwo(bend2, 3) != plain, "pitch bend on channel 2 bends channel 2");
+        check(channelTwo(press1, 2) == plain, "channel pressure on channel 1 does not reach channel 2");
+
+        // Sustain on channel 1 holds channel 1 only.
+        Instrument t;
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 10, 0, 60);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 11, 0, 62);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 20, 1, 67);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 21, 1, 69);
+        t.run();
+        const uint8_t down1[] = { 0xB0, 64, 127 };
+        t.in.midi(0, down1, 3);
+        t.in.note(CLAP_EVENT_NOTE_OFF, 10, -1, 0, -1);
+        t.in.note(CLAP_EVENT_NOTE_OFF, 10, -1, 1, -1);
+        std::set<int32_t> ended;
+        for (int k = 0; k < 200; k++) {
+            t.run();
+            for (auto &e : ends(t.host))
+                ended.insert(e.id);
+        }
+        check(ended == std::set<int32_t>{ 20, 21 }, "sustain on channel 1 holds channel 1 and not channel 2");
+
+        // CC 120 on channel 1 stops channel 1 only, with NOTE_END for exactly its voices.
+        Instrument mixed, ref;
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 0, 64);
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 3, 1, 67);
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 4, 1, 71);
+        ref.in.note(CLAP_EVENT_NOTE_ON, 0, 3, 1, 67);
+        ref.in.note(CLAP_EVENT_NOTE_ON, 0, 4, 1, 71);
+        mixed.run();
+        ref.run();
+        const uint8_t off1[] = { 0xB0, 120, 0 };
+        mixed.in.midi(100, off1, 3);
+        mixed.run();
+        ref.run();
+        auto e = ends(mixed.host);
+        std::set<int32_t> stopped;
+        for (auto &x : e) {
+            stopped.insert(x.id);
+            check(x.time == 100 && x.channel == 0, "NOTE_END at the CC 120 frame, on channel 1");
+        }
+        check(stopped == std::set<int32_t>{ 1, 2 }, "CC 120 on channel 1 ends exactly channel 1's notes");
+        // Channel 2 plays on as if channel 1 had never played, up to what the output's DC
+        // filter still holds of channel 1 (a small, decaying offset).
+        float first = 0, last = 0;
+        for (int k = 0; k < 8; k++) {
+            const auto m = mixed.run();
+            ref.run();
+            check(audible(ref.out), "channel 2 is heard");
+            float worst = 0;
+            for (size_t i = 0; i < m.size(); i++)
+                worst = std::max(worst, std::fabs(m[i] - ref.out[i]));
+            (k == 0 ? first : last) = worst;
+            check(ends(mixed.host).empty(), "no more NOTE_END");
+        }
+        std::printf("after CC 120: channel 2 differs from a channel-2-only render by %g, then %g\n", first, last);
+        check(first < 1e-2f && last < first, "channel 2 plays on as if channel 1 had never played");
+
+        // CC 123 on channel 2 releases channel 2's held notes only.
+        const uint8_t notesOff2[] = { 0xB1, 123, 0 };
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 5, 0, 48);
+        mixed.in.midi(0, notesOff2, 3);
+        std::set<int32_t> released;
+        for (int k = 0; k < 200; k++) {
+            mixed.run();
+            for (auto &x : ends(mixed.host))
+                released.insert(x.id);
+        }
+        check(released == std::set<int32_t>{ 3, 4 }, "CC 123 on channel 2 releases channel 2's notes only");
+    }
+    std::printf("held sounds, parts, note ownership, sustain, capacity, queue, reclamation, patch text, block sizes, snapshots, per-channel controllers, CC 120 and CC 123\n");
     return 0;
 }
 

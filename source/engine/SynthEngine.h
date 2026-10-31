@@ -189,6 +189,17 @@ public:
 
     SynthContext contexts[MAX_CONTEXTS];
 
+    // Per-channel controllers (RFC 0005): controller messages, sustain, CC 120 and CC 123 act
+    // only on voices of the channel that sent them (with MPE, the master channel 1 acts on
+    // all). Off by default: the desktop plugin keeps Dexed's instrument-wide controllers.
+    void setPerChannelControllers(bool on) { perChannel = on; }
+    // Copies context c's settings (contexts[c].ctrl) to its per-channel controllers, keeping
+    // each channel's controller values. Call after changing a setting in per-channel mode.
+    void syncChannelControllers(int c);
+    // Sets the portamento of context c on every channel (the parameter shares its variables
+    // with CC 5 and CC 65).
+    void setPortamento(int c, int32_t time, bool enable);
+
     // Context 0's controllers and output filter (the single sound of the desktop plugin).
     // in MIDI units (0x4000 is neutral)
     Controllers &controllers { contexts[0].ctrl };
@@ -199,8 +210,14 @@ private:
     ProcessorVoice voices[MAX_ACTIVE_NOTES];
     int currentNote;
 
-    bool sustain;
+    bool sustain[16];      // per channel; instrument-wide mode keeps all 16 equal
     int selected[16] = {}; // the context each MIDI channel plays
+    bool perChannel = false;
+    Controllers channelCtrl[MAX_CONTEXTS][16]; // per-channel mode: what voices read
+    // the controllers a voice of context c on MIDI channel ch (1-16) reads
+    Controllers &voiceCtrl(int c, int ch) { return perChannel ? channelCtrl[c][(ch - 1) & 15] : contexts[c].ctrl; }
+    // the channels (bit mask) a controller message on channel ch (1-16) reaches
+    unsigned controllerTargets(int ch);
 
     // Extra buffering for when GetSamples wants a buffer not a multiple of N (the samples
     // are per context; the count is shared, so every context keeps the same 64-sample grid)
@@ -218,5 +235,7 @@ private:
 
     NoteEndSink *noteEndSink = nullptr;
     void keyupVoice(int note);
+    // the first held voice keyup(chan, pitch) would release, among the given channels
+    int findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels);
     void endNote(int note);
 };

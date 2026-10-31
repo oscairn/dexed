@@ -158,8 +158,13 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
         contexts[c].tail = false;
     }
 
-    sustain = false;
+    for (int ch = 0; ch < 16; ch++)
+        sustain[ch] = false;
     extra_buf_size = 0;
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        for (int ch = 0; ch < 16; ch++)
+            channelCtrl[c][ch] = contexts[c].ctrl;
+    }
 
     for (int c = 0; c < MAX_CONTEXTS; c++)
         if ( contexts[c].patch != nullptr )
@@ -214,6 +219,38 @@ void SynthEngine::selectContext(int c, int channel) {
         contexts[selected[ch]].selectedChannels &= (uint16_t)~(1u << ch);
         selected[ch] = c;
         contexts[c].selectedChannels |= (uint16_t)(1u << ch);
+    }
+}
+
+unsigned SynthEngine::controllerTargets(int ch) {
+    if ( !perChannel || (contexts[0].ctrl.mpeEnabled && ch == 1) )
+        return 0xffff;
+    return 1u << ((ch - 1) & 15);
+}
+
+void SynthEngine::syncChannelControllers(int c) {
+    for (int ch = 0; ch < 16; ch++) {
+        Controllers &d = channelCtrl[c][ch];
+        Controllers keep = d;
+        d = contexts[c].ctrl;
+        d.pitch_cc = keep.pitch_cc;
+        d.modwheel_cc = keep.modwheel_cc;
+        d.breath_cc = keep.breath_cc;
+        d.foot_cc = keep.foot_cc;
+        d.aftertouch_cc = keep.aftertouch_cc;
+        d.portamento_cc = keep.portamento_cc;
+        d.portamento_enable_cc = keep.portamento_enable_cc;
+        d.mpeEnabled = keep.mpeEnabled;
+        d.refresh();
+    }
+}
+
+void SynthEngine::setPortamento(int c, int32_t time, bool enable) {
+    contexts[c].ctrl.portamento_cc = time;
+    contexts[c].ctrl.portamento_enable_cc = enable;
+    for (int ch = 0; ch < 16; ch++) {
+        channelCtrl[c][ch].portamento_cc = time;
+        channelCtrl[c][ch].portamento_enable_cc = enable;
     }
 }
 
@@ -312,7 +349,7 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                     if (checkMTSESPRetuning)
                         voices[note].dx7_note->updateBasePitches();
 
-                    voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &contexts[c].ctrl);
+                    voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &voiceCtrl(c, voices[note].channel));
 
                     for (int j=0; j < N; ++j) {
                         int32_t val = audiobuf.get()[j];
@@ -401,8 +438,11 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
                 triggerLfo = false;
             // Two keydowns on the same channel => source is not MPE.
             if ( contexts[0].ctrl.mpeEnabled && v.channel == channel )
-                for (int k = 0; k < MAX_CONTEXTS; k++)
+                for (int k = 0; k < MAX_CONTEXTS; k++) {
                     contexts[k].ctrl.mpeEnabled = false;
+                    for (int ch = 0; ch < 16; ch++)
+                        channelCtrl[k][ch].mpeEnabled = false;
+                }
         }
     }
 
@@ -421,17 +461,18 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].channel = channel;
     voices[note].midi_note = pitch;
     voices[note].velocity = velo;
-    voices[note].sustained = sustain;
+    voices[note].sustained = sustain[(channel - 1) & 15];
+    Controllers &ctrl = voiceCtrl(c, channel);
     voices[note].keydown = true;
     voices[note].keydown_seq = nextKeydownSeq++;
     // to avoid click, don't sync oscillators when voice stealing
     bool voice_steal = voices[note].dx7_note->isPlaying();
-    voices[note].dx7_note->init(patch, pitch, velo, channel, &x.ctrl);
+    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl);
     if ( patch[OSC_KEY_SYNC] && !voice_steal ) {
         voices[note].dx7_note->oscSync();
     }
-    if ( (voices[x.lastActiveVoice].midi_note != -1 && x.ctrl.portamento_enable_cc)
-       && x.ctrl.portamento_cc > 0 ) {
+    if ( (voices[x.lastActiveVoice].midi_note != -1 && ctrl.portamento_enable_cc)
+       && ctrl.portamento_cc > 0 ) {
         voices[note].dx7_note->initPortamento(*voices[x.lastActiveVoice].dx7_note);
     }
 
@@ -470,23 +511,28 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     x.lastActiveVoice = note;
 }
 
-void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
-    int note;
-    for (note=0; note<MAX_ACTIVE_NOTES; ++note) {
+int SynthEngine::findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels) {
+    for (int note=0; note<MAX_ACTIVE_NOTES; ++note) {
         // the pitch as the voice's sound transposed it
         if ( voices[note].keydown && // but still only grab the one which is keydown
+             (channels & (1u << ((voices[note].channel - 1) & 15))) &&
              ( ( controllers.mpeEnabled && voices[note].channel == chan ) || // MPE node - find voice by channel
                (!controllers.mpeEnabled && voices[note].midi_note == (uint8_t)(pitch + tuningTranspositionShift(voices[note].context)) ) ) ) { // regular mode find voice by pitch
-            voices[note].keydown = false;
-            break;
+            return note;
         }
     }
+    return -1;
+}
+
+void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
+    const int note = findKeyupVoice(chan, pitch, 0xffff);
 
     // note not found ?
-    if ( note >= MAX_ACTIVE_NOTES ) {
+    if ( note < 0 ) {
         return;
     }
 
+    voices[note].keydown = false;
     keyupVoice(note);
 }
 
@@ -509,7 +555,7 @@ void SynthEngine::keyupVoice(int note) {
         }
     }
 
-    if ( sustain ) {
+    if ( sustain[(voices[note].channel - 1) & 15] ) {
         voices[note].sustained = true;
     } else {
         voices[note].dx7_note->keyup();
@@ -684,40 +730,99 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
             int ctrl = buf[1];
             int value = buf[2];
                 switch(ctrl) {
-                // controller values reach every sound (Dexed's controllers are not per channel)
-                case 1:
-                    for (auto &x : contexts) { x.ctrl.modwheel_cc = value; x.ctrl.refresh(); }
+                // instrument-wide mode: controller values reach every sound and voice
+                // (Dexed); per-channel mode: only the voices of the targeted channels
+                case 1: case 2: case 4: {
+                    auto set = [&](Controllers &x) {
+                        (ctrl == 1 ? x.modwheel_cc : ctrl == 2 ? x.breath_cc : x.foot_cc) = value;
+                        x.refresh();
+                    };
+                    if ( !perChannel ) {
+                        for (auto &x : contexts) set(x.ctrl);
+                    } else {
+                        const unsigned t = controllerTargets(channel);
+                        for (int c = 0; c < MAX_CONTEXTS; c++)
+                            for (int ch = 0; ch < 16; ch++)
+                                if ( t & (1u << ch) ) set(channelCtrl[c][ch]);
+                    }
                     break;
-                case 2:
-                    for (auto &x : contexts) { x.ctrl.breath_cc = value; x.ctrl.refresh(); }
-                    break;
-                case 4:
-                    for (auto &x : contexts) { x.ctrl.foot_cc = value; x.ctrl.refresh(); }
-                    break;
+                }
                 case 5:
-                    for (auto &x : contexts) x.ctrl.portamento_cc = value;
+                    if ( !perChannel ) {
+                        for (auto &x : contexts) x.ctrl.portamento_cc = value;
+                    } else {
+                        const unsigned t = controllerTargets(channel);
+                        for (int c = 0; c < MAX_CONTEXTS; c++)
+                            for (int ch = 0; ch < 16; ch++)
+                                if ( t & (1u << ch) ) channelCtrl[c][ch].portamento_cc = value;
+                    }
                     break;
-                case 64:
-                    sustain = value > 63;
-                    if (!sustain) {
+                case 64: {
+                    const unsigned t = controllerTargets(channel);
+                    for (int ch = 0; ch < 16; ch++)
+                        if ( t & (1u << ch) ) sustain[ch] = value > 63;
+                    if ( !(value > 63) ) {
                         for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-                            if (voices[note].sustained && !voices[note].keydown) {
+                            if (voices[note].sustained && !voices[note].keydown &&
+                                (t & (1u << ((voices[note].channel - 1) & 15)))) {
                                 voices[note].dx7_note->keyup();
                                 voices[note].sustained = false;
                             }
                         }
                     }
                     break;
+                }
                 case 65:
-                    for (auto &x : contexts) x.ctrl.portamento_enable_cc = value >= 64;
+                    if ( !perChannel ) {
+                        for (auto &x : contexts) x.ctrl.portamento_enable_cc = value >= 64;
+                    } else {
+                        const unsigned t = controllerTargets(channel);
+                        for (int c = 0; c < MAX_CONTEXTS; c++)
+                            for (int ch = 0; ch < 16; ch++)
+                                if ( t & (1u << ch) ) channelCtrl[c][ch].portamento_enable_cc = value >= 64;
+                    }
                     break;
                 case 120:
-                    panic();
-                    return MidiResult::Panic;
+                    if ( !perChannel ) {
+                        panic();
+                        return MidiResult::Panic;
+                    } else {
+                        // all sound off for the channel: its voices stop now and end
+                        const unsigned t = controllerTargets(channel);
+                        for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+                            if ( !(t & (1u << ((voices[i].channel - 1) & 15))) )
+                                continue;
+                            voices[i].midi_note = -1;
+                            voices[i].keydown = false;
+                            voices[i].sustained = false;
+                            voices[i].live = false;
+                            if ( voices[i].dx7_note != NULL )
+                                voices[i].dx7_note->oscSync();
+                            if ( voices[i].noteActive )
+                                endNote(i);
+                        }
+                        return MidiResult::Handled;
+                    }
                 case 123:
-                    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-                        if (voices[note].keydown)
-                            keyup(channel, voices[note].midi_note, 0);
+                    if ( !perChannel ) {
+                        for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+                            if (voices[note].keydown)
+                                keyup(channel, voices[note].midi_note, 0);
+                        }
+                    } else {
+                        // all notes off for the channel, matching voices exactly as the
+                        // instrument-wide branch does (including Dexed's second transpose of
+                        // the held pitch, kept so single-channel output stays identical)
+                        const unsigned t = controllerTargets(channel);
+                        for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+                            if ( voices[note].keydown && (t & (1u << ((voices[note].channel - 1) & 15))) ) {
+                                const int found = findKeyupVoice(channel, voices[note].midi_note, t);
+                                if ( found >= 0 ) {
+                                    voices[found].keydown = false;
+                                    keyupVoice(found);
+                                }
+                            }
+                        }
                     }
                     break;
                 default:
@@ -730,11 +835,25 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
             return MidiResult::ProgramChange;
 
         case 0xd0 :
-            for (auto &x : contexts) { x.ctrl.aftertouch_cc = buf[1]; x.ctrl.refresh(); }
+            if ( !perChannel ) {
+                for (auto &x : contexts) { x.ctrl.aftertouch_cc = buf[1]; x.ctrl.refresh(); }
+            } else {
+                const unsigned t = controllerTargets(channel);
+                for (int c = 0; c < MAX_CONTEXTS; c++)
+                    for (int ch = 0; ch < 16; ch++)
+                        if ( t & (1u << ch) ) { channelCtrl[c][ch].aftertouch_cc = buf[1]; channelCtrl[c][ch].refresh(); }
+            }
             return MidiResult::Handled;
 
 		case 0xe0 :
-			for (auto &x : contexts) x.ctrl.pitch_cc = buf[1] | (buf[2] << 7);
+            if ( !perChannel ) {
+                for (auto &x : contexts) x.ctrl.pitch_cc = buf[1] | (buf[2] << 7);
+            } else {
+                const unsigned t = controllerTargets(channel);
+                for (int c = 0; c < MAX_CONTEXTS; c++)
+                    for (int ch = 0; ch < 16; ch++)
+                        if ( t & (1u << ch) ) channelCtrl[c][ch].pitch_cc = buf[1] | (buf[2] << 7);
+            }
             return MidiResult::Handled;
         }
     }

@@ -119,6 +119,7 @@ struct Plugin : SynthEngine::NoteEndSink {
         pendingValues.resize(params().size());
         engine.setTuning(createStandardTuning());
         engine.setNoteEndSink(this);
+        engine.setPerChannelControllers(true); // RFC 0005: controllers act per MIDI channel
         for (int c = 0; c < contextCount; c++)
             applyAll(c);
     }
@@ -181,10 +182,11 @@ struct Plugin : SynthEngine::NoteEndSink {
         switch (s) {
         case Setting::Engine: engine.setEngineType(c, (int)std::round(f)); break;
         case Setting::Mono: engine.panicContext(c); engine.setMonoMode(c, on); break;
-        case Setting::PortamentoTime:
-            ctrl.portamento_cc = (int32_t)(f * 127.0f / 99.0f);
-            ctrl.portamento_enable_cc = ctrl.portamento_cc > 0;
-            break;
+        case Setting::PortamentoTime: {
+            const int32_t time = (int32_t)(f * 127.0f / 99.0f);
+            engine.setPortamento(c, time, time > 0);
+            return;
+        }
         case Setting::Glissando: ctrl.portamento_gliss_cc = on; break;
         case Setting::PitchBendUp: ctrl.pitch_range_up = (int)f; break;
         case Setting::PitchBendDown: ctrl.pitch_range_dn = (int)f; break;
@@ -204,6 +206,7 @@ struct Plugin : SynthEngine::NoteEndSink {
             mod(*sources[k / 4], k % 4);
         }
         }
+        engine.syncChannelControllers(c); // the voices read per-channel copies
     }
 
     void applyAll(int c) {

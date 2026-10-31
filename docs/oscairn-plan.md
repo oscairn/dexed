@@ -986,11 +986,17 @@ tracking in the engine), `8d0f288` (native CLAP and its tests).
   identical output for 37- and 512-frame blocks; snapshot round trip; no allocation while
   selections are applied; concurrent prepare/select/discard while processing under TSan.
   ASan+UBSan pass on macOS.
-- Where Octet differs from RFC 0005's description of the Basic Synth (kept from Dexed, so the
-  desktop plugin's behaviour does not change; revisit with question 4): controller values
-  (mod wheel, pitch bend, aftertouch, sustain) are instrument-wide, not per channel; CC 120
-  stops every sound, not only the addressed channel; a raw MIDI note-off releases the first
-  matching voice slot, which is not always the oldest press; no note expressions.
+- Controllers per channel (Octet only; the engine's per-channel mode): mod wheel, breath,
+  foot, CC 5 and CC 65 portamento, sustain, channel pressure and pitch bend act only on voices
+  of the channel that sent them, also after a sound switch; with MPE, channel 1 is the master
+  for all channels and member channels keep per-note bend. CC 120 stops only the addressed
+  channel's voices and sends `NOTE_END` for each at its frame; CC 123 releases only that
+  channel's held notes, matching voices as Dexed does (including Dexed's second transpose of
+  the held pitch, kept so single-channel output stays identical). The desktop Dexed keeps
+  instrument-wide controllers. Tested in `oscairn-fm-test contexts`.
+- Where Octet still differs from RFC 0005's description of the Basic Synth (revisit with
+  question 4): a raw MIDI note-off releases the first matching voice slot, which is not always
+  the oldest press; no note expressions.
 
 ### How to run the tests
 
