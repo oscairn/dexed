@@ -339,6 +339,15 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     fbShift_ = feedback != 0 ? 8 - feedback : 16; // (16: off, for renderGraph)
     // the measured feedback amount, relative to the DX7's shift for the same value
     fbGain_ = feedback != 0 ? std::llround(extFeedbackScale(feedback) * (double)(1 << 24) / (1 << fbShift_)) : 0;
+    {
+        // the amount was fitted to a carrier's output before carriers got the reference's
+        // output level (algorithm gain and overall level); a carrier's feedback takes its
+        // signal before that level, so the fitted modulation stays
+        const CompiledAlgorithm &ca = extCompiled(algorithm_);
+        if (fbGain_ != 0 && ca.feedbackFrom >= 0 && ((ca.outputs >> ca.feedbackFrom) & 1))
+            fbGain_ = std::llround((double)fbGain_ *
+                                   std::pow(10.0, -(extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb) / 20));
+    }
     pitchDepth_ = (std::clamp(v.common(ext::LfoPitchDepth), 0, 99) * 165) >> 6;
     ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
