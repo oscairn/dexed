@@ -541,6 +541,7 @@ Found in the code today:
 | Patch bytes written by parameter listeners and read by the audio thread without synchronisation | `setDxValue` writes `activeProgram`; `processBlock` reads it after `refreshVoice` | Parameter changes reach the engine as events or through a lock-free single-producer queue; the audio thread owns the live patch |
 | `panic()` from a non-audio thread | `setDxValue` on transpose change | Queue a reset event instead |
 | Debug logging in note handling | `TRACE` in `keyup` (compiled only with `DEBUG`) | Keep out of release; no logging in `process` |
+| State read before it was ever written (found in M0; the renders of the same voice changed from run to run) | `Dx7Note::fb_buf_` (operator feedback history), `Lfo::phase_`, `randstate_` and `delaystate_` (free-running and S/H LFO before the first synced key-down), `Controllers::portamento_gliss_cc` (portamento rate table until the glissando parameter changed) | Fixed in M0: zero-initialised. The M0 baseline renders of unmodified Dexed that were reproducible are unchanged by the fix |
 | Possible MTS-ESP calls per block | `MTS_HasMaster`, `updateBasePitches` in `processBlock` | Off by default in the Oscairn build (4.2) |
 
 Rule for new code: preparation (tables for spectral forms, filter coefficients tables, compiled

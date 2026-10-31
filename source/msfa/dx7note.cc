@@ -158,6 +158,9 @@ Dx7Note::Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc)
         params_[op].phase = 0;
         params_[op].gain_out = 0;
     }
+    // the feedback history was read before ever being written
+    fb_buf_[0] = 0;
+    fb_buf_[1] = 0;
 }
 
 void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls) {

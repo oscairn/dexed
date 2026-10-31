@@ -68,7 +68,7 @@ public:
     int modwheel_cc;
     bool portamento_enable_cc;
     int32_t portamento_cc;
-    bool portamento_gliss_cc;
+    bool portamento_gliss_cc = false; // was read uninitialised until the glissando parameter changed
 
     int masterTune;
 
