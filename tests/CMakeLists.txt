@@ -3,7 +3,14 @@
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(DEXED_BASELINE ${CMAKE_CURRENT_SOURCE_DIR}/baseline/dx7-renders.txt)
+# One baseline per CPU family: arm64 (macOS, Linux ARM64) fuses multiply-adds where x86_64
+# does not, so the float output filter differs in the last bits. Both were recorded from
+# unmodified Dexed (commit 7f0204b), x86_64 under Rosetta, and match Linux x86_64 CI.
+if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    set(DEXED_BASELINE ${CMAKE_CURRENT_SOURCE_DIR}/baseline/dx7-renders-x86_64.txt)
+else()
+    set(DEXED_BASELINE ${CMAKE_CURRENT_SOURCE_DIR}/baseline/dx7-renders-arm64.txt)
+endif()
 
 # The plugin, as a black box: links the shared code like JUCE's own wrapper targets do.
 add_executable(dexed-render-plugin render_plugin.cpp)

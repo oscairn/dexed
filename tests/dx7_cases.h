@@ -11,7 +11,7 @@
  * The voices are generated from a fixed seed, never taken from a ROM or a
  * factory bank. The generator and the scenarios must never change once a
  * baseline has been recorded from them: changing them invalidates
- * tests/baseline/dx7-renders.txt.
+ * the files in tests/baseline/.
  */
 #pragma once
 
