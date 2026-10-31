@@ -36,7 +36,7 @@ enum class Setting {
     AftertouchEg, MasterTune, Cutoff, Resonance, Output
 };
 
-enum class Text { Number, Signed, Choice, Note, Switch, Percent, Tune };
+enum class Text { Number, Signed, Choice, Note, Switch, Percent, Tune, Key };
 
 struct Param {
     uint32_t id;

@@ -47,3 +47,24 @@ double extLfoHz(int speed);         // speed range Normal, 0-99
 double extLfoExtendedHz(int speed); // speed range Extended, 0-415
 int32_t extPitchDepthOffset(int offset); // as DX7 pitch modulation sensitivity
 int32_t extAmpDepthOffset(int offset);   // as DX7 amplitude modulation sensitivity (Q24)
+
+// filter
+double extFilterCutoffHz(double value); // cutoff value 0-1023 (fractions interpolate) -> Hz
+double extFilterMaxHz();                // the highest cutoff the filter plays
+double extFilterMaxDamping(double fc);  // the most damping (1 / Q) the filter allows at a cutoff
+double extFilterQ(int resonance);       // resonance 0-127 -> Q
+double extFilterKeyFollowRatio(int sensitivity, int midinote); // -64-+63 (cutoff and HPF key follow)
+double extFilterVelocityRatio(int sensitivity, int velocity);  // cutoff velocity sensitivity -64-+63
+double extFilterResonanceVelocityQ(int sensitivity, int velocity); // multiplies the Q
+double extFilterScalingRatio(double offset); // cutoff scaling offset -128-+127 (interpolated by note)
+double extFilterLpf18sRatio(double value); // by cutoff value 0-1023
+void extFilterWidth(int resonance, double &high, double &low); // BPFw edges, cutoff values from the cutoff
+double extFilterGain(int gain);         // 0-255 -> amplitude
+double extFilterLfoOctaves(int depth);  // 2nd LFO filter depth 0-99 -> octaves at the LFO's peak
+// filter EG
+double extFegLevelCents(int level);     // -128-+127
+double extFegSegmentMs(int time);       // 0-127: a segment's duration
+double extFegHoldMs(int time);          // 0-127
+double extFegDepthVelocity(int sensitivity, int curve, int velocity); // multiplies the FEG depth
+double extFegTimeKeyFollowScale(int sensitivity, int midinote, int centre); // multiplies FEG times
+double extFegDepth(int depth);          // -64-+63: the share of the FEG level (cents) that moves the cutoff

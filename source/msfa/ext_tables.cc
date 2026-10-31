@@ -156,3 +156,146 @@ int32_t extAmpDepthOffset(int o) {
     static const int32_t t[] = { 0, 2171169, 4342338, 5756888, 7171437, 10373363, 13575290, 16777216 };
     return t[clampi(o, 0, 7)];
 }
+
+// ---- filter (milestone M6) ----
+
+#include "ext_filter_data.h"
+
+double extFilterCutoffHz(double value) {
+    value = std::clamp(value, 0.0, 1023.0);
+    const int i = std::min((int)value, 1022);
+    return kFilterCutoffHz[i] + (kFilterCutoffHz[i + 1] - kFilterCutoffHz[i]) * (value - i);
+}
+
+double extFilterMaxHz() { return kFilterMaxHz; }
+
+double extFilterMaxDamping(double fc) {
+    constexpr size_t K = sizeof(kFilterMinQ) / sizeof(kFilterMinQ[0]);
+    double q = 0.5;
+    if (fc >= kFilterMinQHz[K - 1])
+        q = kFilterMinQ[K - 1];
+    else
+        for (size_t i = 1; i < K; i++)
+            if (fc < kFilterMinQHz[i]) {
+                if (fc >= kFilterMinQHz[i - 1])
+                    q = kFilterMinQ[i - 1] + (kFilterMinQ[i] - kFilterMinQ[i - 1]) * (fc - kFilterMinQHz[i - 1]) /
+                                                 (kFilterMinQHz[i] - kFilterMinQHz[i - 1]);
+                break;
+            }
+    return 1 / std::max(q, 0.5);
+}
+
+double extFilterQ(int resonance) { return 0.5 * std::exp2(std::clamp(resonance, 0, 127) / 16.0); }
+
+namespace {
+// a frequency ratio for a move of u octaves, straight in frequency within each octave (exact
+// at whole octaves): how the reference applies key follow and upward velocity moves
+double linearOctaves(double u) {
+    const double e = std::floor(u);
+    return std::exp2(e) * (1 + (u - e));
+}
+} // namespace
+
+double extFilterKeyFollowRatio(int sensitivity, int midinote) {
+    // -64-+63 in steps of 3.125 %, +63 playing +200 % (measured at 32, 54, 74, 96 and 127
+    // raw); centre note 60
+    const int s = std::clamp(sensitivity, -64, 63);
+    const double percent = s == 63 ? 200.0 : s * 3.125;
+    return linearOctaves(percent / 100.0 * (midinote - 60) / 12.0);
+}
+
+double extFilterVelocityRatio(int sensitivity, int velocity) {
+    // cents at sensitivity +63 by velocity (measured); negative sensitivities mirror the
+    // velocity (128 - velocity). Downward moves scale with the sensitivity in cents, upward
+    // ones in frequency ratio (measured at -64, -32, +16, +32, +63)
+    static const double vx[] = { 1, 40, 80, 100, 110, 113, 116, 120, 127 };
+    static const double vc[] = { -9609, -6248, -2842, -1274, -375, -130, 103, 617, 1201 };
+    const int s = std::clamp(sensitivity, -64, 63);
+    if (s == 0)
+        return 1.0;
+    const int vel = s > 0 ? std::clamp(velocity, 1, 127) : 128 - std::clamp(velocity, 1, 127);
+    const double c = interpolate(vx, vc, vel), share = (s > 0 ? s / 63.0 : -s / 64.0);
+    return c <= 0 ? std::exp2(share * c / 1200) : 1 + share * (std::exp2(c / 1200) - 1);
+}
+
+double extFilterLpf18sRatio(double value) {
+    // LPF18s: the resonant section's F over the one-pole's, by cutoff value (fitted at
+    // resonance 64 every 64 values from 128 to 640; it scatters between 9.5 and 10.4 with no
+    // trend found, so it is kept per measured value, straight between, held at the ends)
+    static const double x[] = { 128, 192, 256, 320, 384, 448, 512, 576, 640 };
+    static const double r[] = { 9.799, 10.225, 9.514, 10.031, 9.896, 9.646, 10.378, 9.501, 9.821 };
+    return interpolate(x, r, value);
+}
+
+void extFilterWidth(int resonance, double &high, double &low) {
+    // BPFw: its edges move apart by 3.207 cutoff values per step, the upper one starting 31.5
+    // values late and the lower one 19.7 values early (fitted at cutoff 512, widths 0-127)
+    const int r = std::clamp(resonance, 0, 127);
+    high = std::max(0.0, 3.207 * r - 31.5);
+    low = std::max(0.0, 3.207 * r - 19.7);
+}
+
+double extFilterGain(int gain) {
+    // 0.375 dB per step below 255 (measured 0, 64, 128, 192, 255 through Thru and HPF12); 0 is silent
+    const int g = std::clamp(gain, 0, 255);
+    return g == 0 ? 0.0 : std::pow(10.0, 0.375 * (g - 255) / 20.0);
+}
+
+double extFegLevelCents(int level) { return 75.0 * std::clamp(level, -128, 127); } // measured -32..+32 at depth +63
+
+double extFegDepth(int depth) {
+    // the share of the FEG's level that reaches the cutoff (measured at -64, -32, 0, 16, 32,
+    // 48 and 63 with level +16; between, straight)
+    static const double x[] = { -64, -32, 0, 16, 32, 48, 63 };
+    static const double y[] = { -1.0, -0.497, 0.0, 0.274, 0.505, 0.704, 1.004 };
+    return interpolate(x, y, std::clamp(depth, -64, 63));
+}
+
+// the filter EG's times: a segment takes its time value's duration whatever its distance;
+// measured at every second value from 20 to 92 and at 100 and 108 (from 96 up all the same),
+// holds at every fourth value; between, straight
+double extFegSegmentMs(int time) { return interpolate(kFegSegmentX, kFegSegmentMs, std::clamp(time, 0, 127)); }
+double extFegHoldMs(int time) { return interpolate(kFegHoldX, kFegHoldMs, std::clamp(time, 0, 127)); }
+double extFilterResonanceVelocityQ(int sensitivity, int velocity) {
+    // the Q's divisor grows by h(127 - velocity) times the sensitivity's share (measured at +63
+    // with velocities 64-127, +32 at 96 and 120, -64 at 1, 8 and 32; negative sensitivities
+    // mirror the velocity); straight beyond the last measured point
+    static const double x[] = { 0, 7, 17, 31, 63, 126 };
+    static const double h[] = { 0, 0.25, 0.5625, 1.0, 3.0, 6.9375 };
+    const int s = std::clamp(sensitivity, -64, 63);
+    if (s == 0)
+        return 1.0;
+    const int vel = s > 0 ? std::clamp(velocity, 1, 127) : 128 - std::clamp(velocity, 1, 127);
+    return 1.0 / (1.0 + (s > 0 ? s / 63.0 : -s / 64.0) * interpolate(x, h, 127 - vel));
+}
+
+double extFilterScalingRatio(double offset) { return std::exp2(offset * 37.5 / 1200); } // 64 steps: 2 octaves
+
+double extFegDepthVelocity(int sensitivity, int curve, int velocity) {
+    // the share of the FEG depth by velocity at sensitivity +63, per curve (measured: curve 2
+    // at velocities 1, 32, 64, 96 and 127; the others at 32 and 96, taken through curve 2's
+    // ends); between, straight; other sensitivities in proportion, negative ones mirror the
+    // velocity
+    static const double vx[] = { 1, 32, 64, 96, 127 };
+    static const double g[5][5] = {
+        { 0, 0.427, 0.543, 0.659, 1.142 }, { 0, 0.074, 0.338, 0.602, 1.142 }, { 0, 0.296, 0.548, 0.783, 1.142 },
+        { 0, 0.485, 0.772, 1.059, 1.142 }, { 0, 0.149, 0.559, 0.968, 1.142 } };
+    const int s = std::clamp(sensitivity, -64, 63);
+    if (s == 0)
+        return 1.0;
+    const int vel = s > 0 ? std::clamp(velocity, 1, 127) : 128 - std::clamp(velocity, 1, 127);
+    const double share = (s > 0 ? s / 63.0 : -s / 64.0);
+    return 1.0 + share * (interpolate(vx, g[std::clamp(curve, 0, 4)], vel) - 1.0);
+}
+
+double extFegTimeKeyFollowScale(int sensitivity, int midinote, int centre) {
+    // +63 two octaves above the centre: 12 times shorter (measured); straight in octaves
+    // shortcut: negative sensitivities measured shorter too (-64 two octaves above the
+    // centre: instant), not modelled; they mirror the positive rule here
+    return std::exp2(-1.79 * std::clamp(sensitivity, -64, 63) / 63.0 * (midinote - centre) / 12.0);
+}
+
+// 68 cents per step at the LFO's peak (measured at depth 25, about +-1700 cents with a triangle
+// LFO; deeper settings run into the cutoff's limits in the probes)
+// shortcut: straight in depth from one measured depth; measure 5-20 with a lower cutoff
+double extFilterLfoOctaves(int depth) { return std::clamp(depth, 0, 99) * 68.0 / 1200.0; }

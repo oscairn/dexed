@@ -33,6 +33,29 @@ enum Common {
     LfoSpeedRange, // 0 Normal, 1 Extended
     LfoExtSpeed,   // 0-415 (speed range Extended)
     PitchVelocityDepth, // -64-+63: velocity to pitch, for every operator (see Op::PitchVelocity)
+    // the filter (msfa/ext_filter.h) and its EG
+    FilterType,         // 0-18 (extfilter::Type; 18 Thru)
+    FilterCutoff,       // 0-1023
+    FilterCutoffVelocity, // -64-+63
+    FilterResonance,    // 0-127 (BPFw: width)
+    FilterResonanceVelocity, // -64-+63
+    HpfCutoff,          // 0-1023 (LPF12+HPF12, LPF6+HPF12)
+    FilterDistance,     // -128-+127 (dual types)
+    FilterGain,         // 0-255
+    FegHoldTime, FegAttackTime, FegDecay1Time, FegDecay2Time, FegReleaseTime, // 0-127
+    FegHoldLevel, FegAttackLevel, FegDecay1Level, FegDecay2Level, FegReleaseLevel, // -128-+127
+    FegDepth,           // -64-+63
+    FegTimeVelocitySegment, // 0-4: attack, attack and decay, decay, attack and release, all
+    FegTimeVelocity,    // -64-+63
+    FegDepthVelocity,   // -64-+63
+    FegDepthVelocityCurve, // 0-4
+    FegTimeKeyFollow,   // -64-+63
+    FegTimeKeyCenter,   // 0-127 (MIDI note)
+    FilterKeyFollow,    // -64-+63 (shown as percent)
+    FilterBreak1, FilterBreak2, FilterBreak3, FilterBreak4, // 0-127 (MIDI note)
+    FilterOffset1, FilterOffset2, FilterOffset3, FilterOffset4, // -128-+127
+    HpfKeyFollow,       // -64-+63 (shown as percent)
+    LfoFilterDepth,     // 0-99
     CommonCount
 };
 

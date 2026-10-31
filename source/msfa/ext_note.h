@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include "aligned_buf.h"
+#include "ext_filter.h"
 #include "ext_voice.h"
 #include "fm_op_kernel.h"
 #include "synth.h"
@@ -77,6 +78,30 @@ private:
     int ix_ = 2;                  // 0 attack, 1 decay, 2 done
 };
 
+// The filter EG: levels in cents (hold, attack, decay 1, decay 2 sustained, release). Each
+// segment takes its time value's duration whatever its distance (measured), moving straight in
+// cents; advanced per block.
+class ExtFilterEnv {
+public:
+    // levels -128-+127 and times 0-127 as the panel shows them (hold, attack, decay 1, decay 2,
+    // release); timeScale stretches every segment
+    void init(const int levels[5], const int times[5], double timeScale, double sampleRate);
+    void update(const int levels[5], const int times[5], double timeScale, double sampleRate);
+    double getblock(int n); // advances n samples; the level in cents at the block's end
+    void keydown(bool down);
+    void transfer(const ExtFilterEnv &src) { *this = src; }
+private:
+    void configure(const int levels[5], const int times[5], double timeScale, double sampleRate);
+    void enter(int ix);
+    double target_[5] = {};  // cents: hold, attack, decay 1, decay 2, release
+    double samples_[5] = {}; // each segment's duration (hold: its length)
+    double level_ = 0;
+    double step_ = 0;        // this segment's cents per sample
+    int ix_ = 5;             // 0 hold, 1 attack, 2 decay 1, 3 decay 2, 4 release, 5 done
+    double left_ = 0;        // samples left in this segment
+    bool down_ = false;
+};
+
 class ExtNote {
 public:
     // an operator's wave (msfa/ext_waves.h)
@@ -103,6 +128,8 @@ public:
 
 private:
     void setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning, bool start);
+    void setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start);
+    void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay);
 
     bool initialised_ = false;
     int algorithm_ = 0;
@@ -124,4 +151,22 @@ private:
     AlignedBuf<int32_t, N> bufs_[8];
     AlignedBuf<int32_t, N> sum_;
     const SynthRate *rate_ = nullptr;
+
+    // the filter (msfa/ext_filter.h): what stays fixed while the note plays
+    struct FilterState {
+        int type = extfilter::Thru;
+        double value = 1023;     // the cutoff value with scaling
+        double ratio = 1;        // key follow and velocity, as a frequency ratio
+        double q = 0.5;
+        double ratio2 = 1;       // dual types: Distance; LPF18s
+        double widthHigh = 0, widthLow = 0; // BPFw: the edges, in cutoff values from the cutoff
+        double hpf = 20;         // Hz
+        double gain = 1;
+        double fegOctaves = 0;   // FEG depth: octaves per cent of FEG level (0: no FEG)
+        double lfoOctaves = 0;   // LFO filter depth: octaves at the LFO's peak
+        bool active = false;     // false: Thru at unity gain (the operators' sum goes out unchanged)
+    } filt_;
+    ExtFilter filter_;
+    ExtFilterEnv feg_;
+    bool filterStarted_ = false;
 };

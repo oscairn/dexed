@@ -28,6 +28,8 @@
 #include "baseline_file.h"
 #include "oscairn/Parameters.h"
 #include "msfa/algorithms.h"
+#include "msfa/ext_filter.h"
+#include "msfa/ext_note.h"
 #include "msfa/ext_tables.h"
 #include "msfa/ext_waves.h"
 #include "msfa/ext_waves_data.h"
@@ -37,6 +39,8 @@
 
 #include <algorithm>
 #include <array>
+#include <complex>
+#include <functional>
 #include <atomic>
 #include <cmath>
 #include <fstream>
@@ -978,6 +982,150 @@ int extendedTest() {
                                                             std::to_string(speed) + ": " + std::to_string(measured) +
                                                             " Hz, table " + std::to_string(hz));
         }
+    // -- the filter (milestone M6): each type's steady-state gain against the model its
+    // fitted structure gives (Chamberlin sections and a one-pole, docs/oscairn-plan.md
+    // section 11), within 0.1 dB where the model is above -60 dB
+    {
+        using C = std::complex<double>;
+        const double fs = 44100;
+        auto svf = [&](double f, double fc, double q, int out, double Fover = 0, double dover = -1) {
+            float F, d;
+            extFilterCoefficients(fc, q, fs, F, d);
+            const double g = Fover > 0 ? Fover : F, dd = dover >= 0 ? dover : d;
+            const C zi = std::polar(1.0, -2 * M_PI * f / fs), a = 1.0 - zi;
+            const C hp = 1.0 / (1.0 + g * g * zi / (a * a) + dd * zi * g / a), bp = g * hp / a, lp = g * zi * bp / a;
+            return out == 0 ? lp : out == 1 ? bp : out == 2 ? hp : lp + hp;
+        };
+        auto onePole = [&](double f, double fc) {
+            float F, d;
+            extFilterCoefficients(fc, 0.5, fs, F, d);
+            const C zi = std::polar(1.0, -2 * M_PI * f / fs);
+            return (double)F / (1.0 - (1.0 - F) * zi);
+        };
+        auto measure = [&](const ExtFilter::Setting &st, double f) {
+            ExtFilter flt;
+            flt.reset();
+            flt.set(st, fs, true);
+            const int n = 64, warm = (int)(fs * 0.5), len = (int)(fs * 0.25);
+            double c = 0, sn = 0;
+            float buf[64];
+            for (int i = 0; i < warm + len; i += n) {
+                for (int k = 0; k < n; k++)
+                    buf[k] = (float)(0.25 * std::sin(2 * M_PI * f * (i + k) / fs));
+                flt.set(st, fs, false);
+                flt.process(buf, n);
+                if (i >= warm)
+                    for (int k = 0; k < n; k++) {
+                        c += buf[k] * std::cos(2 * M_PI * f * (i + k) / fs);
+                        sn += buf[k] * std::sin(2 * M_PI * f * (i + k) / fs);
+                    }
+            }
+            return 20 * std::log10(2 * std::hypot(c, sn) / len / 0.25);
+        };
+        using namespace extfilter;
+        const double fc = extFilterCutoffHz(512), q = extFilterQ(32);
+        expect(std::fabs(fc - 448.92) < 0.05 && std::fabs(extFilterCutoffHz(1023) - 7350.2) < 0.1 &&
+                   std::fabs(extFilterCutoffHz(0) - 14.33) < 0.01,
+               "cutoff table: 512 -> 448.9 Hz, 1023 -> 7350.2 Hz, 0 -> 14.3 Hz");
+        expect(std::fabs(q - 2.0) < 1e-9, "resonance 32 is Q 2");
+        const double hpf = 200, ratio = std::exp2(24 / 16.0), wideLow = 150;
+        struct Case { int type; std::function<C(double)> model; };
+        const float F = 2 * (float)std::sin(M_PI * fc / fs);
+        const std::vector<Case> cases = {
+            { Lpf24D, [&](double f) { return svf(f, fc, q, 0) * svf(f, fc, q, 0); } },
+            { Lpf24A, [&](double f) { return svf(f, fc, 1, 0) * svf(f, fc, q, 0); } },
+            { Lpf18, [&](double f) { return svf(f, fc, q, 0) * onePole(f, fc); } },
+            { Lpf18S, [&](double f) { return onePole(f, fc) * svf(f, fc, q, 0, F * extFilterLpf18sRatio(512), 1 / q); } },
+            { Lpf12Hpf12, [&](double f) { return svf(f, fc, q, 0) * svf(f, hpf, 1, 2); } },
+            { Lpf6Hpf12, [&](double f) { return onePole(f, fc) * svf(f, hpf, 1, 2); } },
+            { Hpf24D, [&](double f) { return svf(f, fc, q, 2) * svf(f, fc, q, 2); } },
+            { Hpf12, [&](double f) { return svf(f, fc, q, 2); } },
+            { Bpf12D, [&](double f) { return svf(f, fc, q, 1) * svf(f, fc, q, 1); } },
+            { BpfWide, [&](double f) { return svf(f, wideLow, 1, 2) * svf(f, fc, 1, 0); } },
+            { Bpf6, [&](double f) { return svf(f, fc, q, 1); } },
+            { Bef12, [&](double f) { return svf(f, fc, q, 3) * svf(f, fc, q, 3); } },
+            { Bef6, [&](double f) { return svf(f, fc, q, 3); } },
+            { DualLpf, [&](double f) { return svf(f, fc, q, 0) + svf(f, fc, q, 0, F * ratio, 1 / q); } },
+            { DualHpf, [&](double f) { return svf(f, fc, q, 2) + svf(f, fc, q, 2, F * ratio, 1 / q); } },
+            { DualBpf, [&](double f) { return svf(f, fc, q, 1) + svf(f, fc, q, 1, F * ratio, 1 / q); } },
+            { DualBef, [&](double f) { return svf(f, fc, q, 3) * svf(f, fc, q, 3, F * ratio, 1 / q); } },
+            { Lpf12Bpf6, [&](double f) { return svf(f, fc, q, 0) + svf(f, fc, q, 1, 0, 1 / (1.13 * q)); } },
+        };
+        for (const Case &k : cases) {
+            ExtFilter::Setting st;
+            st.type = k.type;
+            st.fc = fc;
+            st.q = q;
+            st.ratio2 = k.type == Lpf18S ? extFilterLpf18sRatio(512) : ratio;
+            st.fcLow = wideLow;
+            st.hpf = hpf;
+            double worst = 0, at = 0;
+            for (double f : { 60.0, 150.0, 300.0, 420.0, 449.0, 480.0, 700.0, 1200.0, 2500.0, 6000.0 }) {
+                const double want = 20 * std::log10(std::abs(k.model(f)) + 1e-12);
+                if (want < -60)
+                    continue;
+                const double err = std::fabs(measure(st, f) - want);
+                if (err > worst) {
+                    worst = err;
+                    at = f;
+                }
+            }
+            expect(worst < 0.1, "filter type " + std::to_string(k.type) + " is its model within 0.1 dB (worst " +
+                                    std::to_string(worst) + " dB at " + std::to_string(at) + " Hz)");
+        }
+        // the limits: no cutoff above 7350.2 Hz, Q at least 1 there, and the gain table
+        float Fm, dm;
+        extFilterCoefficients(20000, 0.5, fs, Fm, dm);
+        expect(std::fabs(Fm - 1.0f) < 1e-3f && std::fabs(dm - 1.0f) < 0.01f, "cutoff stops at F 1 with Q 1");
+        // the damping limit at and between its table's points (Q 0.756 measured at cutoff 880)
+        expect(std::fabs(1 / extFilterMaxDamping(extFilterCutoffHz(880)) - 0.756) < 0.003 &&
+                   std::fabs(1 / extFilterMaxDamping(extFilterCutoffHz(881)) - 0.761) < 0.003,
+               "the filter's minimum Q at cutoffs 880 and 881");
+        expect(std::fabs(20 * std::log10(extFilterGain(192)) + 23.625) < 1e-6 && extFilterGain(0) == 0 &&
+                   extFilterGain(255) == 1.0,
+               "filter gain: 0.375 dB per step, 0 silent");
+        // the filter EG: each segment takes its time value's duration whatever its distance
+        for (int t : { 48, 64, 80 }) {
+            for (int lv : { 8, 16, 32 }) {
+                ExtFilterEnv env;
+                const int levels[5] = { 0, lv, 0, 0, 0 }, times[5] = { 0, 0, t, 0, 0 };
+                env.init(levels, times, 1.0, fs);
+                const double want = extFegSegmentMs(t) * fs / 1000;
+                long n = 0;
+                double c = env.getblock(64);
+                for (n = 64; c > 0 && n < (long)(fs * 30); n += 64)
+                    c = env.getblock(64);
+                expect(std::fabs(n - want) <= 128, "FEG decay time " + std::to_string(t) + " from level " +
+                                                       std::to_string(lv) + ": " + std::to_string(n) +
+                                                       " samples, table " + std::to_string(want));
+            }
+        }
+        // through the plugin: HPF12 at cutoff 512 on a sine at note 36 (65.4 Hz) at 48 kHz, its
+        // gain against the same sound through Thru
+        {
+            auto level = [&](const std::vector<std::pair<uint32_t, double>> &p) {
+                const auto x = renderExtended(p, 36, 1.0, 0.5, 0.5);
+                double e = 0;
+                for (size_t i = 12000; i < 24000; i++)
+                    e += (double)x[i] * x[i];
+                return 10 * std::log10(e);
+            };
+            const double thru = level({ { 1048, 0 } });
+            const double hp = level({ { 1048, 0 }, { 60, Hpf12 }, { 61, 512 }, { 63, 0 }, { 85, 0 } });
+            float F0, d0;
+            extFilterCoefficients(extFilterCutoffHz(512), 0.5, 48000, F0, d0);
+            const double f = 440 * std::exp2((36 - 69) / 12.0);
+            const C zi = std::polar(1.0, -2 * M_PI * f / 48000), a = 1.0 - zi;
+            const double want = 20 * std::log10(std::abs(1.0 / (1.0 + (double)F0 * (double)F0 * zi / (a * a) + (double)d0 * zi * (double)F0 / a)));
+            expect(std::fabs(hp - thru - want) < 0.2, "HPF12 at cutoff 512 through the plugin: " +
+                                                          std::to_string(hp - thru) + " dB, model " + std::to_string(want));
+        }
+        // key follow: +100 % one octave above note 60 doubles the cutoff, +31.25 % adds 31.25 %
+        expect(std::fabs(extFilterKeyFollowRatio(32, 72) - 2.0) < 1e-12 &&
+                   std::fabs(extFilterKeyFollowRatio(10, 72) - 1.3125) < 1e-12 &&
+                   std::fabs(extFilterKeyFollowRatio(63, 72) - 4.0) < 1e-12,
+               "cutoff key follow ratios");
+    }
     // -- the two init sounds: Classic is the default sound; Extended plays (operator 8 at
     // level 85 in algorithm 69)
     for (const char *file : { "Classic Init.octet", "Extended Init.octet" }) {

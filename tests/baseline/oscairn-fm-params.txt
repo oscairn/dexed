@@ -31,6 +31,42 @@
 49 | Extended/LFO 2 | Speed Range | 0 | 1 | 1 | stepped enum
 50 | Extended/LFO 2 | Extended Speed | 0 | 415 | 60 | stepped
 51 | Extended/Common | Pitch Velocity Sensitivity | -64 | 63 | 0 | stepped
+60 | Extended/Filter | Type | 0 | 18 | 18 | stepped enum
+61 | Extended/Filter | Cutoff | 0 | 1023 | 1023 | stepped
+62 | Extended/Filter | Cutoff Velocity Sensitivity | -64 | 63 | 0 | stepped
+63 | Extended/Filter | Resonance | 0 | 127 | 10 | stepped
+64 | Extended/Filter | Resonance Velocity Sensitivity | -64 | 63 | 0 | stepped
+65 | Extended/Filter | HPF Cutoff | 0 | 1023 | 0 | stepped
+66 | Extended/Filter | Distance | -128 | 127 | 0 | stepped
+67 | Extended/Filter | Gain | 0 | 255 | 255 | stepped
+68 | Extended/Filter EG | Hold Time | 0 | 127 | 0 | stepped
+69 | Extended/Filter EG | Attack Time | 0 | 127 | 0 | stepped
+70 | Extended/Filter EG | Decay 1 Time | 0 | 127 | 0 | stepped
+71 | Extended/Filter EG | Decay 2 Time | 0 | 127 | 0 | stepped
+72 | Extended/Filter EG | Release Time | 0 | 127 | 0 | stepped
+73 | Extended/Filter EG | Hold Level | -128 | 127 | 0 | stepped
+74 | Extended/Filter EG | Attack Level | -128 | 127 | 0 | stepped
+75 | Extended/Filter EG | Decay 1 Level | -128 | 127 | 0 | stepped
+76 | Extended/Filter EG | Decay 2 Level | -128 | 127 | 0 | stepped
+77 | Extended/Filter EG | Release Level | -128 | 127 | 0 | stepped
+78 | Extended/Filter EG | Depth | -64 | 63 | 40 | stepped
+79 | Extended/Filter EG | Time Velocity Segment | 0 | 4 | 4 | stepped enum
+80 | Extended/Filter EG | Time Velocity Sensitivity | -64 | 63 | 0 | stepped
+81 | Extended/Filter EG | Depth Velocity Sensitivity | -64 | 63 | 0 | stepped
+82 | Extended/Filter EG | Depth Velocity Curve | 0 | 4 | 2 | stepped
+83 | Extended/Filter EG | Time Key Follow | -64 | 63 | 0 | stepped
+84 | Extended/Filter EG | Time Key Follow Center | 0 | 127 | 24 | stepped
+85 | Extended/Filter | Cutoff Key Follow | -64 | 63 | 10 | stepped
+86 | Extended/Filter/Scaling | Break Point 1 | 0 | 127 | 36 | stepped
+87 | Extended/Filter/Scaling | Break Point 2 | 0 | 127 | 48 | stepped
+88 | Extended/Filter/Scaling | Break Point 3 | 0 | 127 | 60 | stepped
+89 | Extended/Filter/Scaling | Break Point 4 | 0 | 127 | 72 | stepped
+90 | Extended/Filter/Scaling | Offset 1 | -128 | 127 | 0 | stepped
+91 | Extended/Filter/Scaling | Offset 2 | -128 | 127 | 0 | stepped
+92 | Extended/Filter/Scaling | Offset 3 | -128 | 127 | 0 | stepped
+93 | Extended/Filter/Scaling | Offset 4 | -128 | 127 | 0 | stepped
+94 | Extended/Filter | HPF Key Follow | -64 | 63 | 0 | stepped
+95 | Extended/LFO 2 | Filter Depth | 0 | 99 | 0 | stepped
 100 | Voice | Engine | 0 | 2 | 1 | stepped enum
 101 | Voice | Mono | 0 | 1 | 0 | stepped enum
 102 | Voice | Portamento Time | 0 | 99 | 0 | stepped

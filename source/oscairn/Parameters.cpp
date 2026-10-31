@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "msfa/ext_filter.h"
 #include "msfa/ext_tables.h"
 #include "msfa/lfo.h"
 
@@ -41,6 +42,12 @@ static const char *const phases[] = { "0 degrees", "90 degrees", "180 degrees", 
 static const char *const speedRanges[] = { "Normal", "Extended", nullptr };
 static const char *const waves[] = { "Sine", "All harmonics 1", "All harmonics 2", "Odd harmonics 1",
                                      "Odd harmonics 2", "Formant 1", "Formant 2", nullptr };
+static const char *const filterTypes[] = { "LPF24D", "LPF24A", "LPF18", "LPF18s", "LPF12+HPF12", "LPF6+HPF12",
+                                           "HPF24D", "HPF12", "BPF12D", "BPFw", "BPF6", "BEF12", "BEF6",
+                                           "DualLPF", "DualHPF", "DualBPF", "DualBEF", "LPF12+BPF6", "Thru",
+                                           nullptr };
+static const char *const fegSegments[] = { "Attack", "Attack and Decay", "Decay", "Attack and Release", "All",
+                                           nullptr };
 
 static ExtendedVoice buildExtDefaults() {
     using namespace ext;
@@ -50,6 +57,20 @@ static ExtendedVoice buildExtDefaults() {
     e.v[LfoSpeed] = 30;
     e.v[LfoSpeedRange] = 1;
     e.v[LfoExtSpeed] = 60;
+    // the filter: the documented defaults (Thru)
+    e.v[FilterType] = extfilter::Thru;
+    e.v[FilterCutoff] = 1023;
+    e.v[FilterResonance] = 10;
+    e.v[FilterGain] = 255;
+    e.v[FegDepth] = 40;
+    e.v[FegTimeVelocitySegment] = 4;
+    e.v[FegDepthVelocityCurve] = 2;
+    e.v[FegTimeKeyCenter] = 24;
+    e.v[FilterKeyFollow] = 10;
+    e.v[FilterBreak1] = 36;
+    e.v[FilterBreak2] = 48;
+    e.v[FilterBreak3] = 60;
+    e.v[FilterBreak4] = 72;
     for (int n = 1; n <= Ops; n++) {
         int16_t *o = e.v + op(n, KeyOnReset);
         o[KeyOnReset] = 1;
@@ -116,6 +137,36 @@ static std::vector<Param> build() {
     extv(49, "Extended/LFO 2", "Speed Range", 0, 1, ext::LfoSpeedRange, Text::Choice, speedRanges);
     extv(50, "Extended/LFO 2", "Extended Speed", 0, 415, ext::LfoExtSpeed);
     extv(51, "Extended/Common", "Pitch Velocity Sensitivity", -64, 63, ext::PitchVelocityDepth, Text::Signed);
+    {
+        const std::string f = "Extended/Filter", feg = "Extended/Filter EG", sc = "Extended/Filter/Scaling";
+        extv(60, f, "Type", 0, 18, ext::FilterType, Text::Choice, filterTypes);
+        extv(61, f, "Cutoff", 0, 1023, ext::FilterCutoff);
+        extv(62, f, "Cutoff Velocity Sensitivity", -64, 63, ext::FilterCutoffVelocity, Text::Signed);
+        extv(63, f, "Resonance", 0, 127, ext::FilterResonance);
+        extv(64, f, "Resonance Velocity Sensitivity", -64, 63, ext::FilterResonanceVelocity, Text::Signed);
+        extv(65, f, "HPF Cutoff", 0, 1023, ext::HpfCutoff);
+        extv(66, f, "Distance", -128, 127, ext::FilterDistance, Text::Signed);
+        extv(67, f, "Gain", 0, 255, ext::FilterGain);
+        static const char *const segs[] = { "Hold", "Attack", "Decay 1", "Decay 2", "Release" };
+        for (int i = 0; i < 5; i++) {
+            extv(68 + i, feg, std::string(segs[i]) + " Time", 0, 127, ext::FegHoldTime + i);
+            extv(73 + i, feg, std::string(segs[i]) + " Level", -128, 127, ext::FegHoldLevel + i, Text::Signed);
+        }
+        extv(78, feg, "Depth", -64, 63, ext::FegDepth, Text::Signed);
+        extv(79, feg, "Time Velocity Segment", 0, 4, ext::FegTimeVelocitySegment, Text::Choice, fegSegments);
+        extv(80, feg, "Time Velocity Sensitivity", -64, 63, ext::FegTimeVelocity, Text::Signed);
+        extv(81, feg, "Depth Velocity Sensitivity", -64, 63, ext::FegDepthVelocity, Text::Signed);
+        extv(82, feg, "Depth Velocity Curve", 0, 4, ext::FegDepthVelocityCurve);
+        extv(83, feg, "Time Key Follow", -64, 63, ext::FegTimeKeyFollow, Text::Signed);
+        extv(84, feg, "Time Key Follow Center", 0, 127, ext::FegTimeKeyCenter, Text::Key);
+        extv(85, f, "Cutoff Key Follow", -64, 63, ext::FilterKeyFollow, Text::Signed);
+        for (int i = 0; i < 4; i++) {
+            extv(86 + i, sc, "Break Point " + std::to_string(i + 1), 0, 127, ext::FilterBreak1 + i, Text::Key);
+            extv(90 + i, sc, "Offset " + std::to_string(i + 1), -128, 127, ext::FilterOffset1 + i, Text::Signed);
+        }
+        extv(94, f, "HPF Key Follow", -64, 63, ext::HpfKeyFollow, Text::Signed);
+        extv(95, "Extended/LFO 2", "Filter Depth", 0, 99, ext::LfoFilterDepth);
+    }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
         const std::string env = op + "/Envelope", freq = op + "/Frequency", scale = op + "/Scaling",
@@ -367,6 +418,8 @@ bool convertToClassic(std::vector<double> &values) {
     const int keySync = x.geti(1000 * m.op[0] + 30), pitchSens = x.geti(1000 * m.op[0] + 58);
     if (x.geti(44) != 0 || x.geti(49) != 0)
         return false; // LFO phase and the Extended speed range have no Classic equivalent
+    if (x.geti(60) != extfilter::Thru || x.geti(67) != 255)
+        return false; // Classic has no filter (Dexed's output filter is a plugin setting)
     for (int d = 1; d <= 6; d++) {
         const uint32_t e = 1000 * m.op[d - 1];
         if (x.geti(e + 30) != keySync || x.geti(e + 58) != pitchSens)

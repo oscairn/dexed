@@ -464,6 +464,7 @@ bool paramsToText(const clap_plugin_t *, clap_id id, double value, char *text, u
     case Text::Choice:
     case Text::Switch: std::snprintf(text, size, "%s", p.choices[n - (int)p.min]); break;
     case Text::Note: std::snprintf(text, size, "%s%d", notes[n % 12], (n + 9) / 12 - 1); break; // Dexed's break point labels
+    case Text::Key: std::snprintf(text, size, "%s%d", notes[(n + 3) % 12], n / 12 - 2); break; // MIDI note, C-2 = 0
     case Text::Percent: std::snprintf(text, size, "%.1f %%", value * 100); break;
     case Text::Tune: std::snprintf(text, size, "%+.1f cents", value * 100); break;
     }
@@ -500,6 +501,15 @@ bool paramsFromText(const clap_plugin_t *, clap_id id, const char *text, double 
                 return false;
             }
         }
+        return false;
+    }
+    if (p.text == Text::Key) {
+        char buf[8];
+        for (int v = (int)p.min; v <= (int)p.max; v++)
+            if (paramsToText(nullptr, id, v, buf, sizeof buf) && std::strcmp(buf, text) == 0) {
+                *value = v;
+                return true;
+            }
         return false;
     }
     std::istringstream in(text);

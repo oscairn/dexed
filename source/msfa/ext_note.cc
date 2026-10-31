@@ -269,6 +269,65 @@ int32_t ExtPitchEnv::getsample() {
     return level();
 }
 
+// ---- filter EG ----
+
+void ExtFilterEnv::configure(const int levels[5], const int times[5], double timeScale, double sampleRate) {
+    for (int i = 0; i < 5; i++) {
+        target_[i] = extFegLevelCents(levels[i]);
+        samples_[i] = (i == 0 ? extFegHoldMs(times[i]) : extFegSegmentMs(times[i])) * timeScale * sampleRate / 1000.0;
+    }
+}
+
+void ExtFilterEnv::enter(int ix) {
+    ix_ = ix;
+    if (ix_ >= 5)
+        return;
+    left_ = samples_[ix_];
+    step_ = ix_ == 0 ? 0 : (target_[ix_] - level_) / std::max(left_, 1.0);
+}
+
+void ExtFilterEnv::init(const int levels[5], const int times[5], double timeScale, double sampleRate) {
+    configure(levels, times, timeScale, sampleRate);
+    down_ = true;
+    level_ = target_[0];
+    enter(0);
+}
+
+void ExtFilterEnv::update(const int levels[5], const int times[5], double timeScale, double sampleRate) {
+    configure(levels, times, timeScale, sampleRate);
+}
+
+double ExtFilterEnv::getblock(int n) {
+    double todo = n;
+    while (todo > 0 && ix_ < 5) {
+        if (ix_ == 3 && left_ <= 0) {
+            level_ = target_[3]; // decay 2 holds its level while the key is down
+            break;
+        }
+        const double k = std::min(todo, left_);
+        level_ += step_ * k;
+        left_ -= k;
+        todo -= k;
+        if (left_ <= 0) {
+            if (ix_ > 0)
+                level_ = target_[ix_];
+            if (ix_ < 3)
+                enter(ix_ + 1);
+            else if (ix_ == 4)
+                ix_ = 5;
+        }
+    }
+    return level_;
+}
+
+void ExtFilterEnv::keydown(bool down) {
+    if (down_ == down)
+        return;
+    down_ = down;
+    if (!down)
+        enter(4);
+}
+
 // ---- voice ----
 
 void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
@@ -344,6 +403,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         pitchSens_[i] = extPitchDepthOffset(std::clamp(o(ext::PitchDepthOffset), 0, 7));
         ampSens_[i] = extAmpDepthOffset(std::clamp(o(ext::AmpDepthOffset), 0, 7));
     }
+    setupFilter(v, midinote, velocity, start);
 }
 
 void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning) {
@@ -353,6 +413,94 @@ void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const Syn
 
 void ExtNote::update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning) {
     setup(v, midinote, velocity, rate, tuning, false);
+}
+
+void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start) {
+    using namespace ext;
+    FilterState &f = filt_;
+    f.type = std::clamp(v.common(FilterType), 0, (int)extfilter::TypeCount - 1);
+    // scaling: an offset by note, straight between the break points and constant outside
+    // them, 37.5 cents per step (measured below, between and above the break points)
+    double offset = 0;
+    {
+        int bp[4], off[4];
+        for (int i = 0; i < 4; i++) {
+            bp[i] = std::clamp(v.common((Common)(FilterBreak1 + i)), 0, 127);
+            off[i] = std::clamp(v.common((Common)(FilterOffset1 + i)), -128, 127);
+        }
+        if (midinote <= bp[0])
+            offset = off[0];
+        else if (midinote >= bp[3])
+            offset = off[3];
+        else
+            for (int i = 1; i < 4; i++)
+                if (midinote <= bp[i]) {
+                    offset = bp[i] == bp[i - 1] ? off[i] : off[i - 1] + (off[i] - off[i - 1]) * (double)(midinote - bp[i - 1]) / (bp[i] - bp[i - 1]);
+                    break;
+                }
+    }
+    f.value = std::clamp(v.common(FilterCutoff), 0, 1023);
+    f.ratio = extFilterScalingRatio(offset) * extFilterKeyFollowRatio(v.common(FilterKeyFollow), midinote) *
+              extFilterVelocityRatio(v.common(FilterCutoffVelocity), velocity);
+    f.q = extFilterQ(v.common(FilterResonance)) *
+          extFilterResonanceVelocityQ(v.common(FilterResonanceVelocity), velocity);
+    f.ratio2 = f.type == extfilter::Lpf18S ? extFilterLpf18sRatio(f.value)
+                                           : std::exp2(std::clamp(v.common(FilterDistance), -128, 127) / 16.0);
+    extFilterWidth(v.common(FilterResonance), f.widthHigh, f.widthLow);
+    f.hpf = extFilterCutoffHz(std::clamp(v.common(HpfCutoff), 0, 1023)) *
+            extFilterKeyFollowRatio(v.common(HpfKeyFollow), midinote);
+    f.gain = extFilterGain(v.common(FilterGain));
+    f.fegOctaves = extFegDepth(v.common(FegDepth)) *
+                   extFegDepthVelocity(v.common(FegDepthVelocity), v.common(FegDepthVelocityCurve), velocity) /
+                   1200.0; // (the FEG runs in cents)
+    f.lfoOctaves = extFilterLfoOctaves(v.common(LfoFilterDepth));
+    f.active = f.type != extfilter::Thru || f.gain != 1.0;
+    const int levels[5] = { v.common(FegHoldLevel), v.common(FegAttackLevel), v.common(FegDecay1Level),
+                            v.common(FegDecay2Level), v.common(FegReleaseLevel) };
+    const int times[5] = { v.common(FegHoldTime), v.common(FegAttackTime), v.common(FegDecay1Time),
+                           v.common(FegDecay2Time), v.common(FegReleaseTime) };
+    // shortcut: FEG time velocity sensitivity is not applied (the reference shortened the
+    // segments at velocity 127 for both -64 and +63 and left them at velocity 1; unresolved)
+    const double timeScale = extFegTimeKeyFollowScale(v.common(FegTimeKeyFollow), midinote, v.common(FegTimeKeyCenter));
+    if (start) {
+        feg_.init(levels, times, timeScale, rate_->sampleRate);
+        filter_.reset();
+        filterStarted_ = false;
+    } else {
+        feg_.update(levels, times, timeScale, rate_->sampleRate);
+    }
+}
+
+// The voice's block through its filter: the operators' sum (buf, MSFA's output scale) in
+// floating point, full scale 1.0.
+void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay) {
+    const FilterState &f = filt_;
+    double oct = feg_.getblock(N) * f.fegOctaves;
+    // the LFO at the block's end, bipolar and inverted (the reference's triangle starts at the
+    // cutoff's highest point, Lfo's at its lowest), faded in by its delay
+    if (f.lfoOctaves != 0)
+        oct += f.lfoOctaves * (1.0 - (double)lfo[N - 1] / (1 << 23)) * ((double)lfo_delay / (1 << 24));
+    const double move = std::exp2(oct) * f.ratio;
+    ExtFilter::Setting st;
+    st.type = f.type;
+    st.fc = extFilterCutoffHz(f.value) * move;
+    st.q = f.q;
+    st.ratio2 = f.ratio2;
+    if (f.type == extfilter::BpfWide) {
+        st.fc = extFilterCutoffHz(f.value + f.widthHigh) * move;
+        st.fcLow = extFilterCutoffHz(f.value - f.widthLow) * move;
+    }
+    st.hpf = f.hpf;
+    st.gain = f.gain;
+    filter_.set(st, rate_->sampleRate, !filterStarted_);
+    filterStarted_ = true;
+    constexpr float kScale = 1.0f / (float)(1 << 28), kBack = (float)(1 << 28);
+    float x[N];
+    for (int i = 0; i < N; i++)
+        x[i] = (float)buf[i] * kScale;
+    filter_.process(x, N);
+    for (int i = 0; i < N; i++)
+        buf[i] = (int32_t)std::lrint(std::clamp(x[i], -7.99f, 7.99f) * kBack);
 }
 
 void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
@@ -417,7 +565,16 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
     k.base = params_;
     k.fbGain = fbGain_;
     k.waves = waves_;
-    renderGraph(k, extCompiled(algorithm_), buf, params_, fbBuf_, fbShift_, bufs_, sum_.get());
+    if (filt_.active) {
+        AlignedBuf<int32_t, N> out;
+        std::fill(out.get(), out.get() + N, 0);
+        renderGraph(k, extCompiled(algorithm_), out.get(), params_, fbBuf_, fbShift_, bufs_, sum_.get());
+        filterBlock(out.get(), lfo, lfo_delay);
+        for (int s = 0; s < N; s++)
+            buf[s] += out.get()[s];
+    } else {
+        renderGraph(k, extCompiled(algorithm_), buf, params_, fbBuf_, fbShift_, bufs_, sum_.get());
+    }
     // every operator moved by its per-sample increments (renderGraph assumed `freq` throughout)
     for (int i = 0; i < ext::Ops; i++) {
         uint32_t ph = phase0[i];
@@ -430,6 +587,7 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
 void ExtNote::keyup() {
     for (auto &e : env_)
         e.keydown(false);
+    feg_.keydown(false);
 }
 
 bool ExtNote::isPlaying() const {
@@ -452,6 +610,9 @@ void ExtNote::oscSync() {
 }
 
 void ExtNote::transferState(const ExtNote &src) {
+    feg_.transfer(src.feg_);
+    filter_ = src.filter_;
+    filterStarted_ = src.filterStarted_;
     for (int i = 0; i < ext::Ops; i++) {
         env_[i].transfer(src.env_[i]);
         params_[i].gain_out = src.params_[i].gain_out;

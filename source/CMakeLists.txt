@@ -5,6 +5,7 @@ set(BaseTargetName Dexed)
 add_library(dexed_engine STATIC
 	msfa/dx7note.cc
 	msfa/env.cc
+	msfa/ext_filter.cc
 	msfa/ext_note.cc
 	msfa/ext_tables.cc
 	msfa/ext_waves.cc
