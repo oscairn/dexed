@@ -38,6 +38,12 @@ add_subdirectory(libs)
 add_subdirectory(assets)
 add_subdirectory(source)
 
+option(DEXED_TESTS "Build the tests (run them with ctest)" ON)
+if(DEXED_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 # uncomment to enable warnings are errors,
 # suppress warnings (or remove when fixed)
 # or add -Wall, -Wextra or specific warnings as you see fit
