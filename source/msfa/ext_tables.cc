@@ -492,3 +492,9 @@ double extPartLfoPitchCents(int depth) { return clampi(depth, 0, 127) * 3600.0 /
 // (measured with a square wave at depths 8, 32 and 64; 127 silent); shortcut: straight between,
 // the reference's level at values between the top and bottom was not measured
 double extPartLfoLevelDb(int depth) { return clampi(depth, 0, 127) * 0.589; }
+
+// pan destination: 64 (1 - e^(-depth / 20)) positions at the LFO's top (fitted to a square wave
+// at depths 8, 32 and 64 through the pan law: positions 21, 51 and 61; 127 silent on the far
+// side); shortcut: the LFO's value scales the positions linearly (values between the top and
+// bottom were not measured), and the pan moves once per 64-sample block
+double extPartLfoPanPositions(int depth) { return 64.0 * (1.0 - std::exp(-clampi(depth, 0, 127) / 20.0)); }

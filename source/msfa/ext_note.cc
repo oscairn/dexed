@@ -500,7 +500,13 @@ void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const Syn
         const int alt = std::clamp(v.common(AlternatePan), -64, 63);
         const int pos = ((st.count & 1) ? -alt : alt) + extScalingPanPosition(v.common(ScalingPan), midinote) +
                         extRandomPanPosition(v.common(RandomPan), st.randomPan);
-        extPanGains(std::clamp(pos, -64, 63), gainL_, gainR_);
+        panPos_ = std::clamp(pos, -64, 63);
+        extPanGains(panPos_, gainL_, gainR_);
+        // the part LFO's pan destinations: positions at the LFO's top
+        partLfoPan_ = 0;
+        for (int d = 0; d < 3; d++)
+            if (v.common((Common)(PartLfoDest1 + 2 * d)) == PartLfoPan)
+                partLfoPan_ += extPartLfoPanPositions(v.common((Common)(PartLfoDepth1 + 2 * d)));
     }
     {
         using namespace ext;
@@ -617,6 +623,11 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
         shift_ = (int)delay_;
         delay_ = 0;
         std::fill(carry_, carry_ + N, 0);
+    }
+    if (partLfoPan_ != 0 && part_lfo != nullptr) {
+        // pan moved by the part LFO, once per block (its value mid-block)
+        const int pos = (int)std::lround(std::clamp(panPos_ + part_lfo[N / 2] * partLfoPan_, -64.0, 63.0));
+        extPanGains(pos, gainL_, gainR_);
     }
     if (shift_ == 0) {
         render(buf, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls, part_lfo);

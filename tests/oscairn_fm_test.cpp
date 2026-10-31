@@ -1157,6 +1157,26 @@ int extendedTest() {
             expect(std::fabs(drop - extPartLfoLevelDb(32)) < 0.1, "part LFO to operator level: " + std::to_string(drop) +
                                                                    " dB, table " + std::to_string(extPartLfoLevelDb(32)));
         }
+        // pan: a square wave at depth 32 puts the note right in its top half, left in its bottom
+        {
+            std::vector<float> r;
+            const auto l = renderExtended({ { 210, ext::PartLfoPan }, { 211, 32 }, { 201, ExtPartLfo::Square }, { 202, 24 } },
+                                          69, 1.0, 2.5, 2.5, &r);
+            const double half = 0.5 / extPartLfoHz(24) * rate;
+            auto db = [](const std::vector<float> &x, double from, double to) {
+                double e = 0;
+                for (size_t i = (size_t)from; i < (size_t)to; i++)
+                    e += (double)x[i] * x[i];
+                return 10 * std::log10(e / (to - from));
+            };
+            float gl, gr;
+            extPanGains((int)std::lround(extPartLfoPanPositions(32)), gl, gr);
+            const double top = db(l, 0.2 * half, 0.8 * half) - db(r, 0.2 * half, 0.8 * half);
+            const double bottom = db(r, 1.2 * half, 1.8 * half) - db(l, 1.2 * half, 1.8 * half);
+            const double want = 20 * std::log10(gl);
+            expect(std::fabs(top - want) < 0.05 && std::fabs(bottom - want) < 0.05,
+                   "part LFO to pan: " + std::to_string(top) + " / " + std::to_string(bottom) + " dB, law " + std::to_string(want));
+        }
     }
     // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
     // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic

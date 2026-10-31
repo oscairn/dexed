@@ -176,6 +176,8 @@ private:
     ExtPartPitchEnv ppeg_;
     uint32_t random_ = 0;        // this note's random value (random pitch)
     float gainL_ = 1, gainR_ = 1; // pan
+    int panPos_ = 0;              // the note's own pan position
+    double partLfoPan_ = 0;       // part LFO to pan: positions at the LFO's top
     // key-on delay: samples before the note starts, then its output runs `shift_` samples late
     // within the 64-sample grid (carry_ holds the samples that spill into the next block)
     int64_t delay_ = 0;
