@@ -1116,7 +1116,7 @@ fixed frequencies below 20 Hz.
     level 6), different from a carrier's; an operator is a modulator when its algorithm does
     not route it to the output (no algorithm does both).
 
-### M5 (in progress, 2026-10-31)
+### M5 (in progress, 2026-10-31; third session below)
 
 - **Operator waves** (the spectral forms, section 3.7; neutral names: Wave, Spread, Formant;
   parameters 1000 n + 60..62; Classic conversion refused unless every operator in the DX7
@@ -1141,6 +1141,21 @@ fixed frequencies below 20 Hz.
   16th is kept; nothing above Nyquist is), chosen per operator at note-on from its frequency;
   7.7 MB (940 tables), shared by every instance. The Extended kernels call a per-operator wave function;
   the sine path is unchanged and Classic voices never reach it.
+- **Where a wave starts in its cycle** (third session, `ae280e4`; measurement `5f3c330`,
+  `46d2ecc`). A carrier's spectrum does not show it, a modulator's sidebands do. Renders of
+  every wave at every spread modulating a sine of the same frequency (levels 60 and 75, 85 for
+  some; formant waves at formants 0, 9 and 27, spreads 0, 3, 7; `spec5`, 111 cases) fit this
+  model, with no free parameter: the modulator's depth is the same as for a sine (the earlier
+  guess of a different scaling was wrong); waves 1 and 2 run from 0 to their peak (a constant
+  of minus their minimum, 0.05-0.50) and start at their peak; waves 3 and 4 have no constant and
+  peak a quarter cycle in, as a sine does; the formant windows are centred half a cycle in
+  (formant 2's is symmetric); formant 1's window is not symmetric: each component has its own
+  phase, measured from the two sidebands' phases up to a time shift, which is fitted (modulo
+  half a cycle) to formant 1's formant-0 carrier, where the sidebands below harmonic 1 fold back.
+  The measured carrier phases first lose the reference's output highpass (first order, about
+  10.3 Hz, fitted to waves 2 and 4, whose harmonics are then in phase within 0.01 rad at every
+  spread and note). In-fork test: every wave 1-4 table peaks where the model says (within
+  1/256 cycle) and waves 1-2 have minimum 0; formant 2's window peaks half a cycle in.
 
 - **Gate** (`fm/compare_waves.py`: first 16 harmonic levels relative to a sine at the same
   operator level, within 1 dB, harmonics more than 60 dB below the case's strongest not
@@ -1149,17 +1164,26 @@ fixed frequencies below 20 Hz.
 
 | Gate | Result |
 | --- | --- |
-| Waves 1-4, every spread | **Met:** 32 of 32 cases, worst 0.22 dB |
-| Waves 1-4 and sine at notes 24-108 | **Met:** 35 of 35 (all harmonics below Nyquist kept up to the 16th); aliasing -64 dB or lower (the renders' floor), where the reference's reaches -14 dB at note 108 |
-| Formant waves, every spread (formant 0) | Formant 2: met at spreads 0-3, 6 and 7 (worst 0.31 dB); **not met** at 4 (1.2 dB) and 5 (14.5 dB at harmonic 16, -53 dB). Formant 1: met at 0-2 (0.91 dB); **not met** at 3-7 (1.5-3.8 dB, largest at harmonic 1), so at formant 0 formant 1 is not exactly the window model with its sign-flipped fold, while formant 2 is |
-| Formant sweep (0-99 every ninth, spreads 0, 3, 7; and centre 10 at every spread) | Spread 0: met; spread 3: 19 of 24 met. **Not met:** the far side of the window on the low harmonics (centre 10: harmonics 1-3, 30-60 dB down, 2-10 dB off), and spread 7 with the centre above harmonic 18, where the first 16 harmonics lie further from the centre than the measured window reaches (the windows now reach 99 components from centre-100 renders, `spec4`, which helped only partly: spread 6-7 formant 2 with the centre above about harmonic 27 is still 3-55 dB off, and Octet shows off-harmonic content at -23 dB there, unexplained). f6s3r54 fails on aliasing only (-28 dB against the reference's -43; its harmonics match), unexplained |
-| Formant waves at notes 24-84 (formant 50, spread 3) | Met where the centre is below Nyquist (6 cases); above it the reference plays a non-harmonic tone near Nyquist and Octet is silent (not compared) |
-| Waves as modulators (`spec3`: each wave at spread 3 modulating a sine, levels 60 and 75) | **Not met.** Sine: harmonics 1-3 within 0.14 dB (harmonic 4: 1.1 dB). Formant 2 at level 60: 0.28 dB. The others are 1.8-14 dB off, Octet's sidebands mostly weaker: the reference seems to scale a non-sine wave differently as a modulator than as a carrier; this needs a modulator-depth sweep per wave and spread |
+Results below as of the third session (`ae280e4` plus the analysis fix `46d2ecc`; all 161
+carrier cases of `spec` re-rendered and compared: 144 met, was 133 before this session).
 
-**Where M5 stopped.** M5 is not complete: the formant wave gate rows above are not met, and
-waves as modulators do not match. Next steps: measure modulation depth per wave and spread; find what formant 1 does at formant 0 with wider spreads (its spectrum there is
-not the window model's fold); the wave choice follows the note-on frequency only (pitch EG,
-LFO and bend moves are not followed; marked as a shortcut in `ext_note.cc`).
+| Gate | Result |
+| --- | --- |
+| Waves 1-4, every spread | **Met:** 32 of 32 cases, worst 0.82 dB (was 0.22): all-harmonic wave 2 at spreads 3-5 moved 0.6 dB at one weak harmonic each (harmonics 7, 10 and 14) when the waves got their constant; unexplained, the tables' levels for them are unchanged |
+| Waves 1-4 and sine at notes 24-108 | **Met:** 35 of 35 (all harmonics below Nyquist kept up to the 16th); aliasing -64 dB or lower (the renders' floor), where the reference's reaches -14 dB at note 108. Worst 0.82 dB, at note 24's fundamental (32.7 Hz) for every wave including the sine: Octet's output DC filter (Dexed's, about 20 Hz) takes 1 dB more there than the reference's 10.3 Hz highpass |
+| Formant waves, every spread (formant 0) | Formant 1: **met** at every spread (worst 0.35 dB; was not met at 3-7). Formant 2: met at 0-3, 6 and 7 (worst 0.31 dB); **not met** at 4 (2.8 dB) and 5 (13.1 dB at harmonic 16, -53 dB), as before |
+| Formant sweep (0-99 every ninth, spreads 0, 3, 7) | Spread 0: 24 of 24. Spread 3: 23 of 24 (f6s3r18 1.07 dB). **Spread 7: met in 10 of 24** (formant 1: 8 of 12, fails at formants 9, 27, 45 and 54 by 3.1-5.7 dB; formant 2: 2 of 12, 3.3-38 dB off at formants 9 and 27-99): the windows at spread 7 are wider than the low harmonics' distance from the centre, and the reference's spectrum there is not the window model (unresolved). Aliasing now no worse than the reference's in every case: the "-28 dB" at f6s3r54 was the analysis, not the engine (the fundamental refinement found the neighbouring sideband and fell back to the nominal pitch; Octet's render has no off-harmonic line above -64 dB), fixed in `fm/spectral.py` |
+| Formant waves at notes 24-84 (formant 50, spread 3) | Met where the centre is below Nyquist (6 cases); above it the reference plays a non-harmonic tone near Nyquist and Octet is silent (not compared) |
+| Waves as modulators (`spec5`, 111 cases; `fm/compare_mod.py`: first 12 harmonics relative to the strongest, 1 dB, those within 60 dB) | **100 of 111 met** (was 33 of 111 with the earlier tables). Waves 1-4: 49 of 51 (m4s3l85: harmonic 11, a null 52 dB down, 5.9 dB; m4s7l75: harmonic 2, 59 dB down, 2.3 dB). Formant 2: 22 of 26, fails at spread 7 (formants 9, 27: 1.6-8.7 dB) and m6s3r9l85 (2.7 dB at harmonic 7). Formant 1: 21 of 26, fails at formant 9 (spread 3: 1.4-2.3 dB; spread 7: 1.7-5.4 dB) and m5s7r27l75 (5.6 dB). `spec3` (the earlier campaign): 12 of 14, the two left are formant 1 at formant 9 |
+
+**Where M5 stopped.** M5 is not complete. Not met: spread 7 formant waves (as carriers above
+formant 9 and as modulators), formant 2 at formant 0 with spreads 4-5, formant 1 at formant 9 as
+a modulator (1.4-5.4 dB). Next steps: renders of the spread 6-7 formant waves with the centre at
+harmonic 100 and at low centres, to see what the reference does where the window reaches past
+harmonic 1 (the fold model holds at spreads 0-3 only); the wave choice follows the note-on
+frequency only (pitch EG, LFO and bend moves are not followed; marked as a shortcut in
+`ext_note.cc`); Extended sounds could use the reference's 10.3 Hz output highpass instead of
+Dexed's DC filter (1 dB at 33 Hz).
 
 ### How to run the tests
 
