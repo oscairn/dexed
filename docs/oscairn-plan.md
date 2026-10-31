@@ -1696,6 +1696,22 @@ divides the depth on the loop's last operator only), the macros' rounding at odd
 AEG offsets' rounding, detune on fixed-frequency operators (Octet applies it to every
 operator).
 
+### Fifth session (2026-10-31): tests run
+
+Code commits `204249a` (no 16-bit rounding of Extended voices), `c5fbc05` (part values and
+macros), `95ec1b4` (signed pitch bend ranges), `ec2bb5e` (level velocity table), `eeb132d`
+(10.3 Hz output highpass); measurement `d14c301` (`fm/compare_m7.py`). For each code commit's
+tree, locally: Release CTest 36/36 (the 164 Classic cases bit-identical through engine, JUCE
+plugin and native CLAP on arm64; the Extended test now also checks a quiet sine's harmonics
+without the rounding, each part value and macro against the operator or filter values it stands
+for, the velocity transform and its NOTE_END, detune, signed bend ranges, the level velocity
+table and the output highpass), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of
+164 identical), ASan/UBSan 19/19, TSan 19/19. CI results are in the session report.
+
+The Octet renders used for comparisons are made with `forks/measurements/m4/octet_render.py`
+(local, now mapping the part values and macros); the equivalence searches with `m7fit.py` and
+the campaigns with `m7gen.py` (local, like the other campaign generators: they build probes).
+
 ### How to run the tests
 
 ```
