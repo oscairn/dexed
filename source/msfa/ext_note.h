@@ -161,6 +161,7 @@ public:
 
 private:
     void setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning, bool start);
+    void setFeedback(int feedback); // fbShift_ and fbGain_ for feedback 0-7
     void render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
                 const Controllers *ctrls, const float *part_lfo);
     void setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start);
@@ -190,6 +191,11 @@ private:
     int32_t pitchSens_[8] = {};  // LFO pitch depth offset, as DX7 pitch modulation sensitivity
     float partLfoPitch_[8] = {}; // part LFO to this operator's frequency: Q24 log frequency at +1
     float partLfoLevel_[8] = {}; // part LFO to this operator's level: log level lost at -1
+    double partLfoDetune_[8] = {}; // part LFO to this operator's detune: steps at +1
+    int detune_[8] = {};         // each ratio-mode operator's detune
+    int detuneNote_ = 60;
+    int feedback_ = 0;           // the sound's feedback level
+    double partLfoFeedback_ = 0; // part LFO to feedback: steps at +1
     int32_t ampSens_[8] = {};
     int32_t pitchDepth_ = 0, ampDepth_ = 0;
     int32_t fbBuf_[2] = {};

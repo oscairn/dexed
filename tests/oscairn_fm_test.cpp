@@ -1157,6 +1157,36 @@ int extendedTest() {
             expect(std::fabs(drop - extPartLfoLevelDb(32)) < 0.1, "part LFO to operator level: " + std::to_string(drop) +
                                                                    " dB, table " + std::to_string(extPartLfoLevelDb(32)));
         }
+        // detune: a square wave at depth 32 moves the detune by 8 steps either way
+        {
+            const auto z = renderExtended({ { 210, ext::PartLfoOpDetune }, { 211, 32 }, { 201, ExtPartLfo::Square },
+                                            { 202, 24 } }, 60, 1.0, 2.5, 2.5);
+            const double half = 0.5 / extPartLfoHz(24) * rate;
+            const double hz60 = f69 * std::pow(2.0, -9 / 12.0);
+            const double top = 1200 * std::log2(zeroCrossingHz(z, (size_t)(0.2 * half), (size_t)(0.9 * half)) / hz60);
+            const double bottom = 1200 * std::log2(zeroCrossingHz(z, (size_t)(1.2 * half), (size_t)(1.9 * half)) / hz60);
+            expect(std::fabs(top - extDetuneCents(8, 60)) < 0.3 && std::fabs(bottom - extDetuneCents(-8, 60)) < 0.3,
+                   "part LFO to detune: " + std::to_string(top) + " / " + std::to_string(bottom) + " cents");
+        }
+        // feedback: a square wave at depth 127 from feedback 0 plays feedback 7 in its top half
+        // (a strong second harmonic) and none in its bottom half
+        {
+            const auto z = renderExtended({ { 210, ext::PartLfoFeedback }, { 211, 127 }, { 201, ExtPartLfo::Square },
+                                            { 202, 24 } }, 69, 1.0, 2.5, 2.5);
+            const double half = 0.5 / extPartLfoHz(24) * rate;
+            auto h2 = [&](double from, double to) { // second harmonic against the first, dB
+                double re1 = 0, im1 = 0, re2 = 0, im2 = 0;
+                for (size_t i = (size_t)from; i < (size_t)to; i++) {
+                    const double ph = 2 * M_PI * f69 * i / rate;
+                    re1 += z[i] * std::cos(ph); im1 += z[i] * std::sin(ph);
+                    re2 += z[i] * std::cos(2 * ph); im2 += z[i] * std::sin(2 * ph);
+                }
+                return 10 * std::log10((re2 * re2 + im2 * im2) / (re1 * re1 + im1 * im1));
+            };
+            const double top = h2(0.2 * half, 0.9 * half), bottom = h2(1.2 * half, 1.9 * half);
+            expect(top > -15 && bottom < -60, "part LFO to feedback: second harmonic " + std::to_string(top) + " / " +
+                                                  std::to_string(bottom) + " dB");
+        }
         // pan: a square wave at depth 32 puts the note right in its top half, left in its bottom
         {
             std::vector<float> r;

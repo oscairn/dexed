@@ -364,24 +364,32 @@ void ExtFilterEnv::keydown(bool down) {
 
 // ---- voice ----
 
+void ExtNote::setFeedback(int feedback) {
+    fbShift_ = feedback != 0 ? 8 - feedback : 16; // (16: off, for renderGraph)
+    // the measured feedback amount, relative to the DX7's shift for the same value
+    fbGain_ = feedback != 0 ? std::llround(extFeedbackScale(feedback) * (double)(1 << 24) / (1 << fbShift_)) : 0;
+    // the amount was fitted to a carrier's output before carriers got the reference's output
+    // level (algorithm gain and overall level); a carrier's feedback takes its signal before
+    // that level, so the fitted modulation stays
+    const CompiledAlgorithm &ca = extCompiled(algorithm_);
+    if (fbGain_ != 0 && ca.feedbackFrom >= 0 && ((ca.outputs >> ca.feedbackFrom) & 1))
+        fbGain_ = std::llround((double)fbGain_ * std::pow(10.0, -(extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb) / 20));
+}
+
 void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
                     bool start) {
     rate_ = rate;
     const double sampleRate = rate->sampleRate;
     algorithm_ = std::clamp(v.common(ext::Algorithm), 1, 88) - 1;
-    const int feedback = std::clamp(v.common(ext::Feedback), 0, 7);
-    fbShift_ = feedback != 0 ? 8 - feedback : 16; // (16: off, for renderGraph)
-    // the measured feedback amount, relative to the DX7's shift for the same value
-    fbGain_ = feedback != 0 ? std::llround(extFeedbackScale(feedback) * (double)(1 << 24) / (1 << fbShift_)) : 0;
-    {
-        // the amount was fitted to a carrier's output before carriers got the reference's
-        // output level (algorithm gain and overall level); a carrier's feedback takes its
-        // signal before that level, so the fitted modulation stays
-        const CompiledAlgorithm &ca = extCompiled(algorithm_);
-        if (fbGain_ != 0 && ca.feedbackFrom >= 0 && ((ca.outputs >> ca.feedbackFrom) & 1))
-            fbGain_ = std::llround((double)fbGain_ *
-                                   std::pow(10.0, -(extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb) / 20));
-    }
+    feedback_ = std::clamp(v.common(ext::Feedback), 0, 7);
+    setFeedback(feedback_);
+    // the part LFO's feedback destinations: feedback steps at the LFO's top (depth / 16, the
+    // move rounded towards 0: measured at depths 8, 32 and 127 from feedback 0, 4 and 7)
+    partLfoFeedback_ = 0;
+    for (int d = 0; d < 3; d++)
+        if (v.common((ext::Common)(ext::PartLfoDest1 + 2 * d)) == ext::PartLfoFeedback)
+            partLfoFeedback_ += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) / 16.0;
+    detuneNote_ = midinote;
     pitchDepth_ = (std::clamp(v.common(ext::LfoPitchDepth), 0, 99) * 165) >> 6;
     ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
@@ -405,6 +413,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             pitch = (int32_t)std::lround(std::log2(extFixedHz(o(ext::Coarse), o(ext::Fine))) * kQ24);
         } else {
             cents += extDetuneCents(o(ext::Detune), midinote) + ratioCents;
+            detune_[i] = std::clamp(o(ext::Detune), -15, 15);
             pitch = notePitch + (int32_t)std::lround(std::log2(extRatio(o(ext::Coarse), o(ext::Fine))) * kQ24);
         }
         basepitch_[i] = pitch + (int32_t)std::lround(cents / 1200.0 * kQ24);
@@ -460,6 +469,17 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
                     const int depth = std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) *
                                       (ratio == 127 ? 128 : ratio) / 128;
                     partLfoPitch_[i] += (float)(extPartLfoPitchCents(depth) / 1200.0 * kQ24);
+                }
+        // operator detune destinations: detune steps at the LFO's top, depth / 4 after the ratio
+        // rule, the move rounded towards 0 and the detune held within +-15 (measured at depths 8,
+        // 32, 64 and 127 at notes 36, 60 and 96)
+        partLfoDetune_[i] = 0;
+        if (!fixed_[i])
+            for (int d = 0; d < 3; d++)
+                if (v.common((ext::Common)(ext::PartLfoDest1 + 2 * d)) == ext::PartLfoOpDetune && o((ext::Op)(ext::PartLfoBox1 + d))) {
+                    const int ratio = std::clamp(o((ext::Op)(ext::PartLfoRatio1 + d)), 0, 127);
+                    partLfoDetune_[i] += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) *
+                                         (ratio == 127 ? 128 : ratio) / 128 / 4.0;
                 }
         // operator level destinations (the same depth and ratio rule, unmeasured for level)
         partLfoLevel_[i] = 0;
@@ -668,6 +688,9 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
         amd[s] = std::max(a, w);
         ampMod |= amd[s] != 0;
     }
+    // the part LFO's feedback move, once per block
+    if (partLfoFeedback_ != 0 && part_lfo != nullptr)
+        setFeedback(std::clamp(feedback_ + (int)(part_lfo[N / 2] * partLfoFeedback_), 0, 7));
     // the common pitch EG, every sample of the block (fixed-frequency operators do not follow
     // it in the reference)
     int32_t ppeg[N];
@@ -676,7 +699,12 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
         ppeg[s] = ppeg_.getsample();
     uint32_t phase0[ext::Ops];
     for (int i = 0; i < ext::Ops; i++) {
-        const int32_t pitch = basepitch_[i] + pitchBase;
+        int32_t pitch = basepitch_[i] + pitchBase;
+        if (partLfoDetune_[i] != 0 && part_lfo != nullptr) {
+            // the part LFO's detune move, once per block
+            const int d = std::clamp(detune_[i] + (int)(part_lfo[N / 2] * partLfoDetune_[i]), -15, 15);
+            pitch += (int32_t)std::lround((extDetuneCents(d, detuneNote_) - extDetuneCents(detune_[i], detuneNote_)) / 1200.0 * kQ24);
+        }
         int32_t *f = freqs_[i];
         const bool lfoPitch = !fixed_[i] && pitchSens_[i] != 0 && pitchMod;
         const int32_t *pp = fixed_[i] ? kNoPitch : ppeg;
