@@ -92,3 +92,8 @@ double extFegHoldMs(int time);          // 0-127
 double extFegDepthVelocity(int sensitivity, int curve, int velocity); // multiplies the FEG depth
 double extFegTimeKeyFollowScale(int sensitivity, int midinote, int centre); // multiplies FEG times
 double extFegDepth(int depth);          // -64-+63: the share of the FEG level (cents) that moves the cutoff
+// part values
+double extPartVelocity(int depth, int offset, int velocity); // the velocity the voice plays; <= 0: no note
+int extAegOffsetSteps(int offset);      // -64-+63: EG time or level steps added to every operator
+double extPartDetuneCents(int detune);  // -128-+127
+

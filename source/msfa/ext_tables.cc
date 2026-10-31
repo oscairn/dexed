@@ -497,3 +497,38 @@ double extPartLfoLevelDb(int depth) { return clampi(depth, 0, 127) * 0.589; }
 // side); shortcut: the LFO's value scales the positions linearly (values between the top and
 // bottom were not measured), and the pan moves once per 64-sample block
 double extPartLfoPanPositions(int depth) { return 64.0 * (1.0 - std::exp(-clampi(depth, 0, 127) / 20.0)); }
+
+// Part velocity sensitivity: depth / 64 times the velocity, plus twice the offset's distance from
+// 64 (measured at 40 depth, offset and velocity combinations through a carrier's level velocity
+// sensitivity; fractional results play between the neighbouring velocities' levels there,
+// shortcut: Octet rounds them); a velocity of 0 or below plays no note
+double extPartVelocity(int depth, int offset, int velocity) {
+    return std::min(127.0, velocity * clampi(depth, 0, 127) / 64.0 + 2.0 * (clampi(offset, 0, 127) - 64));
+}
+
+// Part AEG offsets: 1.5 time or level values per step (attack, decay, sustain and release, each
+// at 12 offsets on a lone carrier, within 0.4 dB rms of the equivalent EG values); shortcut: the
+// rounding of odd offsets is not measured
+int extAegOffsetSteps(int offset) { return (int)std::lround(1.5 * clampi(offset, -64, 63)); }
+
+// Part detune: cents, not Hz (the same cents at notes 36 and 72); measured every eighth value,
+// nothing within 2 of the centre, straight between
+static const float kPartDetuneCents[33] = {
+    -49.95f, -45.94f, -42.81f, -39.95f, -37.11f, -33.99f, -30.59f, -27.76f, -24.65f, -20.71f, -17.62f,
+    -14.81f, -11.72f, -8.93f, -6.13f, -3.06f, 0.0f, 2.78f, 5.83f, 8.6f, 11.64f, 14.4f, 17.44f, 20.46f,
+    24.58f, 27.32f, 30.33f, 33.88f, 36.88f, 39.6f, 42.59f, 45.57f, 49.63f,
+};
+double extPartDetuneCents(int detune) {
+    const int raw = clampi(detune, -128, 127) + 128;
+    if (raw >= 126 && raw <= 130)
+        return 0.0;
+    if (raw > 120 && raw < 126)
+        return kPartDetuneCents[15] * (126 - raw) / 6.0;
+    if (raw > 130 && raw < 136)
+        return kPartDetuneCents[17] * (raw - 130) / 6.0;
+    if (raw == 255)
+        return kPartDetuneCents[32];
+    const int i = raw / 8;
+    const double t = (raw - 8 * i) / (i == 31 ? 7.0 : 8.0);
+    return kPartDetuneCents[i] + (kPartDetuneCents[i + 1] - kPartDetuneCents[i]) * t;
+}

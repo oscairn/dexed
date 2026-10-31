@@ -202,6 +202,7 @@ public:
     bool peekVoiceStatus(VoiceStatus &voiceStatus);
     int tuningTranspositionShift() { return tuningTranspositionShift(0); }
     int tuningTranspositionShift(int c);
+    uint8_t shiftedKey(int c, int key);
 
     int getEngineType() { return contexts[0].engineType; }
     void setEngineType(int tp) { setEngineType(0, tp); }

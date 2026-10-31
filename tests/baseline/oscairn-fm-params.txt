@@ -150,6 +150,24 @@
 232 | Extended/Part LFO | User Step 15 | -64 | 63 | 0 | stepped
 233 | Extended/Part LFO | User Step 16 | -64 | 63 | 0 | stepped
 234 | Extended/Part LFO | Random Speed | 0 | 127 | 0 | stepped
+235 | Extended/Part | Velocity Sensitivity Depth | 0 | 127 | 64 | stepped
+236 | Extended/Part | Velocity Sensitivity Offset | 0 | 127 | 64 | stepped
+237 | Extended/Part | Amp EG Attack Offset | -64 | 63 | 0 | stepped
+238 | Extended/Part | Amp EG Decay Offset | -64 | 63 | 0 | stepped
+239 | Extended/Part | Amp EG Sustain Offset | -64 | 63 | 0 | stepped
+240 | Extended/Part | Amp EG Release Offset | -64 | 63 | 0 | stepped
+241 | Extended/Part | Filter EG Depth Offset | -64 | 63 | 0 | stepped
+242 | Extended/Part | Cutoff Offset | -64 | 63 | 0 | stepped
+243 | Extended/Part | Resonance Offset | -64 | 63 | 0 | stepped
+244 | Extended/Part | Note Shift | -48 | 48 | 0 | stepped
+245 | Extended/Part | Detune | -128 | 127 | 0 | stepped
+246 | Extended/Macros | Mod Depth | -99 | 99 | 0 | stepped
+247 | Extended/Macros | Ratio Shift | -99 | 99 | 0 | stepped
+248 | Extended/Macros | Attack | -99 | 99 | 0 | stepped
+249 | Extended/Macros | Decay | -99 | 99 | 0 | stepped
+250 | Extended/Macros | Sustain | -99 | 99 | 0 | stepped
+251 | Extended/Macros | Release | -99 | 99 | 0 | stepped
+252 | Extended/Macros | Texture | -99 | 99 | 0 | stepped
 1001 | Operator 1/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 1002 | Operator 1/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 1003 | Operator 1/Envelope | Rate 3 | 0 | 99 | 99 | stepped

@@ -1584,6 +1584,76 @@ int extendedTest() {
         std::printf("quiet sine: harmonics 2-8 at most %.1f dB\n", worst);
         expect(worst < -90, "quiet Extended sine: harmonics 2-8 at " + std::to_string(worst) + " dB");
     }
+    // -- part values and macros: each plays as the operator or filter values it stands for
+    {
+        using P = std::vector<std::pair<uint32_t, double>>;
+        auto same = [&](const P &a, const P &b, const std::string &what, int key = 60, double vel = 1.0) {
+            expect(renderExtended(a, key, vel, 0.6, 0.8) == renderExtended(b, key, vel, 0.6, 0.8), what);
+        };
+        const P stack = { { 40, 8 }, { 1051, 70 }, { 2051, 99 }, { 1045, 40 }, { 1046, 50 }, { 1047, 55 }, { 1043, 75 },
+                          { 1048, 50 }, { 2045, 50 }, { 2046, 55 }, { 2047, 60 }, { 2043, 80 }, { 2048, 55 } };
+        auto with = [&](P p, const P &more) {
+            for (const auto &m : more) {
+                bool found = false;
+                for (auto &q : p)
+                    if (q.first == m.first) {
+                        q.second = m.second;
+                        found = true;
+                    }
+                if (!found)
+                    p.push_back(m);
+            }
+            return p;
+        };
+        same(with(stack, { { 246, -25 } }), with(stack, { { 1051, 45 } }), "mod depth -25: modulator level 70 -> 45");
+        same(with(stack, { { 41, 4 }, { 246, -99 } }), with(stack, { { 41, 4 }, { 1051, 51 } }),
+             "mod depth -99 on the feedback operator at feedback 4: level 70 -> 51");
+        same(with(stack, { { 248, 20 }, { 249, -10 }, { 250, 10 }, { 251, 30 } }),
+             with(stack, { { 1045, 60 }, { 1046, 40 }, { 1047, 45 }, { 1043, 85 }, { 1048, 80 } }),
+             "envelope macros move the modulator's attack, decays, sustain level and release only");
+        same(with(stack, { { 237, 4 }, { 238, -8 }, { 239, 6 }, { 240, -2 } }),
+             with(stack, { { 2045, 56 }, { 1046, 38 }, { 1047, 43 }, { 2046, 43 }, { 2047, 48 }, { 1043, 84 }, { 2043, 89 },
+                           { 1048, 47 }, { 2048, 52 } }),
+             "amp EG offsets: 1.5 values per step on every operator, a positive attack offset on carriers only");
+        same({ { 1071, 1 }, { 242, -8 }, { 60, 7 }, { 61, 628 } }, { { 1071, 1 }, { 60, 7 }, { 61, 564 } },
+             "cutoff offset: 8 values per step");
+        same({ { 243, 8 }, { 60, 7 }, { 61, 628 }, { 63, 64 } }, { { 60, 7 }, { 61, 628 }, { 63, 80 } },
+             "resonance offset: 2 values per step");
+        same({ { 241, -8 }, { 60, 7 }, { 61, 628 }, { 78, 32 }, { 74, 16 } }, { { 60, 7 }, { 61, 628 }, { 78, 16 }, { 74, 16 } },
+             "filter EG depth offset: 2 values per step");
+        expect(renderExtended({ { 244, 12 } }, 48, 1.0, 0.6, 0.8) == renderExtended({}, 60, 1.0, 0.6, 0.8),
+               "note shift 12 at key 48 plays key 60");
+        expect(renderExtended({ { 1057, 7 }, { 236, 32 } }, 60, 1.0, 0.6, 0.8) ==
+                   renderExtended({ { 1057, 7 } }, 60, 63 / 127.0, 0.6, 0.8) &&
+               renderExtended({ { 1057, 7 } }, 60, 1.0, 0.6, 0.8) != renderExtended({ { 1057, 7 } }, 60, 63 / 127.0, 0.6, 0.8),
+               "velocity offset 32: velocity 127 plays as 63");
+        expect(renderExtended({ { 1057, 7 }, { 235, 96 } }, 60, 43 / 127.0, 0.6, 0.8) ==
+                   renderExtended({ { 1057, 7 } }, 60, 65 / 127.0, 0.6, 0.8),
+               "velocity depth 96: velocity 43 plays as 65 (64.5 rounded)");
+        expect(!audible(renderExtended({ { 235, 0 } }, 60, 1.0, 0.6, 0.8)), "velocity depth 0: no note");
+        {
+            Host h(entry);
+            h.activate(48000, 256);
+            EventList in;
+            in.param(0, 5, 1);
+            in.param(0, 235, 0);
+            in.note(CLAP_EVENT_NOTE_ON, 10, 9, 0, 60);
+            h.process(256, in);
+            const auto e = ends(h);
+            expect(e.size() == 1 && e[0].id == 9 && e[0].time == 10, "a note with no velocity left ends at once");
+        }
+        for (const auto &dc : std::vector<std::pair<int, double>>{ { -128, -49.95 }, { -64, -24.65 }, { 0, 0 }, { 1, 0 }, { 64, 24.58 }, { 127, 49.63 } }) {
+            const auto x = renderExtended({ { 245, dc.first } }, 69, 1.0, 1.0, 0.6);
+            const double cents = 1200 * std::log2(zeroCrossingHz(x, 4800, x.size()) / f69);
+            expect(std::fabs(cents - dc.second) < 0.5, "detune " + std::to_string(dc.first) + ": " + std::to_string(cents) + " cents");
+        }
+        std::vector<double> v;
+        for (const auto &p : oscairn_fm::params())
+            v.push_back(p.def);
+        oscairn_fm::convertToExtended(v);
+        v[(size_t)oscairn_fm::indexOf(250)] = 5;
+        expect(!oscairn_fm::convertToClassic(v), "a sound with a macro offset stays Extended");
+    }
     std::printf("Extended profile: envelope, pitch and LFO rates against the tables, init sound, conversion %s\n",
                 failures ? "FAILED" : "pass");
     return failures == 0 ? 0 : 1;

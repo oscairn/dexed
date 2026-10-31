@@ -412,6 +412,15 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     const double ratioCents =
         extPitchKeyFollowCents(v.common(ext::PitchKeyFollow), midinote, v.common(ext::PitchKeyCentre)) +
         extRandomPitchCents(v.common(ext::RandomPitch), random_);
+    const double partCents = extPartDetuneCents(v.common(ext::PartDetune)); // (shortcut: unmeasured on fixed operators)
+    // the part's AEG offsets (every operator; a positive attack offset reaches carriers only) and
+    // the macros (modulators only), added to the operators' values
+    const int aegAttack = extAegOffsetSteps(v.common(ext::AegAttackOffset)),
+              aegDecay = extAegOffsetSteps(v.common(ext::AegDecayOffset)),
+              aegSustain = extAegOffsetSteps(v.common(ext::AegSustainOffset)),
+              aegRelease = extAegOffsetSteps(v.common(ext::AegReleaseOffset));
+    auto macro = [&](ext::Common k) { return std::clamp((int)v.common(k), -99, 99); };
+    const int feedbackFrom = extCompiled(algorithm_).feedbackFrom; // (FmOpParams index)
     reset_ = 0;
     for (int n = 1; n <= ext::Ops; n++) {
         const int i = ext::Ops - n; // FmOpParams index (compileAlgorithm's order)
@@ -420,7 +429,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             reset_ |= (uint8_t)(1u << i);
         // frequency
         fixed_[i] = o(ext::Mode) != 0;
-        double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity);
+        double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity) + partCents;
         int32_t pitch;
         if (fixed_[i]) {
             cents += extKeyFollowCents(o(ext::KeyFollow), midinote);
@@ -445,8 +454,14 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         // level: operator level, scaling and velocity, in dB, then MSFA's log format
         // modulators have their own level curve (the modulation index the reference plays)
         const bool modulator = !((extCompiled(algorithm_).outputs >> i) & 1);
-        double db = modulator ? extModLevelDb(std::clamp(o(ext::Level), 0, 99))
-                              : extOpLevelDb(std::clamp(o(ext::Level), 0, 99));
+        int level = o(ext::Level);
+        // the depth macro: the modulator's level plus the macro's value, divided by 1 + its feedback
+        // when it is the operator that feeds back, rounded towards 0 (measured at feedback 0, 1, 2,
+        // 4 and 7, and on a stack of three modulators)
+        if (modulator)
+            level += macro(ext::MacroDepth) / (1 + (i == feedbackFrom ? feedback_ : 0));
+        double db = modulator ? extModLevelDb(std::clamp(level, 0, 99))
+                              : extOpLevelDb(std::clamp(level, 0, 99));
         db += extLevelScalingDb(midinote, o(ext::BreakPoint), o(ext::LowDepth), o(ext::HighDepth), o(ext::LowCurve),
                                 o(ext::HighCurve));
         db += extLevelVelocityDb(o(ext::LevelVelocity), velocity);
@@ -455,8 +470,25 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         // Octet's Classic-scale carrier, which keeps the loudest algorithms from clipping
         const double algorithmGain = modulator ? 0.0 : extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb;
         const int32_t outlevel = kFullScale + dbToLog(std::min(0.0, db) + algorithmGain);
-        const int levels[4] = { o(ext::AttackLevel), o(ext::Decay1Level), o(ext::Decay2Level), o(ext::ReleaseLevel) };
-        const int times[4] = { o(ext::AttackTime), o(ext::Decay1Time), o(ext::Decay2Time), o(ext::ReleaseTime) };
+        int levels[4] = { o(ext::AttackLevel), o(ext::Decay1Level), o(ext::Decay2Level), o(ext::ReleaseLevel) };
+        int times[4] = { o(ext::AttackTime), o(ext::Decay1Time), o(ext::Decay2Time), o(ext::ReleaseTime) };
+        times[0] += modulator ? std::min(aegAttack, 0) : aegAttack;
+        times[1] += aegDecay;
+        times[2] += aegDecay;
+        levels[2] += aegSustain;
+        times[3] += aegRelease;
+        if (modulator) {
+            // the envelope macros: one time or level value per step (measured at +-25, +-50, +-99)
+            times[0] += macro(ext::MacroAttack);
+            times[1] += macro(ext::MacroDecay);
+            times[2] += macro(ext::MacroDecay);
+            levels[2] += macro(ext::MacroSustain);
+            times[3] += macro(ext::MacroRelease);
+        }
+        for (int k = 0; k < 4; k++) {
+            levels[k] = std::clamp(levels[k], 0, 99);
+            times[k] = std::clamp(times[k], 0, 99);
+        }
         const double timeScale = extTimeKeyFollowScale(o(ext::TimeKeyFollow), midinote);
         if (start)
             env_[i].init(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate);
@@ -584,10 +616,14 @@ void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bo
                     break;
                 }
     }
-    f.value = std::clamp(v.common(FilterCutoff), 0, 1023);
+    // the part's offsets: 8 cutoff values, 2 resonance values and 2 FEG depth values per step
+    // (each measured at 6 offsets through HPF12 against the equivalent value)
+    const int resonance = std::clamp(v.common(FilterResonance) + 2 * std::clamp((int)v.common(ResonanceOffset), -64, 63), 0, 127);
+    const int fegDepth = std::clamp(v.common(FegDepth) + 2 * std::clamp((int)v.common(FegDepthOffset), -64, 63), -64, 63);
+    f.value = std::clamp(v.common(FilterCutoff) + 8 * std::clamp((int)v.common(CutoffOffset), -64, 63), 0, 1023);
     f.ratio = extFilterScalingRatio(offset) * extFilterKeyFollowRatio(v.common(FilterKeyFollow), midinote) *
               extFilterVelocityRatio(v.common(FilterCutoffVelocity), velocity);
-    f.resonance = std::clamp((int)v.common(FilterResonance), 0, 127);
+    f.resonance = resonance;
     f.qVelocity = extFilterResonanceVelocityQ(v.common(FilterResonanceVelocity), velocity);
     f.q = extFilterQ(f.resonance) * f.qVelocity;
     // the part LFO's resonance destination: one resonance step per depth step at its top, the
@@ -599,11 +635,11 @@ void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bo
             f.partLfoRes += std::clamp(v.common((Common)(PartLfoDepth1 + 2 * d)), 0, 127);
     f.ratio2 = f.type == extfilter::Lpf18S ? extFilterLpf18sRatio(f.value)
                                            : std::exp2(std::clamp(v.common(FilterDistance), -128, 127) / 16.0);
-    extFilterWidth(v.common(FilterResonance), f.widthHigh, f.widthLow);
+    extFilterWidth(resonance, f.widthHigh, f.widthLow); // (shortcut: the offset on BPFw's width is unmeasured)
     f.hpf = extFilterCutoffHz(std::clamp(v.common(HpfCutoff), 0, 1023)) *
             extFilterKeyFollowRatio(v.common(HpfKeyFollow), midinote);
     f.gain = extFilterGain(v.common(FilterGain));
-    f.fegOctaves = extFegDepth(v.common(FegDepth)) *
+    f.fegOctaves = extFegDepth(fegDepth) *
                    extFegDepthVelocity(v.common(FegDepthVelocity), v.common(FegDepthVelocityCurve), velocity) /
                    1200.0; // (the FEG runs in cents)
     f.lfoOctaves = extFilterLfoOctaves(v.common(LfoFilterDepth));

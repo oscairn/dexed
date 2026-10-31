@@ -89,6 +89,14 @@ enum Common {
     PartLfoStep9, PartLfoStep10, PartLfoStep11, PartLfoStep12, PartLfoStep13, PartLfoStep14, PartLfoStep15,
     PartLfoStep16,      // -64-+63
     PartLfoRandomSpeed, // 0-127
+    // part values that act on the sound (msfa/ext_tables.h extPartVelocity, extAegOffsetSteps)
+    VelocityDepth, VelocityOffset, // 0-127 (64 and 64 leave the velocity unchanged)
+    AegAttackOffset, AegDecayOffset, AegSustainOffset, AegReleaseOffset, // -64-+63: every operator's EG
+    FegDepthOffset, CutoffOffset, ResonanceOffset, // -64-+63
+    NoteShift,          // -48-+48 semitones
+    PartDetune,         // -128-+127 (documented as tenths of a Hz; plays cents, extPartDetuneCents)
+    // the macros: offsets to the modulators' values (ExtNote::setup)
+    MacroDepth, MacroRatio, MacroAttack, MacroDecay, MacroSustain, MacroRelease, MacroTexture, // -99-+99
     CommonCount
 };
 

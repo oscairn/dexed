@@ -23,6 +23,7 @@
 #include "SynthEngine.h"
 
 #include <algorithm>
+#include "msfa/ext_tables.h"
 #include "msfa/ext_waves.h"
 
 #include "msfa/freqlut.h"
@@ -547,10 +548,20 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     SynthContext &x = contexts[c];
     const uint8_t *patch = x.patch;
 
-    pitch += tuningTranspositionShift(c);
+    pitch = shiftedKey(c, pitch);
 
     if ( normalizeDxVelocity ) {
         velo = ((float)velo) * 0.7874015; // 100/127
+    }
+    if ( x.extended() ) {
+        // the part's velocity sensitivity; at 0 or below the note does not sound
+        const double v = extPartVelocity(x.ext->common(ext::VelocityDepth), x.ext->common(ext::VelocityOffset), velo);
+        if ( v <= 0 ) {
+            if ( noteEndSink != nullptr )
+                noteEndSink->noteEnded(ref);
+            return;
+        }
+        velo = (uint8_t)std::clamp((int)std::lround(v), 1, 127);
     }
 
     // triggerLfo (any key held in this sound?) + MPE same-channel-keydown detection
@@ -664,7 +675,7 @@ int SynthEngine::findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels) 
         if ( voices[note].keydown &&
              (channels & (1u << ((voices[note].channel - 1) & 15))) &&
              voices[note].channel == chan &&
-             voices[note].midi_note == (uint8_t)(pitch + tuningTranspositionShift(voices[note].context)) ) {
+             voices[note].midi_note == shiftedKey(voices[note].context, pitch) ) {
             return note;
         }
     }
@@ -811,6 +822,14 @@ bool SynthEngine::peekVoiceStatus(VoiceStatus &voiceStatus) {
     }
 
     return true;
+}
+
+// The key a voice of context c plays for a played key: Classic as Dexed (wrapping), Extended
+// with the part's note shift too, held within 0-127.
+uint8_t SynthEngine::shiftedKey(int c, int key) {
+    if ( contexts[c].extended() )
+        return (uint8_t)std::clamp(key + tuningTranspositionShift(c) + std::clamp(contexts[c].ext->common(ext::NoteShift), -48, 48), 0, 127);
+    return (uint8_t)(key + tuningTranspositionShift(c));
 }
 
 int SynthEngine::tuningTranspositionShift(int c) {

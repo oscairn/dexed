@@ -81,6 +81,8 @@ static ExtendedVoice buildExtDefaults() {
     e.v[PartLfoFadeOut] = 64;
     e.v[PartLfoKeyReset] = 2;   // first key
     e.v[PartLfoUserCycle] = 6;  // 16 steps
+    e.v[VelocityDepth] = 64;
+    e.v[VelocityOffset] = 64;
     for (int n = 1; n <= Ops; n++) {
         int16_t *o = e.v + op(n, KeyOnReset);
         o[KeyOnReset] = 1;
@@ -255,6 +257,23 @@ static std::vector<Param> build() {
         for (int i = 0; i < 16; i++)
             extv(218 + i, l, "User Step " + std::to_string(i + 1), -64, 63, ext::PartLfoStep1 + i, Text::Signed);
         extv(234, l, "Random Speed", 0, 127, ext::PartLfoRandomSpeed);
+    }
+    {
+        const std::string pt = "Extended/Part", m = "Extended/Macros";
+        extv(235, pt, "Velocity Sensitivity Depth", 0, 127, ext::VelocityDepth);
+        extv(236, pt, "Velocity Sensitivity Offset", 0, 127, ext::VelocityOffset);
+        extv(237, pt, "Amp EG Attack Offset", -64, 63, ext::AegAttackOffset, Text::Signed);
+        extv(238, pt, "Amp EG Decay Offset", -64, 63, ext::AegDecayOffset, Text::Signed);
+        extv(239, pt, "Amp EG Sustain Offset", -64, 63, ext::AegSustainOffset, Text::Signed);
+        extv(240, pt, "Amp EG Release Offset", -64, 63, ext::AegReleaseOffset, Text::Signed);
+        extv(241, pt, "Filter EG Depth Offset", -64, 63, ext::FegDepthOffset, Text::Signed);
+        extv(242, pt, "Cutoff Offset", -64, 63, ext::CutoffOffset, Text::Signed);
+        extv(243, pt, "Resonance Offset", -64, 63, ext::ResonanceOffset, Text::Signed);
+        extv(244, pt, "Note Shift", -48, 48, ext::NoteShift, Text::Signed);
+        extv(245, pt, "Detune", -128, 127, ext::PartDetune, Text::Signed);
+        static const char *const macros[] = { "Mod Depth", "Ratio Shift", "Attack", "Decay", "Sustain", "Release", "Texture" };
+        for (int i = 0; i < 7; i++)
+            extv(246 + i, m, macros[i], -99, 99, ext::MacroDepth + i, Text::Signed);
     }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
@@ -523,6 +542,11 @@ bool convertToClassic(std::vector<double> &values) {
         return false; // key-on delay
     if (x.geti(52) != 0 || x.geti(53) != 0 || x.geti(54) != 0)
         return false; // pan (Classic voices are mono)
+    if (x.geti(235) != 64 || x.geti(236) != 64)
+        return false; // the part's velocity sensitivity
+    for (uint32_t id = 237; id <= 252; id++)
+        if (x.geti(id) != 0)
+            return false; // the part's offsets, note shift, detune and the macros
     for (uint32_t id = 211; id <= 215; id += 2)
         if (x.geti(id - 1) != 0 && x.geti(id) != 0)
             return false; // the part LFO
