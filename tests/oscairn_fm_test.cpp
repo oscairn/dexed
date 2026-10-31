@@ -933,7 +933,30 @@ int contextsTest() {
         }
         check(released == std::set<int32_t>{ 3, 4 }, "CC 123 on channel 2 releases channel 2's notes only");
     }
-    std::printf("held sounds, parts, note ownership, sustain, capacity, queue, reclamation, patch text, block sizes, snapshots, per-channel controllers, CC 120 and CC 123\n");
+    {
+        // A raw MIDI note-off releases the voice with its channel and key, nothing else.
+        auto endedAfter = [](std::vector<std::array<uint8_t, 3>> ons, std::array<uint8_t, 3> off) {
+            Instrument t;
+            for (auto &m : ons)
+                t.in.midi(0, m.data(), 3);
+            t.run();
+            t.in.midi(0, off.data(), 3);
+            std::vector<std::pair<int, int>> ended; // channel, key
+            for (int k = 0; k < 200; k++) {
+                t.run();
+                for (auto &e : ends(t.host))
+                    ended.push_back({ e.channel, e.key });
+            }
+            return ended;
+        };
+        // MPE detection is on until two notes share a channel: one note on channel 2
+        check(endedAfter({ { 0x91, 60, 100 } }, { 0x81, 62, 0 }).empty(), "a note-off for key 62 does not release key 60 (MPE on)");
+        const auto both = endedAfter({ { 0x90, 60, 100 }, { 0x91, 60, 100 } }, { 0x81, 60, 0 });
+        check(both.size() == 1 && both[0] == std::make_pair(1, 60), "a note-off on channel 2 releases channel 2's key 60 only");
+        const auto noMpe = endedAfter({ { 0x91, 60, 100 }, { 0x91, 64, 100 } }, { 0x81, 62, 0 });
+        check(noMpe.empty(), "a note-off for key 62 does not release key 60 (MPE off)");
+    }
+    std::printf("held sounds, parts, note ownership, sustain, capacity, queue, reclamation, patch text, block sizes, snapshots, per-channel controllers, CC 120, CC 123 and note-off matching\n");
     return 0;
 }
 

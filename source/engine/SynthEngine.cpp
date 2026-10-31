@@ -514,10 +514,13 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
 int SynthEngine::findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels) {
     for (int note=0; note<MAX_ACTIVE_NOTES; ++note) {
         // the pitch as the voice's sound transposed it
-        if ( voices[note].keydown && // but still only grab the one which is keydown
+        // a held voice on the same channel and key (with MPE too: a member channel's
+        // note-off carries its note's key); Dexed matched only the channel with MPE on, which
+        // is the default, and only the key without it
+        if ( voices[note].keydown &&
              (channels & (1u << ((voices[note].channel - 1) & 15))) &&
-             ( ( controllers.mpeEnabled && voices[note].channel == chan ) || // MPE node - find voice by channel
-               (!controllers.mpeEnabled && voices[note].midi_note == (uint8_t)(pitch + tuningTranspositionShift(voices[note].context)) ) ) ) { // regular mode find voice by pitch
+             voices[note].channel == chan &&
+             voices[note].midi_note == (uint8_t)(pitch + tuningTranspositionShift(voices[note].context)) ) {
             return note;
         }
     }

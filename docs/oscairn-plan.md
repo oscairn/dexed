@@ -878,6 +878,11 @@ These answer six of the seven questions this section used to list; question 7 is
   the default, so that plugin is not deterministic across machines. The tests give it a data
   folder in the build tree. The native CLAP touches no files.
 
+- Inherited from Dexed and kept for now: CC 123 (all notes off) transposes the held voices'
+  already transposed pitch a second time before matching, so with a voice transpose other than
+  0 (byte 144 != 24) it releases nothing. Fixing it changes 116 of the 164 baseline cases (the
+  generated voices use transposes 18-30), so it waits for Jacob's decision on re-recording.
+
 **Unverified in this plan**
 
 - Nothing was built or run. Scanner, renderer and test results are all future work.
