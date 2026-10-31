@@ -75,6 +75,9 @@ public:
     
     void init(int sampleRate);
     void process(float *work, int sampleSize);
+    // Octet's Extended sounds: the reference's output highpass (first order, 10.3 Hz) in place
+    // of Dexed's DC filter (about 20 Hz); false restores Dexed's exactly
+    void setExtendedDc(bool extended);
 };
 
 #endif  // PLUGINFX_H_INCLUDED

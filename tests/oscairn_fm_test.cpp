@@ -1647,6 +1647,19 @@ int extendedTest() {
                            std::to_string(rms((int)c[0], (int)c[1]) - ref) + " dB, table " + std::to_string(c[2]));
             expect(rms(-7, 127) - ref < -100, "level velocity -7 at 127 is silent");
         }
+        // the output highpass of Extended sounds: first order at 10.3 Hz (-0.41 dB at 32.7 Hz;
+        // Dexed's DC filter, about 20 Hz, takes 1.4 dB there)
+        {
+            auto peak = [&](int key) {
+                const auto x = renderExtended({}, key, 1.0, 1.2, 1.2);
+                float m = 0;
+                for (size_t i = 24000; i < 48000; i++)
+                    m = std::max(m, std::fabs(x[i]));
+                return 20 * std::log10(m);
+            };
+            const double drop = peak(24) - peak(60);
+            expect(std::fabs(drop + 0.41) < 0.1, "output highpass at note 24: " + std::to_string(drop) + " dB");
+        }
         {
             Host h(entry);
             h.activate(48000, 256);

@@ -488,6 +488,10 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     }
 
     events.dispatchUntil(numSamples);
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        contexts[c].fx.setExtendedDc(contexts[c].extended());
+        contexts[c].fxRight.setExtendedDc(contexts[c].extended());
+    }
     contexts[0].fx.process(channelData, numSamples);
     if ( right != nullptr )
         processRight(contexts[0], right, numSamples);

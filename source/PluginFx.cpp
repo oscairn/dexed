@@ -95,6 +95,10 @@ void PluginFx::init(int sr) {
     dc_od = 0;
 }
 
+void PluginFx::setExtendedDc(bool extended) {
+    dc_r = extended ? 1.0 - 6.283185307179586 * 10.3 / sampleRate : 1.0 - (126.0 / sampleRate);
+}
+
 inline float PluginFx::NR24(float sample,float g,float lpc) {
     float ml = 1 / (1+g);
     float S = (lpc*(lpc*(lpc*s1 + s2) + s3) +s4)*ml;
