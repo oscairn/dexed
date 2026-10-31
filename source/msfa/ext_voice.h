@@ -97,6 +97,7 @@ enum Common {
     PartDetune,         // -128-+127 (documented as tenths of a Hz; plays cents, extPartDetuneCents)
     // the macros: offsets to the modulators' values (ExtNote::setup)
     MacroDepth, MacroRatio, MacroAttack, MacroDecay, MacroSustain, MacroRelease, MacroTexture, // -99-+99
+    BendUpper, BendLower, // -48-+24 semitones: the pitch at full bend up and full bend down
     CommonCount
 };
 

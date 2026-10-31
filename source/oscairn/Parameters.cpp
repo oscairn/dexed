@@ -83,6 +83,8 @@ static ExtendedVoice buildExtDefaults() {
     e.v[PartLfoUserCycle] = 6;  // 16 steps
     e.v[VelocityDepth] = 64;
     e.v[VelocityOffset] = 64;
+    e.v[BendUpper] = 2;
+    e.v[BendLower] = -2;
     for (int n = 1; n <= Ops; n++) {
         int16_t *o = e.v + op(n, KeyOnReset);
         o[KeyOnReset] = 1;
@@ -274,6 +276,8 @@ static std::vector<Param> build() {
         static const char *const macros[] = { "Mod Depth", "Ratio Shift", "Attack", "Decay", "Sustain", "Release", "Texture" };
         for (int i = 0; i < 7; i++)
             extv(246 + i, m, macros[i], -99, 99, ext::MacroDepth + i, Text::Signed);
+        extv(253, pt, "Pitch Bend Upper", -48, 24, ext::BendUpper, Text::Signed);
+        extv(254, pt, "Pitch Bend Lower", -48, 24, ext::BendLower, Text::Signed);
     }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
@@ -547,6 +551,8 @@ bool convertToClassic(std::vector<double> &values) {
     for (uint32_t id = 237; id <= 252; id++)
         if (x.geti(id) != 0)
             return false; // the part's offsets, note shift, detune and the macros
+    if (x.geti(253) != 2 || x.geti(254) != -2)
+        return false; // signed pitch bend ranges (Classic's are plugin settings)
     for (uint32_t id = 211; id <= 215; id += 2)
         if (x.geti(id - 1) != 0 && x.geti(id) != 0)
             return false; // the part LFO

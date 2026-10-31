@@ -168,6 +168,8 @@
 250 | Extended/Macros | Sustain | -99 | 99 | 0 | stepped
 251 | Extended/Macros | Release | -99 | 99 | 0 | stepped
 252 | Extended/Macros | Texture | -99 | 99 | 0 | stepped
+253 | Extended/Part | Pitch Bend Upper | -48 | 24 | 2 | stepped
+254 | Extended/Part | Pitch Bend Lower | -48 | 24 | -2 | stepped
 1001 | Operator 1/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 1002 | Operator 1/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 1003 | Operator 1/Envelope | Rate 3 | 0 | 99 | 99 | stepped

@@ -89,6 +89,7 @@ public:
 private:
     bool initialised_;
     bool extended_ = false;
+    int bendUpper_ = 2, bendLower_ = -2; // Extended: semitones at full bend up and down
     ExtNote ext_;
     int32_t bendAndTune(const Controllers *ctrls);
     Env env_[6];

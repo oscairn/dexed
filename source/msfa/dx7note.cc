@@ -25,6 +25,7 @@
 #include "dx7note.h"
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 
 const int FEEDBACK_BITDEPTH = 8;
 
@@ -170,6 +171,8 @@ void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int cha
     initialised_ = true;
     extended_ = ext != nullptr && ext->extended();
     if (extended_) {
+        bendUpper_ = std::clamp(ext->common(ext::BendUpper), -48, 24);
+        bendLower_ = std::clamp(ext->common(ext::BendLower), -48, 24);
         currentPatch = patch;
         playingMidiNote = midinote;
         midiChannel = channel;
@@ -240,7 +243,10 @@ void Dx7Note::initPortamento(const Dx7Note &srcNote) {
 int32_t Dx7Note::bendAndTune(const Controllers *ctrls) {
     int pitchbend = ctrls->pitch_cc;
     int32_t pb = (pitchbend - 0x2000);
-    if (pb != 0) {
+    if (pb != 0 && extended_ && ctrls->pitch_step == 0) {
+        // the part's signed ranges (documented; the recorder cannot bend, unmeasured)
+        pb = ((float)(pb << 11)) * (float)(pb >= 0 ? bendUpper_ : -bendLower_) / 12.0;
+    } else if (pb != 0) {
         if (ctrls->pitch_step == 0) {
             if( pb >= 0 )
                 pb = ((float) (pb << 11)) * ((float) ctrls->pitch_range_up) / 12.0;
@@ -395,8 +401,11 @@ void Dx7Note::updateBasePitches()
 
 void Dx7Note::update(const uint8_t patch[156], int midinote, int velocity, int channel, const ExtendedVoice *ext) {
     if (extended_) {
-        if (ext != nullptr && ext->extended())
+        if (ext != nullptr && ext->extended()) {
+            bendUpper_ = std::clamp(ext->common(ext::BendUpper), -48, 24);
+            bendLower_ = std::clamp(ext->common(ext::BendLower), -48, 24);
             ext_.update(*ext, midinote, velocity, rate_, *tuning_state_);
+        }
         return;
     }
     currentPatch = patch;

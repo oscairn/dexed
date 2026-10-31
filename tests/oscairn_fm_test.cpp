@@ -1642,6 +1642,30 @@ int extendedTest() {
             const auto e = ends(h);
             expect(e.size() == 1 && e[0].id == 9 && e[0].time == 10, "a note with no velocity left ends at once");
         }
+        // signed pitch bend ranges: the pitch at full bend up and full bend down
+        for (const auto &b : std::vector<std::array<int, 3>>{ { 12, -2, 0x3fff }, { 2, 5, 0 }, { -7, -2, 0x3fff }, { 2, -2, 0x2000 } }) {
+            Host h(entry);
+            h.activate(rate, 512);
+            EventList in;
+            in.param(0, 5, 1);
+            in.param(0, 40, 1);
+            in.param(0, 1051, 99);
+            in.param(0, 253, b[0]);
+            in.param(0, 254, b[1]);
+            const uint8_t bend[3] = { 0xe0, (uint8_t)(b[2] & 0x7f), (uint8_t)(b[2] >> 7) };
+            in.midi(0, bend, 3);
+            in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, 69, 1.0);
+            std::vector<float> x;
+            for (int k = 0; k < 60; k++) {
+                h.process(512, in);
+                in.clear();
+                x.insert(x.end(), h.left.begin(), h.left.begin() + 512);
+            }
+            const double semis = b[2] == 0x3fff ? b[0] * 8191.0 / 8192 : b[2] == 0 ? b[1] : 0.0;
+            const double cents = 1200 * std::log2(zeroCrossingHz(x, 4800, x.size()) / f69);
+            expect(std::fabs(cents - semis * 100) < 1.0, "pitch bend " + std::to_string(b[0]) + "/" + std::to_string(b[1]) +
+                                                              " at " + std::to_string(b[2]) + ": " + std::to_string(cents) + " cents");
+        }
         for (const auto &dc : std::vector<std::pair<int, double>>{ { -128, -49.95 }, { -64, -24.65 }, { 0, 0 }, { 1, 0 }, { 64, 24.58 }, { 127, 49.63 } }) {
             const auto x = renderExtended({ { 245, dc.first } }, 69, 1.0, 1.0, 0.6);
             const double cents = 1200 * std::log2(zeroCrossingHz(x, 4800, x.size()) / f69);
