@@ -60,6 +60,7 @@ add_test(NAME oscairn-fm-notes COMMAND oscairn-fm-test notes ${fm_module})
 add_test(NAME oscairn-fm-state COMMAND oscairn-fm-test state ${fm_module})
 add_test(NAME oscairn-fm-topology COMMAND oscairn-fm-test topology ${fm_module})
 add_test(NAME oscairn-fm-contexts COMMAND oscairn-fm-test contexts ${fm_module})
+add_test(NAME oscairn-fm-state-active COMMAND oscairn-fm-test state-active ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)
 add_test(NAME oscairn-fm-threads COMMAND oscairn-fm-test-linked threads)
 

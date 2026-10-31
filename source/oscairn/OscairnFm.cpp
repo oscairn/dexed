@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cctype>
 #include <cstring>
 #include <functional>
 #include <locale>
@@ -94,10 +95,11 @@ struct Plugin : SynthEngine::NoteEndSink {
     Selection queue[queueSize];
     std::atomic<uint32_t> queueHead { 0 }, queueTail { 0 };
 
-    // State loaded while active, handed to the audio thread at the start of a process call.
-    std::vector<double> pendingValues;
-    uint8_t pendingName[10];
-    std::atomic<bool> pendingState { false };
+    // A state loaded while active: the main thread writes the context's values (which
+    // get_value and save read at once) and sets the flag; the audio thread re-applies that
+    // context's values to the engine at its next process or flush. A later load just writes
+    // again and sets the flag again, so the last one wins; nothing waits.
+    std::atomic<bool> stateChanged[contextCount];
 
     // During process: where NOTE_END and parameter feedback go, and at which frame.
     const clap_output_events_t *out = nullptr;
@@ -116,7 +118,8 @@ struct Plugin : SynthEngine::NoteEndSink {
         }
         std::snprintf(slots[0].name, sizeof slots[0].name, "Default");
         slots[0].ready.store(true, std::memory_order_release);
-        pendingValues.resize(params().size());
+        for (auto &f : stateChanged)
+            f.store(false, std::memory_order_relaxed);
         engine.setTuning(createStandardTuning());
         engine.setNoteEndSink(this);
         engine.setPerChannelControllers(true); // RFC 0005: controllers act per MIDI channel
@@ -232,8 +235,7 @@ struct Plugin : SynthEngine::NoteEndSink {
         ctrl.aftertouch_cc = now.aftertouch_cc;
         ctrl.portamento_enable_cc = now.portamento_enable_cc;
         ctrl.mpeEnabled = now.mpeEnabled;
-        std::memcpy(slot.patch, initVoice, 156);
-        std::memcpy(slot.patch + 145, slot.voiceName, 10);
+        std::memcpy(slot.patch, initVoice, 156); // (the voice name stays with the main thread)
         for (size_t i = 0; i < params().size(); i++)
             apply(c, i, slot.prepared[i]);
         engine.resetLfo(c);
@@ -339,16 +341,20 @@ struct Plugin : SynthEngine::NoteEndSink {
         }
     }
 
-    // Applies a state handed over by the main thread, to the sound shown.
-    void takePendingState() {
-        if (!pendingState.load(std::memory_order_acquire))
-            return;
-        const int c = engine.selectedContext(0);
-        std::memcpy(slots[c].patch + 145, pendingName, 10);
-        for (size_t i = 0; i < params().size(); i++)
-            apply(c, i, pendingValues[i]);
-        engine.panicContext(c);
-        pendingState.store(false, std::memory_order_release);
+    // Applies states loaded while active (audio thread, or flush).
+    void takeStateChanges() {
+        for (int c = 0; c < contextCount; c++) {
+            if (!stateChanged[c].exchange(false, std::memory_order_acquire))
+                continue;
+            applyAll(c);
+            engine.panicContext(c);
+        }
+    }
+
+    // What process does before a block's events: selections, then loaded states.
+    void beforeEvents() {
+        takeSelections();
+        takeStateChanges();
     }
 };
 
@@ -375,8 +381,7 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     Plugin &s = self(p);
     s.out = process->out_events;
     s.now = 0;
-    s.takeSelections(); // before this call's events (RFC 0005)
-    s.takePendingState();
+    s.beforeEvents(); // before this call's events (RFC 0005)
     const uint32_t frames = process->frames_count;
     ProcessEvents events(s, process->in_events);
     float *left = nullptr, *right = nullptr;
@@ -496,9 +501,16 @@ bool paramsFromText(const clap_plugin_t *, clap_id id, const char *text, double 
     return true;
 }
 
-void paramsFlush(const clap_plugin_t *plugin, const clap_input_events_t *in, const clap_output_events_t *) {
+void paramsFlush(const clap_plugin_t *plugin, const clap_input_events_t *in, const clap_output_events_t *out) {
     // [active ? audio thread : main thread]: either way this thread owns the engine now
     Plugin &s = self(plugin);
+    if (s.active) {
+        // as process does: queued selections and loaded states first (RFC 0005)
+        s.out = out;
+        s.now = 0;
+        s.beforeEvents();
+        s.out = nullptr;
+    }
     for (uint32_t i = 0, n = in->size(in); i < n; i++) {
         const clap_event_header_t *h = in->get(in, i);
         if (h->space_id == CLAP_CORE_EVENT_SPACE_ID && h->type == CLAP_EVENT_PARAM_VALUE)
@@ -587,6 +599,8 @@ bool parseState(const std::string &text, std::vector<double> &values, uint8_t na
             if (!(ls >> hex) || hex.size() != 20)
                 return false;
             for (int i = 0; i < 10; i++) {
+                if (!std::isxdigit((unsigned char)hex[2 * i]) || !std::isxdigit((unsigned char)hex[2 * i + 1]))
+                    return false;
                 const unsigned long b = std::strtoul(hex.substr(2 * i, 2).c_str(), nullptr, 16);
                 if (b > 127)
                     return false;
@@ -632,15 +646,11 @@ bool stateLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
             s.apply(c, i, values[i]);
         return true;
     }
-    // Active: hand the state to the audio thread. Wait (briefly) for a previous one to be taken.
-    for (int tries = 0; s.pendingState.load(std::memory_order_acquire); tries++) {
-        if (tries > 1000)
-            return false;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    s.pendingValues = values; // same size: no allocation
-    std::memcpy(s.pendingName, name, 10);
-    s.pendingState.store(true, std::memory_order_release);
+    // Active: the values are visible to get_value and save at once; the audio thread applies
+    // them to the engine at its next process or flush.
+    for (size_t i = 0; i < values.size(); i++)
+        s.value(c, i).store(values[i], std::memory_order_relaxed);
+    s.stateChanged[c].store(true, std::memory_order_release);
     if (s.host != nullptr && s.host->request_process != nullptr)
         s.host->request_process(s.host);
     return true;
@@ -841,8 +851,11 @@ bool snapshotLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
             if (hexName != "-") {
                 if (hexName.size() % 2 || hexName.size() > 126)
                     return false;
-                for (size_t k = 0; k < hexName.size(); k += 2)
+                for (size_t k = 0; k < hexName.size(); k += 2) {
+                    if (!std::isxdigit((unsigned char)hexName[k]) || !std::isxdigit((unsigned char)hexName[k + 1]))
+                        return false;
                     l.name += (char)std::strtoul(hexName.substr(k, 2).c_str(), nullptr, 16);
+                }
             }
             l.values.resize(params().size());
             if (!parseState(patch, l.values, l.voiceName))
@@ -940,7 +953,7 @@ const clap_plugin_t *create(const clap_host_t *host) {
     };
     s->plugin.deactivate = [](const clap_plugin_t *p) {
         Plugin &s = self(p);
-        s.takePendingState();
+        s.takeStateChanges();
         s.engine.release();
         s.active = false;
     };

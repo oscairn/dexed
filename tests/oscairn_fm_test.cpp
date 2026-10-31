@@ -11,6 +11,7 @@
  *   oscairn-fm-test threads                          main-thread calls while processing (TSan)
  *   oscairn-fm-test topology                         the 32 algorithm graphs, against renders
  *   oscairn-fm-test contexts                         native sound contexts (RFC 0005)
+ *   oscairn-fm-test state-active                     state loads and flush while active, with contexts
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
  * linked in, which no-alloc needs.
@@ -390,6 +391,17 @@ int noAllocTest() {
         voiceAndSettings(in, c);
         const std::string state = h.saveState();
         check(h.loadState(state), "load while active");
+        {
+            // flush while active: applies the loaded state, then the parameter
+            EventList fin, fout;
+            fin.param(0, 1003, 50);
+            fout.events.reserve(512);
+            const clap_input_events_t input = fin.input();
+            const clap_output_events_t output = fout.output();
+            forbidAllocation = true;
+            h.params->flush(h.plugin, &input, &output);
+            forbidAllocation = false;
+        }
         forbidAllocation = true;
         h.process((uint32_t)c.block, in);
         forbidAllocation = false;
@@ -822,6 +834,12 @@ int contextsTest() {
         std::string again;
         clap_ostream_t os2 { &again, os.write };
         check(b.ctx->state->save(b.host.plugin, &os2) && again == saved, "snapshot round trip gives the same bytes");
+        std::string badHex = saved;
+        const size_t ctxLine = badHex.find("context 1 ");
+        check(ctxLine != std::string::npos, "snapshot has context 1");
+        badHex.replace(ctxLine + 10, 2, "zz");
+        r = { &badHex, 0 };
+        check(!b.ctx->state->load(b.host.plugin, &is), "a snapshot name that is not hex is refused");
         std::string bad = saved;
         bad.replace(0, 8, "XXXXXXXX");
         r = { &bad, 0 };
@@ -960,6 +978,105 @@ int contextsTest() {
     return 0;
 }
 
+// ---- state and flush while active ----
+
+std::string stateWith(Host &h, clap_id id, double v) {
+    // a copy of h's state with one parameter changed
+    std::string st = h.saveState();
+    const std::string key = "p " + std::to_string(id) + " ";
+    const size_t at = st.find("\n" + key);
+    check(at != std::string::npos, "parameter in state");
+    const size_t end = st.find('\n', at + 1);
+    std::ostringstream line;
+    line.imbue(std::locale::classic());
+    line << "\n" << key << v;
+    st.replace(at, end - at, line.str());
+    return st;
+}
+
+double valueOf(Host &h, clap_id id) {
+    double v;
+    check(h.params->get_value(h.plugin, id, &v), "get_value");
+    return v;
+}
+
+void flushParam(Host &h, clap_id id, double v) {
+    EventList in, out;
+    in.param(0, id, v);
+    out.events.reserve(512);
+    const clap_input_events_t input = in.input();
+    const clap_output_events_t output = out.output();
+    h.params->flush(h.plugin, &input, &output);
+}
+
+int stateActiveTest() {
+    {
+        Instrument t;
+        const std::string s1 = stateWith(t.host, 1017, 42), s2 = stateWith(t.host, 1017, 77);
+        check(t.host.loadState(s1), "active load");
+        check(valueOf(t.host, 1017) == 42 && t.host.saveState() == s1, "get_value and save show an active load at once");
+        check(t.host.loadState(s2), "a second active load without processing");
+        check(valueOf(t.host, 1017) == 77 && t.host.saveState() == s2, "the second load wins");
+        std::string bad = s2;
+        bad += "p 1 99\n";
+        check(!t.host.loadState(bad), "a bad state is refused");
+        check(t.host.saveState() == s2, "a refused load changes nothing");
+        std::string badName = s2;
+        badName.replace(badName.find("name ") + 5, 2, "zz");
+        check(!t.host.loadState(badName) && t.host.saveState() == s2, "a name that is not hex is refused");
+        t.run();
+        check(t.host.saveState() == s2, "the engine takes the last load");
+    }
+    {
+        // a load right after select(B), before any process: name and values on the same sound
+        Instrument t;
+        const uint32_t b = t.prepare("B", soundB);
+        std::string named = stateWith(t.host, 1017, 33);
+        named.replace(named.find("name ") + 5, 20, "4c4f4144454420414141"); // "LOADED AAA"
+        check(t.select(b), "select B");
+        check(t.host.loadState(named), "load before the selection is processed");
+        t.run();
+        // the load went to the sound shown when it arrived (the default one), all of it
+        check(t.select(0), "select the default sound again");
+        t.run();
+        check(t.host.saveState() == named, "name and values landed on the same sound");
+    }
+    {
+        // flush while active applies queued selections first (RFC 0005)
+        Instrument t;
+        const uint32_t b = t.prepare("B", soundB);
+        const std::string a0 = t.host.saveState();
+        check(t.select(b), "select B");
+        flushParam(t.host, 1017, 11);
+        t.run();
+        check(valueOf(t.host, 1017) == 11, "the flushed edit is on B, the selected sound");
+        check(t.select(0), "back to the default sound");
+        t.run();
+        check(t.host.saveState() == a0, "the default sound did not get the edit");
+    }
+    {
+        // a parameter event for one channel edits the sound selected on that channel only
+        Instrument t;
+        const uint32_t b = t.prepare("B", soundB);
+        check(t.select(b, 1), "B on channel 2");
+        const std::string a0 = t.host.saveState();
+        clap_event_param_value_t e {};
+        e.header = { sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 };
+        e.param_id = 1017;
+        e.note_id = e.port_index = e.key = -1;
+        e.channel = 1;
+        e.value = 21;
+        t.in.push(e);
+        t.run();
+        check(t.host.saveState() == a0, "channel 1's sound is unchanged");
+        check(t.select(b), "show B");
+        t.run();
+        check(valueOf(t.host, 1017) == 21, "channel 2's sound has the edit");
+    }
+    std::printf("active loads visible at once, last load wins, refused loads change nothing, one target sound, flush after selections, per-channel parameter events\n");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -1000,6 +1117,8 @@ int main(int argc, char **argv) {
         return topologyTest();
     if (cmd == "contexts")
         return contextsTest();
+    if (cmd == "state-active")
+        return stateActiveTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }
