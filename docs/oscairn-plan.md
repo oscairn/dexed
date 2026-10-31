@@ -643,8 +643,11 @@ DX7 voices and banks stay first-class:
 
 ## 6. FM-X Part conversion
 
-The converter belongs to Oscairn's Performance converter (RFC 0008), not to this fork. This
-section fixes what it produces for this engine. It reads the `.pfm` container as described in
+The converter lives in its own private repository, `oscairn/performance-converter`
+(https://github.com/oscairn/performance-converter; Jacob's decision, 2026-10-31). It turns
+FM-X Parts into Extended sounds and a Performance's other parts into sounds for other engines
+(RFC 0008). It is not part of this fork and is not built in M4. This section fixes what it
+produces for this engine. It reads the `.pfm` container as described in
 `pfm-format.md` and the parameter tables of `fmx-part.md` and `performance-part.md`.
 
 - **Finding the Part.** A Part record is `u32 1`, an engine byte (`2` = FM-X), then the Part's
@@ -671,7 +674,7 @@ section fixes what it produces for this engine. It reads the `.pfm` container as
   | `part.lfo` | Part LFO block |
 
 - **Not engine parameters.** Controller boxes, scenes, arpeggios, lanes, insertion effects, EQ,
-  volume, pan, sends and zones go to the Performance-level parts of Oscairn's converter. The
+  volume, pan, sends and zones go to the Performance-level parts of the converter. The
   per-operator switches tell those systems which operators each controller set and LFO box
   reaches.
 - **Report.** The conversion report lists any value the engine cannot represent, against
@@ -701,7 +704,7 @@ generated voices, not Yamaha ROM voices.
 | M5 | Spectral forms with Skirt and Resonance | Per form, Skirt and a Resonance sweep: first 16 harmonic levels within 1 dB of the fitted target, aliasing below a measured bound at the top of the keyboard |
 | M6 | Shared blocks: 19-type filter with FEG and cutoff scaling, Part PEG, Part LFO with user steps and tempo sync, key-on delay, stereo output with random, alternate and scaling pan, random pitch, pitch key follow | Filter response within 1 dB up to cutoff per type; FEG times within 2 %; LFO shapes and rates; pan law; tempo-sync timing exact to the sample at a fixed tempo |
 | M7 | Voicing and macros: mono/poly with legato behaviour, key assign, portamento modes and time modes, signed pitch bend ranges, Part offsets, the seven macros, controller-set, key-controller and LFO-box masks | Per-feature measurement tests; macro response curves fitted and within tolerance |
-| M8 | Converter coverage (in Oscairn's converter) and editor metadata | The factory FM-X set converts with no engine-parameter loss in the report; Jacob's listening tests |
+| M8 | Converter coverage (in `oscairn/performance-converter`) and editor metadata | The factory FM-X set converts with no engine-parameter loss in the report; Jacob's listening tests |
 
 Polyphony and CPU are measured on the target ARM64 hardware at M4 and M6 before any voice-count
 claim.
@@ -737,7 +740,7 @@ requests are reserved for targeted fixes whose scope and behaviour are fully und
 
 - The `oscairn.sound-contexts` implementation, Oscairn naming and CLAP ID, the Oscairn build
   options (no MIDI out, MTS-ESP off), FM-X measured tables if upstream does not want them, and
-  the converter (which lives in Oscairn).
+  the converter (which lives in `oscairn/performance-converter`).
 
 Keeping the branch rebased on upstream `master` is part of each milestone, while the diff is
 still small enough.
