@@ -468,7 +468,7 @@ Today the wrapper turns CLAP notes into MIDI and drops the note ID; `NOTE_END` i
 the plugin offers MIDI and MPE only.
 
 **Changed in M1:** the Oscairn build is a native CLAP entry over the headless engine
-(`source/oscairn/`, target `oscairn_fm`, "Oscairn FM", `org.oscairn.fm`), not the JUCE
+(`source/oscairn/`, target `oscairn_fm`, display name "Octet", `org.oscairn.fm`), not the JUCE
 processor's direct-process path. Why: with direct process, parameters, state, ports and note
 ports would still go through the JUCE processor (APVTS listeners on other threads, parameter IDs
 derived by the wrapper, a note output port fixed by `producesMidi()` on the shared class, no
@@ -794,7 +794,7 @@ No Yamaha names in the plugin, parameter or UI names. "DX7" is a Yamaha product 
 
 | Today / Yamaha term | Proposed neutral name |
 | --- | --- |
-| Plugin "Dexed", CLAP ID `com.digital-suburban.dexed`, features `instrument FM DX7` | Oscairn build: "Oscairn FM", CLAP ID `org.oscairn.fm` (matches `org.oscairn.basic-synth` etc.), features `instrument synthesizer` and the CLAP `fm` feature if defined. The desktop Dexed build keeps its own name and ID |
+| Plugin "Dexed", CLAP ID `com.digital-suburban.dexed`, features `instrument FM DX7` | Oscairn build: "Octet" (decided 2026-10-31; was proposed as "Oscairn FM"), CLAP ID `org.oscairn.fm` (matches `org.oscairn.basic-synth` etc.), features `instrument synthesizer` and the CLAP `fm` feature if defined. The desktop Dexed build keeps its own name and ID |
 | FM-X (engine) | "Extended" profile |
 | DX7 (mode) | "Classic" profile |
 | Spectral Form / Skirt / Resonance | Operator Wave / Spread / Formant |

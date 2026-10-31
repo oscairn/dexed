@@ -1,5 +1,5 @@
 /*
- * Oscairn FM: a native CLAP entry over the headless engine, for Oscairn.
+ * Octet: a native CLAP entry over the headless engine, for Oscairn.
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *
@@ -40,7 +40,7 @@ const char *const features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor = {
     CLAP_VERSION_INIT,
     "org.oscairn.fm",
-    "Oscairn FM",
+    "Octet",
     "Oscairn",
     "https://github.com/oscairn/dexed",
     "",

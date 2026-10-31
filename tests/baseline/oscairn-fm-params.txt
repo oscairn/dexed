@@ -1,4 +1,4 @@
-# Oscairn FM parameters: id | module | name | min | max | default | flags. IDs must never change.
+# Octet parameters: id | module | name | min | max | default | flags. IDs must never change.
 1 | Common | Algorithm | 1 | 32 | 1 | stepped
 2 | Common | Feedback | 0 | 7 | 0 | stepped
 3 | Common | Oscillator Key Sync | 0 | 1 | 1 | stepped enum

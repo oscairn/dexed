@@ -40,7 +40,7 @@ add_test(NAME dx7-baseline-engine COMMAND dexed-render-engine --check ${DEXED_BA
 add_test(NAME dx7-baseline-engine-reverse COMMAND dexed-render-engine --check ${DEXED_BASELINE} --reverse)
 add_test(NAME dx7-baseline-engine-two-rates COMMAND dexed-render-engine --interleaved ${DEXED_BASELINE})
 
-# Oscairn FM, the native CLAP (source/oscairn).
+# Octet, the native CLAP (source/oscairn).
 # oscairn-fm-test loads the built .clap; oscairn-fm-test-linked has the plugin linked in, so
 # its allocation guard sees the plugin's allocations. Never both copies in one process.
 add_executable(oscairn-fm-test oscairn_fm_test.cpp ../source/oscairn/Parameters.cpp)

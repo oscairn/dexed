@@ -1,5 +1,5 @@
 /*
- * Tests of the Oscairn FM CLAP (source/oscairn).
+ * Tests of the Octet CLAP (source/oscairn).
  *
  *   oscairn-fm-test baseline FILE [--reverse] [--module PATH]   the DX7 cases, as the baseline
  *   oscairn-fm-test baseline-write FILE [--module PATH]
@@ -183,7 +183,7 @@ int paramsTest(const char *file, bool write) {
     Host h(entry);
     const uint32_t count = h.params->count(h.plugin);
     std::ostringstream listing;
-    listing << "# Oscairn FM parameters: id | module | name | min | max | default | flags. IDs must never change.\n";
+    listing << "# Octet parameters: id | module | name | min | max | default | flags. IDs must never change.\n";
     std::set<clap_id> ids;
     for (uint32_t i = 0; i < count; i++) {
         clap_param_info_t info;

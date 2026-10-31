@@ -157,7 +157,7 @@ PUBLIC
     juce::juce_recommended_lto_flags
 )
 
-# Oscairn FM: a native CLAP over the headless engine, for Oscairn (docs/oscairn-plan.md, M1).
+# Octet: a native CLAP over the headless engine, for Oscairn (docs/oscairn-plan.md, M1).
 # No JUCE. A plain .clap module file, as Oscairn's own plugins.
 add_library(oscairn_fm_objects OBJECT oscairn/OscairnFm.cpp oscairn/Parameters.cpp)
 target_include_directories(oscairn_fm_objects PUBLIC ../libs/clap-juce-extensions/clap-libs/clap/include .)
