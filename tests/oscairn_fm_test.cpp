@@ -1187,6 +1187,37 @@ int extendedTest() {
             expect(top > -15 && bottom < -60, "part LFO to feedback: second harmonic " + std::to_string(top) + " / " +
                                                   std::to_string(bottom) + " dB");
         }
+        // LFO 2 speed: depth 32 moves the 2nd LFO by 25 speed steps at the top
+        {
+            ExtendedVoice w = v;
+            w.v[ext::PartLfoDest1] = ext::PartLfoLfo2Speed;
+            w.v[ext::PartLfoDepth1] = 32;
+            ExtPartLfo l;
+            l.init(48000);
+            l.configure(w, 120);
+            expect(l.lfo2Steps(1.0f) == 25 && l.lfo2Steps(-1.0f) == -25 && l.lfo2Steps(0.5f) == 12,
+                   "part LFO to LFO 2 speed: steps");
+        }
+        // operator wave: a square wave at depth 32 from all harmonics 1 plays odd harmonics 1 in
+        // its top half (wave 3: no second harmonic) and a sine in its bottom half (an unwindowed
+        // DFT over part-cycles, so "none" is below -40 dB here)
+        {
+            const auto z = renderExtended({ { 1060, 1 }, { 1061, 3 }, { 210, ext::PartLfoOpWave }, { 211, 32 },
+                                            { 201, ExtPartLfo::Square }, { 202, 24 } }, 57, 1.0, 2.5, 2.5);
+            const double half = 0.5 / extPartLfoHz(24) * rate, f57 = f69 / 2;
+            auto h = [&](int k, double from, double to) {
+                double re = 0, im = 0, re1 = 0, im1 = 0;
+                for (size_t i = (size_t)from; i < (size_t)to; i++) {
+                    const double ph = 2 * M_PI * f57 * i / rate;
+                    re += z[i] * std::cos(k * ph); im += z[i] * std::sin(k * ph);
+                    re1 += z[i] * std::cos(ph); im1 += z[i] * std::sin(ph);
+                }
+                return 10 * std::log10((re * re + im * im) / (re1 * re1 + im1 * im1));
+            };
+            expect(h(2, 0.2 * half, 0.9 * half) < -40 && h(3, 0.2 * half, 0.9 * half) > -20 && h(3, 1.2 * half, 1.9 * half) < -40,
+                   "part LFO to operator wave: h2 " + std::to_string(h(2, 0.2 * half, 0.9 * half)) + " h3 " +
+                       std::to_string(h(3, 0.2 * half, 0.9 * half)) + " / " + std::to_string(h(3, 1.2 * half, 1.9 * half)));
+        }
         // pan: a square wave at depth 32 puts the note right in its top half, left in its bottom
         {
             std::vector<float> r;
@@ -1457,6 +1488,32 @@ int extendedTest() {
             expect(std::fabs(top - model(576)) < 0.2 && std::fabs(bottom - model(448)) < 0.2,
                    "part LFO to cutoff: " + std::to_string(top) + " / " + std::to_string(bottom) + " dB, model " +
                        std::to_string(model(576)) + " / " + std::to_string(model(448)));
+        }
+        // the resonance destination: one resonance step per depth step (resonance 40 +- 8)
+        {
+            const auto x = renderExtended({ { 1048, 0 }, { 60, Hpf12 }, { 61, 512 }, { 63, 40 }, { 85, 0 },
+                                            { 210, ext::PartLfoResonance }, { 211, 8 }, { 201, 6 }, { 202, 24 } },
+                                          36, 1.0, 2.5, 2.5);
+            const auto t = renderExtended({ { 1048, 0 } }, 36, 1.0, 1.0, 1.0);
+            const double half = 0.5 / extPartLfoHz(24) * 48000;
+            auto db = [](const std::vector<float> &y, double from, double to) {
+                double e = 0;
+                for (size_t i = (size_t)from; i < (size_t)to; i++)
+                    e += (double)y[i] * y[i];
+                return 10 * std::log10(e / (to - from));
+            };
+            auto model = [&](int res) {
+                float F, d;
+                extFilterCoefficients(extFilterCutoffHz(512), extFilterQ(res), 48000, F, d);
+                const double f = 440 * std::exp2((36 - 69) / 12.0);
+                const C zi = std::polar(1.0, -2 * M_PI * f / 48000), a = 1.0 - zi;
+                return 20 * std::log10(std::abs(1.0 / (1.0 + (double)F * (double)F * zi / (a * a) + (double)d * zi * (double)F / a)));
+            };
+            const double thru = db(t, 12000, 36000);
+            const double top = db(x, 0.3 * half, 0.9 * half) - thru, bottom = db(x, 1.3 * half, 1.9 * half) - thru;
+            expect(std::fabs(top - model(48)) < 0.2 && std::fabs(bottom - model(32)) < 0.2,
+                   "part LFO to resonance: " + std::to_string(top) + " / " + std::to_string(bottom) + " dB, model " +
+                       std::to_string(model(48)) + " / " + std::to_string(model(32)));
         }
         // key follow: +100 % one octave above note 60 doubles the cutoff, +31.25 % adds 31.25 %
         expect(std::fabs(extFilterKeyFollowRatio(32, 72) - 2.0) < 1e-12 &&

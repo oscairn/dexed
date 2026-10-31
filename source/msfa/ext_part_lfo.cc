@@ -38,6 +38,10 @@ void ExtPartLfo::configure(const ExtendedVoice &v, double tempo) {
         const int s = std::clamp(v.common((Common)(PartLfoStep1 + i)), -64, 63);
         stepValue_[i] = (s == 63 ? 64 : s) / 64.0f; // +63 plays as full scale (measured)
     }
+    lfo2Speed_ = 0;
+    for (int d = 0; d < 3; d++)
+        if (v.common((Common)(PartLfoDest1 + 2 * d)) == PartLfoLfo2Speed)
+            lfo2Speed_ += std::clamp(v.common((Common)(PartLfoDepth1 + 2 * d)), 0, 127) * 100 / 128.0;
     active_ = false;
     for (int d = 0; d < 3; d++)
         active_ = active_ || (v.common((Common)(PartLfoDest1 + 2 * d)) != 0 && v.common((Common)(PartLfoDepth1 + 2 * d)) != 0);

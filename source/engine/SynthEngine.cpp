@@ -384,6 +384,14 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     continue;
                 for (int j = 0; j < N; ++j)
                     sumbuf[c][j] = sumbufRight[c][j] = 0;
+                if ( contexts[c].extended() && contexts[c].partLfo.active() ) {
+                    contexts[c].partLfo.render(partlfo[c], N);
+                    partActive[c] = true;
+                    // the LFO 2 speed destination: depth x 100 / 128 speed steps at the part
+                    // LFO's top, rounded towards 0, once per block
+                    const int steps = contexts[c].partLfo.lfo2Steps(partlfo[c][N / 2]);
+                    contexts[c].lfo.setSpeedSteps(steps);
+                }
                 if ( contexts[c].lfo.perSample() ) {
                     for (int j = 0; j < N; ++j)
                         lfosamples[c][j] = contexts[c].lfo.getsample();
@@ -392,10 +400,6 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     lfovalue[c] = contexts[c].lfo.getsample();
                 }
                 lfodelay[c] = contexts[c].lfo.getdelay();
-                if ( contexts[c].extended() && contexts[c].partLfo.active() ) {
-                    contexts[c].partLfo.render(partlfo[c], N);
-                    partActive[c] = true;
-                }
             }
 
             bool checkMTSESPRetuning = tuningState->is_standard_tuning() &&

@@ -38,6 +38,9 @@ public:
     int32_t getdelay();
 
     void keydown();
+    // Extended sounds: the 2nd LFO's speed moved by this many steps (the part LFO's LFO 2 speed
+    // destination); speed range Normal only
+    void setSpeedSteps(int steps);
 
 private:
     // per instance: they depend on the sample rate (they used to be process-wide)
@@ -46,6 +49,8 @@ private:
     double hzToDelta_ = 0; // phase increment per sample for 1 Hz
     bool perSample_ = false;
     uint32_t startPhase_ = (1U << 31) - 1; // the phase a key-on reset starts from
+    int extSpeed_ = -1;                    // Extended, speed range Normal: the speed (else -1)
+    int speedSteps_ = 0;
 
     // phase, S/H and delay state used to be read uninitialised until a synced key-down
     uint32_t phase_ = 0; // Q32

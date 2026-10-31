@@ -28,6 +28,9 @@ public:
     // n values (n <= 64) of the LFO times its envelope, -1..+1 (unipolar waves 0..+1 or -1..0)
     void render(float *out, int n);
     bool active() const { return active_; }
+    // the LFO 2 speed destinations' move at an LFO value: speed steps (depth x 100 / 128 at the
+    // top, rounded towards 0; measured at depths 8, 32 and 127)
+    int lfo2Steps(float value) const { return (int)(value * lfo2Speed_); }
 
 private:
     double wave(double phase); // one cycle, phase 0..1
@@ -51,4 +54,5 @@ private:
     int steps_ = 16, slope_ = 0;
     float stepValue_[16] = {};
     bool active_ = false;  // a destination has depth
+    double lfo2Speed_ = 0; // LFO 2 speed destinations: steps at the top
 };

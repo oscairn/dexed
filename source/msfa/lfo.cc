@@ -92,9 +92,19 @@ void Lfo::reset(const ExtendedVoice &v) {
     // per sample: the extended range goes to 1357 Hz, past half the block rate
     delta_ = (uint32_t)std::min(hz * hzToDelta_ + 0.5, 2147483647.0);
     perSample_ = true;
+    extSpeed_ = v.common(ext::LfoSpeedRange) == 0 ? v.common(ext::LfoSpeed) : -1;
+    speedSteps_ = 0;
     // shortcut: phase 0 is taken as the start of the wave as Lfo draws it; the reference's
     // start point is not measured yet
     startPhase_ = (uint32_t)v.common(ext::LfoPhase) << 30;
+}
+
+void Lfo::setSpeedSteps(int steps) {
+    if (extSpeed_ < 0 || steps == speedSteps_)
+        return;
+    speedSteps_ = steps;
+    const int s = extSpeed_ + steps;
+    delta_ = (uint32_t)(extLfoHz(s < 0 ? 0 : s > 99 ? 99 : s) * hzToDelta_ + 0.5);
 }
 
 int32_t Lfo::getsample() {

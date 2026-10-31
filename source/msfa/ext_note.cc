@@ -364,6 +364,20 @@ void ExtFilterEnv::keydown(bool down) {
 
 // ---- voice ----
 
+void ExtNote::chooseWave(int i, int w) {
+    Wave &wv = waves_[i];
+    if (w == 0) {
+        wv = Wave {};
+    } else if (w <= 4) {
+        wv.kind = Wave::Table;
+        wv.table = extwave::table(w, spread_[i], below_[i]);
+    } else {
+        wv.centre = formant_[i] + 1;
+        wv.table = extwave::window(w, spread_[i], below_[i] - wv.centre);
+        wv.kind = wv.table ? Wave::Formant : Wave::Silent;
+    }
+}
+
 void ExtNote::setFeedback(int feedback) {
     fbShift_ = feedback != 0 ? 8 - feedback : 16; // (16: off, for renderGraph)
     // the measured feedback amount, relative to the DX7's shift for the same value
@@ -421,19 +435,12 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         // on edits; pitch EG, LFO and bend moves are not followed)
         {
             const double hz = rate_->freqlut.lookup(basepitch_[i]) * sampleRate / kQ24;
-            const int below = (int)std::floor(sampleRate / 2 / std::max(hz, 1.0)); // harmonics below Nyquist
-            const int w = std::clamp(o(ext::Wave), 0, 6), spread = std::clamp(o(ext::WaveSpread), 0, 7);
-            Wave &wv = waves_[i];
-            if (w == 0) {
-                wv = Wave {};
-            } else if (w <= 4) {
-                wv.kind = Wave::Table;
-                wv.table = extwave::table(w, spread, below);
-            } else {
-                wv.centre = std::clamp(o(ext::WaveFormant), 0, 99) + 1;
-                wv.table = extwave::window(w, spread, below - wv.centre);
-                wv.kind = wv.table ? Wave::Formant : Wave::Silent;
-            }
+            below_[i] = (int)std::floor(sampleRate / 2 / std::max(hz, 1.0)); // harmonics below Nyquist
+            wave_[i] = std::clamp(o(ext::Wave), 0, 6);
+            spread_[i] = std::clamp(o(ext::WaveSpread), 0, 7);
+            formant_[i] = std::clamp(o(ext::WaveFormant), 0, 99);
+            chooseWave(i, wave_[i]);
+            waveNow_[i] = wave_[i];
         }
         // level: operator level, scaling and velocity, in dB, then MSFA's log format
         // modulators have their own level curve (the modulation index the reference plays)
@@ -481,6 +488,16 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
                     partLfoDetune_[i] += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) *
                                          (ratio == 127 ? 128 : ratio) / 128 / 4.0;
                 }
+        // operator wave destinations: depth / 16 wave steps at the LFO's top (after the ratio
+        // rule), rounded towards 0, held within 0-6 (measured with a square wave at depths 8, 32
+        // and 127 from all harmonics 1 and formant 1)
+        partLfoWave_[i] = 0;
+        for (int d = 0; d < 3; d++)
+            if (v.common((ext::Common)(ext::PartLfoDest1 + 2 * d)) == ext::PartLfoOpWave && o((ext::Op)(ext::PartLfoBox1 + d))) {
+                const int ratio = std::clamp(o((ext::Op)(ext::PartLfoRatio1 + d)), 0, 127);
+                partLfoWave_[i] += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) *
+                                   (ratio == 127 ? 128 : ratio) / 128 / 16.0;
+            }
         // operator level destinations (the same depth and ratio rule, unmeasured for level)
         partLfoLevel_[i] = 0;
         for (int d = 0; d < 3; d++)
@@ -570,8 +587,16 @@ void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bo
     f.value = std::clamp(v.common(FilterCutoff), 0, 1023);
     f.ratio = extFilterScalingRatio(offset) * extFilterKeyFollowRatio(v.common(FilterKeyFollow), midinote) *
               extFilterVelocityRatio(v.common(FilterCutoffVelocity), velocity);
-    f.q = extFilterQ(v.common(FilterResonance)) *
-          extFilterResonanceVelocityQ(v.common(FilterResonanceVelocity), velocity);
+    f.resonance = std::clamp((int)v.common(FilterResonance), 0, 127);
+    f.qVelocity = extFilterResonanceVelocityQ(v.common(FilterResonanceVelocity), velocity);
+    f.q = extFilterQ(f.resonance) * f.qVelocity;
+    // the part LFO's resonance destination: one resonance step per depth step at its top, the
+    // move rounded towards 0 (measured at depths 8 and 32 with a square wave through HPF12;
+    // shortcut: BPFw's width does not move, unmeasured)
+    f.partLfoRes = 0;
+    for (int d = 0; d < 3; d++)
+        if (v.common((Common)(PartLfoDest1 + 2 * d)) == PartLfoResonance)
+            f.partLfoRes += std::clamp(v.common((Common)(PartLfoDepth1 + 2 * d)), 0, 127);
     f.ratio2 = f.type == extfilter::Lpf18S ? extFilterLpf18sRatio(f.value)
                                            : std::exp2(std::clamp(v.common(FilterDistance), -128, 127) / 16.0);
     extFilterWidth(v.common(FilterResonance), f.widthHigh, f.widthLow);
@@ -607,8 +632,9 @@ void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bo
 
 // The voice's block through its filter: the operators' sum (buf, MSFA's output scale) in
 // floating point, full scale 1.0.
-void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, double partValue) {
+void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, double partLfo) {
     const FilterState &f = filt_;
+    const double partValue = partLfo * f.partLfoValues;
     double oct = feg_.getblock(N) * f.fegOctaves;
     // the LFO at the block's end, bipolar and inverted (the reference's triangle starts at the
     // cutoff's highest point, Lfo's at its lowest), faded in by its delay
@@ -618,7 +644,9 @@ void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, d
     ExtFilter::Setting st;
     st.type = f.type;
     st.fc = extFilterCutoffHz(std::clamp(f.value + partValue, 0.0, 1023.0)) * move;
-    st.q = f.q;
+    st.q = f.partLfoRes != 0 && partLfo != 0
+               ? extFilterQ(std::clamp(f.resonance + (int)(partLfo * f.partLfoRes), 0, 127)) * f.qVelocity
+               : f.q;
     st.ratio2 = f.ratio2;
     if (f.type == extfilter::BpfWide) {
         st.fc = extFilterCutoffHz(std::clamp(f.value + partValue + f.widthHigh, 0.0, 1023.0)) * move;
@@ -688,9 +716,18 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
         amd[s] = std::max(a, w);
         ampMod |= amd[s] != 0;
     }
-    // the part LFO's feedback move, once per block
+    // the part LFO's feedback and operator wave moves, once per block
     if (partLfoFeedback_ != 0 && part_lfo != nullptr)
         setFeedback(std::clamp(feedback_ + (int)(part_lfo[N / 2] * partLfoFeedback_), 0, 7));
+    if (part_lfo != nullptr)
+        for (int i = 0; i < ext::Ops; i++)
+            if (partLfoWave_[i] != 0) {
+                const int w = std::clamp(wave_[i] + (int)(part_lfo[N / 2] * partLfoWave_[i]), 0, 6);
+                if (w != waveNow_[i]) {
+                    chooseWave(i, w);
+                    waveNow_[i] = w;
+                }
+            }
     // the common pitch EG, every sample of the block (fixed-frequency operators do not follow
     // it in the reference)
     int32_t ppeg[N];
@@ -754,8 +791,7 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
         AlignedBuf<int32_t, N> out;
         std::fill(out.get(), out.get() + N, 0);
         renderGraph(k, extCompiled(algorithm_), out.get(), params_, fbBuf_, fbShift_, bufs_, sum_.get());
-        filterBlock(out.get(), lfo, lfo_delay,
-                    part_lfo != nullptr ? part_lfo[N - 1] * filt_.partLfoValues : 0.0);
+        filterBlock(out.get(), lfo, lfo_delay, part_lfo != nullptr ? part_lfo[N - 1] : 0.0);
         for (int s = 0; s < N; s++)
             buf[s] += out.get()[s];
     } else {

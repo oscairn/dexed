@@ -162,11 +162,12 @@ public:
 private:
     void setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning, bool start);
     void setFeedback(int feedback); // fbShift_ and fbGain_ for feedback 0-7
+    void chooseWave(int i, int wave); // operator i's wave table for wave 0-6
     void render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
                 const Controllers *ctrls, const float *part_lfo);
     void setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start);
-    // partValue: the part LFO's move of the cutoff value this block
-    void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, double partValue);
+    // partLfo: the part LFO this block (-1..+1)
+    void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, double partLfo);
 
     bool initialised_ = false;
     int algorithm_ = 0;
@@ -195,6 +196,8 @@ private:
     int detune_[8] = {};         // each ratio-mode operator's detune
     int detuneNote_ = 60;
     int feedback_ = 0;           // the sound's feedback level
+    int wave_[8] = {}, waveNow_[8] = {}, spread_[8] = {}, formant_[8] = {}, below_[8] = {};
+    double partLfoWave_[8] = {}; // part LFO to this operator's wave: wave steps at +1
     double partLfoFeedback_ = 0; // part LFO to feedback: steps at +1
     int32_t ampSens_[8] = {};
     int32_t pitchDepth_ = 0, ampDepth_ = 0;
@@ -219,6 +222,9 @@ private:
         double fegOctaves = 0;   // FEG depth: octaves per cent of FEG level (0: no FEG)
         double lfoOctaves = 0;   // LFO filter depth: octaves at the LFO's peak
         double partLfoValues = 0; // part LFO cutoff destination: cutoff values at the LFO's top
+        int resonance = 0;       // the resonance value, and resonance velocity's factor on Q
+        double qVelocity = 1;
+        double partLfoRes = 0;   // part LFO resonance destination: resonance steps at the LFO's top
         bool active = false;     // false: Thru at unity gain (the operators' sum goes out unchanged)
     } filt_;
     ExtFilter filter_;
