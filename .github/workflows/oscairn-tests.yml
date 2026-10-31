@@ -25,7 +25,7 @@ jobs:
             os: ubuntu-24.04-arm
             build_type: Release
           - name: macOS
-            os: macos-14
+            os: macos-15
             build_type: Release
           - name: Linux ASan and UBSan
             os: ubuntu-24.04
