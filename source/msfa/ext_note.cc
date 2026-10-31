@@ -461,6 +461,15 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
                                       (ratio == 127 ? 128 : ratio) / 128;
                     partLfoPitch_[i] += (float)(extPartLfoPitchCents(depth) / 1200.0 * kQ24);
                 }
+        // operator level destinations (the same depth and ratio rule, unmeasured for level)
+        partLfoLevel_[i] = 0;
+        for (int d = 0; d < 3; d++)
+            if (v.common((ext::Common)(ext::PartLfoDest1 + 2 * d)) == ext::PartLfoOpLevel && o((ext::Op)(ext::PartLfoBox1 + d))) {
+                const int ratio = std::clamp(o((ext::Op)(ext::PartLfoRatio1 + d)), 0, 127);
+                const int depth = std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) *
+                                  (ratio == 127 ? 128 : ratio) / 128;
+                partLfoLevel_[i] += (float)(extPartLfoLevelDb(depth) * kLog2PerDb * kQ24);
+            }
         ampSens_[i] = extAmpDepthOffset(std::clamp(o(ext::AmpDepthOffset), 0, 7));
     }
     if (start) {
@@ -673,6 +682,7 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
         phase0[i] = (uint32_t)params_[i].phase;
         uint32_t pt = 0;
         int32_t level = 0;
+        const bool partLevel = part_lfo != nullptr && partLfoLevel_[i] != 0;
         for (int s = 0; s < N; s++) {
             if (ampSens_[i] != 0 && ampMod && (s == 0 || amd[s] != amd[s - 1])) {
                 const uint32_t sensamp = (uint32_t)(((uint64_t)amd[s] * (uint64_t)ampSens_[i]) >> 24);
@@ -683,6 +693,8 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
             level = env_[i].getsample();
             if (pt != 0)
                 level -= (int32_t)(((uint64_t)level * ((uint64_t)pt << 4)) >> 28);
+            if (partLevel) // the part LFO only lowers the level: none at its top, all at its bottom
+                level = std::max(0, level - (int32_t)std::lrint((1.0f - part_lfo[s]) * 0.5f * partLfoLevel_[i]));
             gains_[i][s] = Exp2::lookup(level - (14 * (1 << 24)));
         }
         params_[i].level_in = level;

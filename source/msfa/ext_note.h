@@ -186,6 +186,7 @@ private:
     bool fixed_[8] = {};
     int32_t pitchSens_[8] = {};  // LFO pitch depth offset, as DX7 pitch modulation sensitivity
     float partLfoPitch_[8] = {}; // part LFO to this operator's frequency: Q24 log frequency at +1
+    float partLfoLevel_[8] = {}; // part LFO to this operator's level: log level lost at -1
     int32_t ampSens_[8] = {};
     int32_t pitchDepth_ = 0, ampDepth_ = 0;
     int32_t fbBuf_[2] = {};

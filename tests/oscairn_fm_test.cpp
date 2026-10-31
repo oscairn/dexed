@@ -1142,6 +1142,21 @@ int extendedTest() {
         const double up = 1200 * std::log2(zeroCrossingHz(y, 2400, 24000) / f69);
         expect(std::fabs(up - cents) < 1.0, "part LFO to operator frequency: " + std::to_string(up) + " cents, table " +
                                                 std::to_string(cents));
+        // operator level: a square wave at depth 32 lowers the level by the table in its bottom half
+        {
+            const auto z = renderExtended({ { 210, ext::PartLfoOpLevel }, { 211, 32 }, { 201, ExtPartLfo::Square },
+                                            { 202, 24 } }, 69, 1.0, 2.5, 2.5);
+            const double half = 0.5 / extPartLfoHz(24) * rate; // samples
+            auto rmsDb = [&](double from, double to) {
+                double e = 0;
+                for (size_t i = (size_t)from; i < (size_t)to; i++)
+                    e += (double)z[i] * z[i];
+                return 10 * std::log10(e / (to - from));
+            };
+            const double drop = rmsDb(0.2 * half, 0.8 * half) - rmsDb(1.2 * half, 1.8 * half);
+            expect(std::fabs(drop - extPartLfoLevelDb(32)) < 0.1, "part LFO to operator level: " + std::to_string(drop) +
+                                                                   " dB, table " + std::to_string(extPartLfoLevelDb(32)));
+        }
     }
     // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
     // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic

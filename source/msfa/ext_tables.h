@@ -63,6 +63,7 @@ double extPartLfoFadeInMs(int time);     // 0-127
 double extPartLfoHoldMs(int time);       // 0-126
 double extPartLfoFadeOutMs(int time);    // 0-127
 double extPartLfoPitchCents(int depth);  // operator frequency destination: cents at the LFO's peak, depth 0-127
+double extPartLfoLevelDb(int depth);     // operator level destination: dB lost at the LFO's bottom
 
 // LFO
 double extLfoHz(int speed);         // speed range Normal, 0-99

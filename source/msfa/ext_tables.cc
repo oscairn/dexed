@@ -487,3 +487,8 @@ double extPartLfoFadeOutMs(int time) { return partLfoTimeMs(time); }
 // operator frequency destination: 3600 / 127 cents per depth step (measured at 17 depths, within
 // 0.3 cents)
 double extPartLfoPitchCents(int depth) { return clampi(depth, 0, 127) * 3600.0 / 127; }
+
+// operator level destination: 0.589 dB per depth step at the LFO's bottom, nothing at its top
+// (measured with a square wave at depths 8, 32 and 64; 127 silent); shortcut: straight between,
+// the reference's level at values between the top and bottom was not measured
+double extPartLfoLevelDb(int depth) { return clampi(depth, 0, 127) * 0.589; }
