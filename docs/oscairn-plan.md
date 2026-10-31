@@ -1121,6 +1121,7 @@ fixed frequencies below 20 Hz.
     same). A carrier-only offset-free version would be indistinguishable after that filter.
 13. The reference's output highpass (about 10.3 Hz, first order) is not copied; Dexed's DC
     filter (about 20 Hz) stays for Extended sounds too, 1 dB lower at 33 Hz (note 24).
+    Reversed in the fifth session (decision 38).
 14. CI: the macOS job of `oscairn-tests` now runs on macos-15 (GitHub's macos-14 brownout);
     `dexed-pipeline` is left as upstream has it.
 15. Filter type values (M6): Octet's Type parameter (60) numbers the 19 types 0-18 in the
@@ -1198,6 +1199,9 @@ fixed frequencies below 20 Hz.
     -48..+24 semitones, defaults +2 and -2, the documented values), not by the plugin's Pitch
     Bend Up/Down settings; the plugin's bend step setting, when on, still quantises as in
     Dexed. Implemented from the Data List only (the recorder cannot bend).
+38. Extended sounds' output filter uses the reference's highpass (first order, 10.3 Hz) in place
+    of Dexed's DC filter; Classic sounds keep Dexed's exactly (the contexts switch it with their
+    profile).
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1266,7 +1270,20 @@ harmonic 100 and at low centres, to see what the reference does where the window
 harmonic 1 (the fold model holds at spreads 0-3 only); the wave choice follows the note-on
 frequency only (pitch EG, LFO and bend moves are not followed; marked as a shortcut in
 `ext_note.cc`); Extended sounds could use the reference's 10.3 Hz output highpass instead of
-Dexed's DC filter (1 dB at 33 Hz).
+Dexed's DC filter (1 dB at 33 Hz; done in the fifth session, decision 38).
+
+**Fifth session: the `spec` carrier campaign again, after Extended voices lost the 16-bit
+rounding (decision 32) and took the reference's 10.3 Hz output highpass (decision 38).** All 161
+cases re-rendered and compared with `fm/compare_waves.py` (unchanged): **146 met** (was 144; the
+comparison renders before were from the third session's engine). Waves 1-4 at every spread 32 of
+32, worst 0.06 dB (was 0.82: the unexplained 0.6 dB at all-harmonic wave 2, spreads 3-5, is
+gone); waves 0-4 at notes 24-108 worst 0.12 dB (note 24 was 0.82, the DC filter); formant 2 at
+formant 0 now met at spread 4 (0.14 dB, was 2.8) but not at 5 (7.2 dB, was 13.1); formant 1 at
+formant 0 worst 0.2 dB; the sweep at spreads 0 and 3: 48 of 48, worst 0.58 dB (f6s3r18 was 1.07).
+Spread 7: 10 of 24 as before, but several of formant 2's misses grew (formants 36, 45, 90, 99: 26-111
+dB, were 21-38): those harmonics are formant 2's flat floor in the reference (about 52-60 dB below
+its strongest, fourth session), which Octet's rounding noise used to approach and its floating
+point output no longer does. Aliasing no worse than the reference's in any case.
 
 **Fourth session (M5 follow-up, measurements only, no engine change).** `spec6`: formant waves
 5 and 6 at spreads 4-7 as carriers at note 24, with the centre at harmonic 100 and 61 and at
