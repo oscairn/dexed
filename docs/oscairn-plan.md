@@ -1068,6 +1068,14 @@ queued on the shared recorder when this was written):
 JUCE plugin and native CLAP; topology 32 + 88; Extended test; Oscairn scanner and renderer),
 ASan/UBSan 19/19 and TSan 19/19 (those trees build without the Oscairn tools, so the scanner and renderer tests run only in Release), rerun on `7cb51af`. CI (`oscairn-tests`) for `c2ad09a`: green on Linux x86_64, Linux ARM64, macOS, ASan+UBSan and TSan.
 
+**Where M4 stopped (2026-10-31).** M4 is not complete, and M5 has not been started. Gates
+that are not met: the algorithm 70 graph (and the weak extra lines at 2, 69 and 79); operator
+pitch EG segment times; extended LFO speeds above 350 (this needs a per-sample LFO); attack
+95 (2.1 %). Unmeasured: holds 95-99, and the odd hold values below 40 on a fast carrier.
+Next steps: find the algorithm 70 edge (try other one-edge changes with `fm/topology.py`
+against Octet renders of a temporarily edited table); make the Extended LFO per sample; fit a
+per-time-value pitch EG rate table.
+
 **Decisions taken while implementing (for Jacob to confirm)**
 
 1. Extended values are separate parameters (IDs above), not shared with Classic ones even where
