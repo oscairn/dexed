@@ -1146,6 +1146,28 @@ fixed frequencies below 20 Hz.
 22. Carrier feedback (found in M6): the feedback amount fitted in M4 now acts on a carrier's
     signal before the reference's output level, which `312febe` added later and which had
     halved the feedback (decision 10's level applies to the output only).
+23. Common pitch EG (fourth session): parameters 28-39 under Extended/Pitch EG, depth shown as
+    "8 octaves" ... "0.5 octave". A sound whose common pitch EG levels are not all 0 does not
+    convert to Classic, and "convert to Extended" does not map the DX7 pitch EG onto it (it
+    could, approximately; not done).
+24. Depth velocity sensitivity scales the common pitch EG's rates as well as its levels, so
+    segment times stay the same at every velocity (measured at one point: 1.35 % off).
+25. Pitch key follow (56) stores the documented value 0-127 and shows the percent each value
+    plays, unlike cutoff key follow's signed steps (decision 16), because its percent steps
+    are uneven. Centre (57) is a MIDI note, C3 = 60 by default.
+26. Random pitch and random pan draw from one xorshift generator per sound (two values per
+    Extended note), reset by prepare, so renders are deterministic; both spreads are uniform
+    approximations (random pan's left bias in the reference is not modelled).
+27. Key-on delay: the table is in 64-sample blocks at 44.1 kHz and plays the same time at every
+    sample rate; the note starts at its exact sample (its output then runs late within the
+    64-sample grid); tempo sync takes the CLAP transport's tempo, 120 bpm without one; a note in
+    its delay holds its voice.
+28. Stereo: the engine renders a right channel when given one, through a second copy of each
+    context's output filter (about twice the output filter's CPU in Octet); unpanned voices go
+    to both channels alike, so Classic sounds are unchanged in both channels. The desktop Dexed
+    stays mono.
+29. Pan positions (alternate, scaling, random) add and clamp to -64/+63; alternate pan counts
+    the sound's Extended notes since prepare (per sound, not per key or channel).
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1216,7 +1238,21 @@ frequency only (pitch EG, LFO and bend moves are not followed; marked as a short
 `ext_note.cc`); Extended sounds could use the reference's 10.3 Hz output highpass instead of
 Dexed's DC filter (1 dB at 33 Hz).
 
-### M6 (in progress, 2026-10-31: the filter and filter EG are in the engine)
+**Fourth session (M5 follow-up, measurements only, no engine change).** `spec6`: formant waves
+5 and 6 at spreads 4-7 as carriers at note 24, with the centre at harmonic 100 and 61 and at
+formants 0-20 (every second). Compared harmonic by harmonic relative to each render's
+strongest (no sine in this campaign, so not the gate's normalisation): with the centre at
+harmonic 100 Octet's window matches the reference within about 1 dB down to 50 dB below the
+peak at every spread 4-7, both waves (formant 1 at every harmonic shown; formant 2 also, except
+its deep nulls), so the window tables are right where the window does not reach harmonic 1.
+At low centres the first 16 harmonics differ by up to 2.9 dB (formant 1, spreads 4-6), 6.6 dB
+(formant 1, spread 7, formant 10), 0.9-13 dB (formant 2, spreads 4-7; worst at spread 5,
+formants 14-18 and 0). Formant 2 at spreads 5-7 with the centre at 61 and 100 also shows a flat
+floor of harmonics about 52-60 dB below the peak in the reference that Octet does not have
+(23-44 dB differences there), as from a small click once per cycle. Not resolved: how the
+reference folds the window below harmonic 1, and where formant 2's floor comes from.
+
+### M6 (in progress, 2026-10-31: filter, filter EG, common pitch EG, pitch key follow, random pitch, key-on delay, stereo and pan are in the engine; Part LFO not started)
 
 Commits: `57b5e1a` (the filter, its EG and their parameters), `70ef883` (MSVC), `10d59f1` (carrier
 feedback after the output level change, found while measuring the filter). Measurement code:
@@ -1314,6 +1350,23 @@ lands on the harmonics, about 70 dB below this source's strongest.
 | FEG times within 2 % | **Met** in `feg2` (the campaign the tables were fitted from) for 91 of 92 cases: decay 1 at every second value 0-92 and at 100 and 108, holds 0-96, depth velocity; decay 42 misses by 2.0 ms. In `feg` (an earlier campaign, same probe) 43 of 49: attack, decay 2 and hold at 0-16 and 64-80 meet; 6 cases at 24-48 do not (4-18 %): the reference itself differs between campaigns by up to 7.3 ms at the same setting (decay 48: 132.5 and 139.8 ms; hold 48: 192.4 and 185.1 ms), so short segments cannot be gated at 2 % |
 | FEG levels, depth and depth velocity (15 cents) | **Met:** all `feg` and `feg2` static cases |
 
+**The filter gate without its level limit (for Jacob to judge).** The limit (harmonics more than
+60 dB below the strongest in either render or in Octet's thru are not checked) changes how the
+gate is evaluated and has not been approved. Re-run in this session on the same campaigns with
+the limit removed (every other condition unchanged: within 40 dB of the reference's strongest
+passed harmonic, below 16 kHz, 1 dB), on renders from the current engine: **129 of 697 met**
+(with the limit: 670 of 697, unchanged). Per type, met without / with the limit, and the median
+and largest worst-harmonic difference without it: LPF24D 6/8 of 14 (37.4, 75.9 dB), LPF24A 5/6
+of 6 (0.1, 40.6), LPF18 5/6 of 6 (0.1, 38.4), LPF18s 8/24 of 24 (2.5, 47.3), LPF12+HPF12 60/126
+of 126 (1.8, 47.1), LPF6+HPF12 0/7 of 7 (36.5, 42.8), HPF24D 0/3 of 6 (29.4, 75.0), HPF12
+22/397 of 397 (13.2, 28.3), BPF12D 5/7 of 14 (33.0, 75.1), BPFw 1/14 of 16 (18.1, 48.3), BPF6
+2/6 of 6 (11.6, 53.1), BEF12 0/6 of 6 (11.1, 15.6), BEF6 0/6 of 6 (11.0, 13.2), DualLPF 7/12 of
+12 (0.7, 38.7), DualHPF 1/6 of 6 (14.7, 19.5), DualBPF 2/11 of 12 (21.9, 46.2), DualBEF 0/12 of
+12 (10.0, 22.2), LPF12+BPF6 5/13 of 21 (15.6, 43.7). The previous session attributes the
+failures without the limit to Octet's 16-bit voice rounding (after the filter), about 70 dB
+below this source's strongest harmonic; not re-verified here, and rounding Extended voices to
+more bits than Dexed's 16 was not tried.
+
 Unmeasured or unresolved: FEG time velocity sensitivity (the reference made the segment
 instant at velocity 127 with both -64 and +63 and left it at velocity 1; not applied), FEG
 time key follow below zero (the reference was shorter for -64 too; the positive rule is
@@ -1338,8 +1391,95 @@ gain tables, the damping limit, key follow, FEG segment durations, and HPF12 thr
 plugin), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of 164 identical),
 ASan/UBSan 19/19, TSan 19/19.
 
-**Other M6 blocks not started:** Part PEG, Part LFO with user steps and tempo sync, key-on
-delay, stereo output and pan modes, random pitch, pitch key follow.
+**Fourth session (2026-10-31): the common pitch EG, pitch key follow, random pitch, key-on delay,
+stereo and pan.** Commits `3049366` (common pitch EG), `b408553` (pitch key follow, random
+pitch), `8db4d81` (key-on delay), `e0639e8` (stereo rendering, pan modes). Measurement code:
+oscairn/measurement `fm/fit_peg.py` (`ef88fd1`: the level, rate and key-on delay tables),
+`fm/pitch_track.py`, `fm/segment_rate.py`, `fm/marker_delay.py`, `fm/dropouts.py` (`89b40d2`). Renders
+in `forks/measurements/m4/`: `m6a` (pilot: every block below at a few values), `m6b` (common
+pitch EG level at every value at depth 2 octaves; decay 1 from +50 to -50 at every time value),
+`m6c` (rate at depths 8 octaves and 0.5 octave, depth velocity sensitivity 1-7, time key follow
+0-7 at notes 24-108 every octave, fixed-frequency operators, key-on delay without a marker),
+`m6d` (pitch key follow at every value and at fractional octaves, random pitch at 5 depths, the
+pan law every 4 positions, scaling pan at notes 24-108 every 6, random pan), `m6e`/`m6f`
+(key-on delay at every value against a second part without delay). Pitch from the analytic
+signal's instantaneous frequency (`fm/pitch_track.py`, the same method as the M4 operator pitch
+EG fit); rates by a straight-line fit between 15 % and 85 % of a segment's move. Dropouts were
+checked in every campaign (runs of near-zero samples or jumps inside the held part); one
+render was re-recorded (`m6f` key-on delay 109; `m6b` decay 99 was replaced by `m6a`'s, the
+same setting at another depth). The formant renders of `spec6` flag zero runs without jumps,
+which is the narrow formant windows' own silence within each cycle, not dropouts.
+
+What the reference does, and Octet now does in Extended sounds only:
+
+- **Common pitch EG.** Levels are steps of 37.5 cents at depth 8 octaves (one step per level to
+  +-32, then wider: +50 is 128 steps, -50 is -128), scaled by depth (8, 2, 1, 0.5 octaves:
+  x1, 1/4, 1/8, 1/16). Every segment (attack, decay 1, decay 2, release from wherever it is)
+  moves straight in cents at its time value's rate whatever its distance, the same rate at
+  every depth; every rate is a whole multiple of 0.05619077 cents per ms (254 at time 1 down to
+  1 at 99; time 0 is instant). Decay 2's level holds while the key is down. Depth velocity
+  sensitivity removes up to 17, 35, 53, 70, 88, 106, 126 (sensitivity 1-7) of +50's 128 steps at
+  velocity 1, in proportion to 127 - velocity, rounded down; it scales the rates too (the
+  segment times do not change with velocity: 1.35 % off at velocity 64, sensitivity 7). Time
+  key follow multiplies the rates by 1 + sensitivity (note - 3) / 33. Fixed-frequency
+  operators do not follow the common pitch EG, pitch key follow or random pitch.
+- **Pitch key follow.** Each value plays a whole percent: 1 % steps within 10 of 0, 100 and 200
+  % (down to -191 % at the bottom, from 192 % at the top), 5 % steps between; straight in
+  cents from the centre note (fractional octaves within 1 cent).
+- **Random pitch.** The reference's offsets lay on a grid of 18.75 cents (within 1.4 cents),
+  up to +-600 cents at depth 127; the reach grows with the depth (about depth / 4 steps).
+  Octet draws a uniform step within round(depth / 4) either way from a per-sound xorshift
+  generator that prepare resets (deterministic renders); the distribution is not measured.
+- **Key-on delay.** Whole 64-sample blocks at 44.1 kHz (0 to 5570 blocks, 8.08 s, each value
+  within 0.07 blocks of the grid). Tempo sync plays the note length (1/16 to 8 beats) at the
+  host's tempo: the recorder's renders at 120 bpm matched the lengths within the onset jitter
+  (about +-40 ms, no marker), and changing the performance's own tempo did not change them.
+  Octet takes the CLAP transport's tempo (120 without one) and starts the note at its exact
+  sample. A note released before its delay ends never sounds (measured at 16 and 32).
+- **Pan.** The near side keeps full level (no dip at the centre); the far side falls by a
+  measured table (-0.39 dB at 8, -6.41 at 32, -17.70 at 48, -45.55 at 60, silent from 63; the
+  same both ways within 0.02 dB). Scaling pan: depth / 32 positions per key below note 60
+  and above note 64, none between, +63 playing as 64. Alternate pan puts the first note at its
+  side; the alternation itself could not be measured (the recorder plays one note per
+  performance load); Octet alternates per note of the sound. Random pan: 16 notes at 127
+  reached position 50 and 8 notes at 64 reached 14, 13 of 16 (and 8 of 8 in `m6a`) to the
+  left: Octet spreads uniformly within 64 (depth / 127)^2 either way (approximation; the
+  left bias is not modelled). The positions add up and clamp at -64/+63.
+- **Stereo.** The engine renders a right channel when given one: unpanned voices (every
+  Classic voice) go to both channels alike and the right channel has its own copy of the
+  output filter with the left one's settings, so the left channel is exactly the old mono
+  output and unpanned sounds are identical in both channels (the 164 Classic cases hash both
+  channels and stay bit-identical). The desktop Dexed still renders mono.
+
+| Gate | Result |
+| --- | --- |
+| Common pitch EG levels, 1 cent | **Met:** all 101 levels at depth 2 octaves (worst 0.31 cents); the pilot's 16 static levels at the four depths (each within 0.5 cents); depth velocity sensitivity 1-7 at velocity 1 (worst 0.22 cents) and 3 and 7 at 3-5 velocities (worst 0.2 cents; 2.5 cents before the velocity table was refitted from the sensitivity sweep) |
+| Common pitch EG times (rates), 2 % | **Met:** decay 1 at all 99 time values 1-99 (worst 0.33 %), rate at depths 8, 2, 1 and 0.5 octaves (0.3 %), attack, decay 2 and release at 30-70 (0.3 %), time key follow 0-7 at notes 24-108 (64 cases), depth velocity 7 at velocity 64 (1.35 %). Not measurable with the pitch tracker: segments shorter than about 20 ms (attack to +10 at times 40 and 60, release at time 0), which share the measured rate table |
+| Pitch key follow, 1 cent | **Met:** 157 of 157 (every value at +2 octaves, 12 fractional-octave cases, the pilot's 17 at two centres; worst 0.97 cents) |
+| Random pitch | Range and grid only (above); the reference's sequence and distribution are not reproducible from one note per render |
+| Key-on delay, 2 % or 2 ms | **Met:** 128 of 128 values (worst 0.29 ms) |
+| Pan law and scaling pan, 0.5 dB on the far side | **Met:** 75 of 76 (alternate pan every 4 positions, scaling pan at depths +63, +32, -32 and -64 at notes 24-108); not met: scaling +63 at note 30 (the reference's far side is at -64.7 dB, Octet's at -45.6 dB: position -60; the reference behaves as if 61-62 there) |
+| Tempo-synced key-on delay exact to the sample | **Met in Octet's own test** (1/4 at 120 bpm starts at sample 24000 at 48 kHz); the reference's exact sync timing was not measurable without a marker (only 120 bpm, onset jitter about 40 ms) |
+
+Unmeasured or unresolved: the alternation of alternate pan; random pan's spread and its left
+bias; random pitch's distribution; the common pitch EG's time key follow below note 3 (left
+unchanged), its velocity scaling of rates (1.35 % at the one measured point), and whether it
+continues or restarts in mono legato (Octet carries it over like the filter EG); key-on delay
+in mono and legato playing; positions 61-62 of the pan law.
+
+**Part LFO: not started.** It needs 13 waves (with the user wave's steps, slope and cycle),
+speed and tempo sync, delay, fade in, hold, fade out, key-on reset modes, three destinations
+of 70 with depths, and the operators' LFO box switches and depth ratios; measurement has not
+begun.
+
+**Tests run locally (fourth session)**, for each pushed commit's tree (`3049366`, `b408553`,
+`8db4d81`, `e0639e8`): Release CTest 36/36 (the 164 Classic cases bit-identical through
+engine, JUCE plugin and native CLAP on arm64; the Extended test now also checks the common
+pitch EG levels per depth, velocity, decay and release rates and time key follow through the
+plugin, fixed operators unaffected, pitch key follow, random pitch's grid and determinism, the
+key-on delay's exact start, tempo sync and early release, the pan law, scaling and alternate
+pan, and centred sounds identical in both channels), the x86_64 baseline under Rosetta
+(engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
 ### How to run the tests
 
