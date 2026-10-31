@@ -882,8 +882,8 @@ UI or show the graph only is for review.
 
 ### M0 (done 2026-10-31)
 
-Commits on `oscairn`: `f1aaf84` (copy-after-build option), `d1a01b6` (state read uninitialised,
-section 4.6), `7f0204b` (render tests and baseline), `c121a49` (engine split), `e1bbe8d`
+Commits on `oscairn`: `f1aaf84` (copy-after-build option), `12ad187` (state read uninitialised,
+section 4.6), `7f0204b` (render tests and baseline), `a915d9c` (engine split), `e1bbe8d`
 (Oscairn scanner/renderer tests, CI), `a2ba0c0` (x86_64 baseline).
 
 - `source/engine/SynthEngine.*` is the headless engine; it builds as `dexed_engine` without
@@ -902,6 +902,9 @@ section 4.6), `7f0204b` (render tests and baseline), `c121a49` (engine split), `
   Oscairn.
 
 ### M1 (done 2026-10-31, except where listed)
+
+Commits: `9919464` (per-instance tables), `aa84166` (`-fwrapv`, hidden symbols), `a195449` (note
+tracking in the engine), `8d0f288` (native CLAP and its tests).
 
 - Per-instance sample-rate tables (`msfa/synth_rate.h`); shared tables built once.
 - `source/oscairn/`: the native CLAP (section 4.3) with CLAP note IDs, wildcards, choke and
