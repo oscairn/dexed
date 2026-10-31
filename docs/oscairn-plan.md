@@ -1095,7 +1095,7 @@ fixed frequencies below 20 Hz.
    offsets 0, 2, 4 or 7; LFO phase 0 and the normal speed range. Rates, times, fine and detune
    convert to the nearest value (approximate both ways).
 5. Unmeasured, using the Classic curves: level scaling, level velocity (mirrored for negative
-   values), time key follow, LFO depth offsets, LFO delay; the LFO start phase is taken as the
+   values; measured and replaced in the fifth session, see M7), time key follow, LFO depth offsets, LFO delay; the LFO start phase is taken as the
    start of the drawn wave.
 6. The init sounds are named "Classic Init" and "Extended Init" (no product names).
 7. Measured differences Octet keeps on purpose (second session): the operator waves are
@@ -1652,8 +1652,19 @@ Extended/Part and Extended/Macros):
 | AEG offsets, harmonics within 1 dB | 44 of 62: decay met at every offset tested, release at all but -8 (1.0 dB); attack misses at +16 (3.1 dB on the carrier, 3.6 on the pair), +24 (2.0, pair) and +32/+63 (1.9-5.6 dB, both probes); sustain misses at -64, -32, -16, +16, +32 and +63 (1.2-2.3 dB: the reference moves the level by 26 values at -16 where 1.5 per step gives 24, and stops at 98 at +16) |
 | Mod depth, harmonics within 1 dB | Without feedback (probes A, B): 12 of 12. Static EG at level 85 (C) and the pair with feedback 4 (D): 8 of 12 (+25 and +50 miss by 1.7-3.7 dB). Feedback 1, 2, 7 (`df`): 7 of 12 (+50 misses at feedback 1 and 2 by 1.9-2.6 dB; at feedback 7 the base case misses by 17.7 dB, so a modulator with feedback 7 is not reproduced, an M4 matter, and -50 and +50 miss too). Stack of three: 3 of 4 (+25: 8.8 dB). `m7a`: 8 of 18 (pair: -25 and +25 by 1.0-1.1 dB, +50 and +99 by 8.8 dB; static pair with feedback 4: +25 to +99 by 1.8-8.4 dB: the reference keeps raising the modulation past level 99, Octet stops at 99; the wave probe's base case already misses by 3.2 dB, an M5 matter) |
 | Envelope macros, harmonics within 1 dB | Pair and static probes: 44 of 48 (attack +25 1.0 dB on the pair, sustain +25, +50, +99 1.5 dB); wave probe 4 of 24 (its base case misses by 3.2 dB) |
-| Velocity, level within 0.5 dB | 29 of 64. Not an M7 result: Octet's level velocity curve (operator level velocity sensitivity +7, which M4 left on Dexed's curve, unmeasured) is up to 14 dB from the reference's (reference cases at velocities 1-127 with the part values at their defaults: 1 of 8 met). The part transform itself is checked against the reference's own equivalences (the levels above) and in Octet's test |
+| Velocity, level within 0.5 dB | **56 of 64** with the measured level velocity table below (29 of 64 with M4's, which used Dexed's curve: up to 14 dB off). Not met: velocities 2 and 3 at sensitivity +7 (0.8-1.5 dB: the table is straight between velocities 1 and 8 where the curve bends), fractional part velocities (0.5 plays 12 dB quieter in the reference than Octet's rounding to 1; 0.98 1.9 dB), and part velocity 36 (0.8 dB, between table points) |
 | Ratio shift and texture | Not modelled (17 of 25 and 2 of 19 cases happen to meet) |
+
+**Operator level velocity sensitivity (an M4 value, measured here because the velocity cases
+exposed it).** `m7d`: a lone carrier at every sensitivity -7..+7 and 17 velocities (102 of the 255
+renders came back empty from the recorder and were re-recorded). Against sensitivity 0, positive
+sensitivities lower the level at low velocities and raise it slightly at high ones (+7: -59.1 dB
+at velocity 1, 0 near 96, +5.3 dB at 127; every value about sensitivity times the +1 curve, in
+0.375 dB steps); negative ones mirror that about velocity 64, and -7 at velocity 127 is silent.
+Octet now plays this table (straight between the measured velocities) in place of Dexed's curve
+(M4 decision 5), and lets the velocity raise an operator above its level (the clip at 0 dB still
+applies to level and scaling). The table is checked against the renders it came from only in
+Octet's own test; the 64 velocity cases of `m7a`/`m7c` above are independent renders.
 
 **Not done in M7 (recorder limit and time).** Mono and poly with legato, key assign,
 portamento (switch, time, fingered and full-time modes, rate and time modes), and pitch bend
