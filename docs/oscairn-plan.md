@@ -1477,7 +1477,8 @@ unchanged), its velocity scaling of rates (1.35 % at the one measured point), an
 continues or restarts in mono legato (Octet carries it over like the filter EG); key-on delay
 in mono and legato playing; positions 61-62 of the pan law.
 
-**Part LFO (fourth session, later): `84b1819`, `0433952`, `ef31f00`, `56e3a58`, `4f83501`, `996ee32`, `ae58014`.** Renders: `m6g` (pilot at depth 127),
+**Part LFO (fourth session, later): `84b1819`, `0433952`, `ef31f00`, `56e3a58`, `4f83501`, `996ee32`, `ae58014`.** Measurement code: oscairn/measurement `fm/lfo_rate.py`, `fm/lfo_envelope.py` (`546e4f7`) with
+the pitch tracker above. Renders: `m6g` (pilot at depth 127),
 `m6h` (every wave, phase, delay, fade in, hold, fade out, tempo sync and the user wave at depth
 8), `m6i`/`m6k` (speed at every value), `m6j` (the envelope times every eighth value, depth at
 17 values, depth ratio at 7, sample and hold, the user slopes, and the operator level and pan
