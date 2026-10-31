@@ -1,0 +1,62 @@
+name: oscairn-tests
+
+# Builds the engine, the CLAP and the tests, and runs them (docs/oscairn-plan.md, M0).
+on:
+  push:
+    branches: [ oscairn ]
+  pull_request:
+    branches: [ oscairn ]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-24.04
+          - name: Linux ARM64
+            os: ubuntu-24.04-arm
+          - name: macOS
+            os: macos-14
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Linux packages
+      if: runner.os == 'Linux'
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ninja-build libasound2-dev libx11-dev libxinerama-dev libxext-dev \
+          libxrandr-dev libxcursor-dev libfreetype6-dev libfontconfig1-dev libglu1-mesa-dev xvfb
+
+    - name: Install macOS packages
+      if: runner.os == 'macOS'
+      run: brew install ninja
+
+    - name: Configure
+      run: |
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+          -DDEXED_COPY_PLUGIN_AFTER_BUILD=OFF -DDEXED_NO_ALSA=ON -DDEXED_SKIP_VST3=ON
+
+    - name: Build
+      run: cmake --build build --target dexed_engine dexed-render-engine dexed-render-plugin Dexed_CLAP
+
+    - name: Test
+      run: |
+        if [ "$RUNNER_OS" = Linux ]; then
+          xvfb-run -a ctest --test-dir build --output-on-failure
+        else
+          ctest --test-dir build --output-on-failure
+        fi
