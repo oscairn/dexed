@@ -90,6 +90,7 @@ SynthEngine::SynthEngine() {
         Exp2::init();
         Tanh::init();
         Sin::init();
+        (void)dx7Compiled(0); // the compiled DX7 algorithms
         return true;
     }();
     (void)sharedTablesReady;
@@ -132,6 +133,7 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
     }
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+        delete voices[note].dx7_note; // prepared again without a release: rebuild for the new rate
         voices[note].dx7_note = new Dx7Note(tuningState, mtsClient, &rate);
         voices[note].midi_note = -1;
         voices[note].keydown = false;
@@ -267,7 +269,28 @@ void SynthEngine::publishContextState() {
     }
 }
 
+namespace {
+    // The events of a longer block, seen from a part of it that starts at offset.
+    struct OffsetEvents : SynthEngine::EventSource {
+        SynthEngine::EventSource &inner;
+        int offset;
+        OffsetEvents(SynthEngine::EventSource &inner, int offset) : inner(inner), offset(offset) {}
+        void dispatchUntil(int samplePos) override { inner.dispatchUntil(samplePos + offset); }
+    };
+}
+
 void SynthEngine::render(float *channelData, int numSamples, EventSource &events) {
+    // A block longer than the contexts' buffers (prepare's maxFrames): render it in parts,
+    // so every sound keeps playing. Output does not depend on block size.
+    const int maxBlock = (int)contexts[1].block.size();
+    if ( maxBlock > 0 && numSamples > maxBlock ) {
+        for (int offset = 0; offset < numSamples; offset += maxBlock) {
+            const int n = numSamples - offset < maxBlock ? numSamples - offset : maxBlock;
+            OffsetEvents part(events, offset);
+            render(channelData + offset, n, part);
+        }
+        return;
+    }
     ScopedFlushDenormals noDenormals;
     int i;
 
@@ -471,8 +494,9 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     if ( patch[OSC_KEY_SYNC] && !voice_steal ) {
         voices[note].dx7_note->oscSync();
     }
-    if ( (voices[x.lastActiveVoice].midi_note != -1 && ctrl.portamento_enable_cc)
-       && ctrl.portamento_cc > 0 ) {
+    // (the last voice of this sound: another sound may have taken it since)
+    if ( (voices[x.lastActiveVoice].midi_note != -1 && voices[x.lastActiveVoice].context == c &&
+          ctrl.portamento_enable_cc) && ctrl.portamento_cc > 0 ) {
         voices[note].dx7_note->initPortamento(*voices[x.lastActiveVoice].dx7_note);
     }
 

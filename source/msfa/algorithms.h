@@ -89,9 +89,11 @@ struct CompiledAlgorithm {
     int8_t loop[8] = {};     // feedbackOp ... feedbackFrom along the signal (length 1: self feedback)
     int loopLength = 0;
     uint8_t active = 0;      // indices whose envelopes keep a voice playing
+    bool valid = false;      // false: the graph had a cycle in its inputs (feedback is separate)
 };
 
-// Prepares graph g of n operators (6 or 8); extraActive adds operators to `active`.
+// Prepares graph g of n operators (6 or 8); extraActive adds operators to `active`. A graph
+// whose inputs form a cycle cannot be rendered in order: the result has valid == false.
 inline CompiledAlgorithm compileAlgorithm(const OperatorGraph &g, int n, uint8_t extraActive = 0) {
     CompiledAlgorithm a;
     a.count = n;
@@ -110,14 +112,16 @@ inline CompiledAlgorithm compileAlgorithm(const OperatorGraph &g, int n, uint8_t
     // topological order, lowest index first among the ready ones
     uint8_t done = 0;
     for (int k = 0; k < n; k++) {
-        for (int i = 0; i < n; i++) {
-            if (!(done & (1u << i)) && (a.inputs[i] & ~done) == 0) {
-                a.order[k] = (int8_t)i;
-                done |= (uint8_t)(1u << i);
-                break;
-            }
-        }
+        int next = -1;
+        for (int i = 0; i < n && next < 0; i++)
+            if (!(done & (1u << i)) && (a.inputs[i] & ~done) == 0)
+                next = i;
+        if (next < 0)
+            return a; // a cycle: no operator left whose modulators are all rendered
+        a.order[k] = (int8_t)next;
+        done |= (uint8_t)(1u << next);
     }
+    a.valid = true;
     if (g.feedbackTo != 0) {
         a.feedbackOp = (int8_t)index(g.feedbackTo);
         a.feedbackFrom = (int8_t)index(g.feedbackFrom);

@@ -42,6 +42,11 @@ class FmOpKernel {
   static void compute_fb(int32_t *output, int32_t phase0, int32_t freq,
                          int32_t gain1, int32_t gain2,
                          int32_t *fb_buf, int fb_gain, bool add);
+
+  // One op with feedback and a modulation input (graphs where a modulated operator feeds
+  // back; none of the DX7 algorithms has one). Writes output (no add).
+  static void compute_fb_mod(int32_t *output, const int32_t *input, int32_t phase0, int32_t freq,
+                             int32_t gain1, int32_t gain2, int32_t *fb_buf, int fb_shift);
 };
 
 #endif

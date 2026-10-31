@@ -35,10 +35,16 @@ add_executable(dexed-render-engine render_engine.cpp)
 target_link_libraries(dexed-render-engine PRIVATE dexed_engine)
 # no JUCE here: engine headers then leave out the plugin's logger
 target_compile_definitions(dexed-render-engine PRIVATE DEXED_HEADLESS=1)
+# it instantiates the engine's renderGraph template, whose phase accumulators wrap like the
+# rest of the engine (built with -fwrapv)
+if(NOT MSVC)
+    target_compile_options(dexed-render-engine PRIVATE -fwrapv)
+endif()
 
 add_test(NAME dx7-baseline-engine COMMAND dexed-render-engine --check ${DEXED_BASELINE})
 add_test(NAME dx7-baseline-engine-reverse COMMAND dexed-render-engine --check ${DEXED_BASELINE} --reverse)
 add_test(NAME dx7-baseline-engine-two-rates COMMAND dexed-render-engine --interleaved ${DEXED_BASELINE})
+add_test(NAME engine-robustness COMMAND dexed-render-engine --robustness)
 
 # Octet, the native CLAP (source/oscairn).
 # oscairn-fm-test loads the built .clap; oscairn-fm-test-linked has the plugin linked in, so

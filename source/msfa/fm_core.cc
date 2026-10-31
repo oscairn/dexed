@@ -43,6 +43,9 @@ namespace {
         void compute_fb(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift, bool add) {
             FmOpKernel::compute_fb(o, ph, f, g1, g2, fb, shift, add);
         }
+        void compute_fb_mod(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift) {
+            FmOpKernel::compute_fb_mod(o, in, ph, f, g1, g2, fb, shift);
+        }
         int selfFeedbackShift(int shift) { return shift; }
         // multi-operator loops: only their first operator feeds back on itself (as before)
         bool loop(const CompiledAlgorithm &, FmOpParams *, int32_t, int32_t, int32_t *, int,

@@ -168,6 +168,29 @@ void EngineOpl::compute_fb(int32_t *output, int32_t phase0, int32_t freq,
 }
 
 
+// compute_fb with a modulation input (graphs where a modulated operator feeds back; none of
+// the DX7 algorithms has one). Writes output (no add).
+void EngineOpl::compute_fb_mod(int32_t *output, const int32_t *input, int32_t phase0, int32_t freq,
+                            int32_t gain1, int32_t gain2, int32_t *fb_buf, int fb_shift) {
+    int32_t dgain = (gain2 - gain1 + (N >> 1)) >> LG_N;
+    int32_t gain = gain1;
+    int32_t phase = phase0;
+    int32_t y0 = fb_buf[0];
+    int32_t y = fb_buf[1];
+
+    for (int i = 0; i < N; i++) {
+        gain += dgain;
+        int32_t scaled_fb = (y0 + y) >> (fb_shift + 1);
+        y0 = y;
+        y = oplSin((phase+input[i]+scaled_fb) >> 14, gain) << 14;
+        output[i] = y;
+        phase += freq;
+    }
+
+    fb_buf[0] = y0;
+    fb_buf[1] = y;
+}
+
 namespace {
     // The OPL kernels.
     struct OplKernels {
@@ -187,6 +210,9 @@ namespace {
         }
         void compute_fb(int32_t *o, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift, bool add) {
             e.compute_fb(o, ph, f, g1, g2, fb, shift, add);
+        }
+        void compute_fb_mod(int32_t *o, const int32_t *in, int32_t ph, int32_t f, int32_t g1, int32_t g2, int32_t *fb, int shift) {
+            e.compute_fb_mod(o, in, ph, f, g1, g2, fb, shift);
         }
         int selfFeedbackShift(int shift) { return shift; }
         bool loop(const CompiledAlgorithm &, FmOpParams *, int32_t, int32_t, int32_t *, int,

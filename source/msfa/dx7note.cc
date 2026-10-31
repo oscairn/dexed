@@ -206,7 +206,7 @@ void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int cha
         levels[i] = patch[130 + i];
     }
     pitchenv_.set(rates, levels);
-    algorithm_ = patch[134];
+    algorithm_ = patch[134] > 31 ? 31 : patch[134]; // a corrupt voice must not index past the 32
     int feedback = patch[135];
     fb_shift_ = feedback != 0 ? FEEDBACK_BITDEPTH - feedback : 16;
     pitchmoddepth_ = (patch[139] * 165) >> 6;
@@ -399,7 +399,7 @@ void Dx7Note::update(const uint8_t patch[156], int midinote, int velocity, int c
         int rate_scaling = ScaleRate(midinote, patch[off + 13]);
         env_[op].update(rates, levels, outlevel, rate_scaling);
     }
-    algorithm_ = patch[134];
+    algorithm_ = patch[134] > 31 ? 31 : patch[134];
     int feedback = patch[135];
     fb_shift_ = feedback != 0 ? FEEDBACK_BITDEPTH - feedback : 16;
     pitchmoddepth_ = (patch[139] * 165) >> 6;

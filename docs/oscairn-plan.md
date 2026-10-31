@@ -857,6 +857,10 @@ These answer six of the seven questions this section used to list; question 7 is
 4. **Voice pool size and context count: on hold.** Voice stealing is being discussed with
    Oscairn. Voice allocation and stealing policy do not change beyond what bit-exactness
    needs.
+   Notes for that decision: with the placeholder policy (Dexed's, across the shared pool), a
+   mono or portamento sound whose voice another sound steals loses its legato state; the
+   portamento source is now only taken from the sound's own last voice, but mono hand-over
+   still assumes the voice is still the sound's own.
 5. **Measurement harness:** its own repository, `oscairn/measurement` (private, MIT). It holds
    only analysis code (pitch, level, spectrum and envelope comparison against reference
    renders) and the pass/fail tolerances: `common/` for shared analysis, `fm/` for FM checks

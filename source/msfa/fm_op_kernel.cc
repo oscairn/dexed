@@ -281,3 +281,22 @@ void FmOpKernel::compute_pure(int32_t *output, int32_t phase0, int32_t freq,
 }
 #endif
 
+void FmOpKernel::compute_fb_mod(int32_t *output, const int32_t *input, int32_t phase0, int32_t freq,
+                                int32_t gain1, int32_t gain2, int32_t *fb_buf, int fb_shift) {
+  int32_t dgain = (gain2 - gain1 + (N >> 1)) >> LG_N;
+  int32_t gain = gain1;
+  int32_t phase = phase0;
+  int32_t y0 = fb_buf[0];
+  int32_t y = fb_buf[1];
+  for (int i = 0; i < N; i++) {
+    gain += dgain;
+    int32_t scaled_fb = (y0 + y) >> (fb_shift + 1);
+    y0 = y;
+    y = Sin::lookup(phase + input[i] + scaled_fb);
+    y = ((int64_t)y * (int64_t)gain) >> 24;
+    output[i] = y;
+    phase += freq;
+  }
+  fb_buf[0] = y0;
+  fb_buf[1] = y;
+}

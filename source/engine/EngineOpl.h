@@ -34,6 +34,9 @@ public:
                         int32_t *fb_buf, int feedback_shift) override;
     void compute(int32_t *output, const int32_t *input, int32_t phase0, int32_t freq, int32_t gain1, int32_t gain2, bool add);
 	void compute_pure(int32_t *output, int32_t phase0, int32_t freq, int32_t gain1, int32_t gain2, bool add);
+    void compute_fb_mod(int32_t *output, const int32_t *input, int32_t phase0, int32_t freq, int32_t gain1, int32_t gain2,
+                        int32_t *fb_buf, int fb_shift);
+
     void compute_fb(int32_t *output, int32_t phase0, int32_t freq,
                     int32_t gain1, int32_t gain2,
                     int32_t *fb_buf, int fb_gain, bool add);
