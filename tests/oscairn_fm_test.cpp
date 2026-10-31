@@ -29,11 +29,13 @@
 #include "oscairn/Parameters.h"
 #include "msfa/algorithms.h"
 #include "msfa/ext_tables.h"
+#include "msfa/ext_waves.h"
 #include "msfa/ext_waves_data.h"
 #include "msfa/lfo.h"
 #include "msfa/synth.h"
 #include <oscairn-clap/sound-contexts.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -917,6 +919,29 @@ int extendedTest() {
                 expect(std::fabs(db) < 0.5, "wave " + std::to_string(w) + " spread 3 harmonic " + std::to_string(h) +
                                                 ": " + std::to_string(db) + " dB from its table");
             }
+        }
+    }
+    // -- where the waves sit in their cycle (it shows when they modulate): waves 1 and 2 run from 0
+    // and start at their peak, waves 3 and 4 peak a quarter cycle in, formant 2's window peaks
+    // half a cycle in
+    {
+        extwave::init();
+        auto peakAt = [](const int32_t *t) { return (int)(std::max_element(t, t + extwave::kSize) - t); };
+        const int slack = extwave::kSize / 256;
+        for (int w = 1; w <= 4; w++)
+            for (int s = 0; s < 8; s++) {
+                const int32_t *t = extwave::table(w, s, 512);
+                const int at = peakAt(t), want = w <= 2 ? 0 : extwave::kSize / 4;
+                const int off = std::min(std::abs(at - want), extwave::kSize - std::abs(at - want));
+                const double lo = *std::min_element(t, t + extwave::kSize) / double(1 << 24);
+                expect(off <= slack && (w > 2 || std::fabs(lo) < 0.01),
+                       "wave " + std::to_string(w) + " spread " + std::to_string(s) + ": peak at " +
+                           std::to_string(at) + ", minimum " + std::to_string(lo));
+            }
+        for (int s = 1; s < 8; s++) {
+            const int at = peakAt(extwave::window(6, s, 511));
+            expect(std::abs(at - extwave::kSize / 2) <= slack,
+                   "formant 2 spread " + std::to_string(s) + ": window peak at " + std::to_string(at));
         }
     }
     // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw; Extended

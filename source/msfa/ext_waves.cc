@@ -34,9 +34,9 @@ std::vector<int32_t> &storage() {
 }
 size_t version[kSets + kWindows][kVersions]; // offsets into storage()
 
-void build(int set, const float *amp, const float *phase, int count, int first, double phaseStep,
+void build(int set, const float *amp, const float *phase, int count, int first, double phaseStep, double dc,
            std::vector<int32_t> &out) {
-    std::vector<double> acc(kSize, 0.0);
+    std::vector<double> acc(kSize, dc);
     int done = 0;
     for (int v = 0; v < kVersions; v++) {
         const int top = kCounts[v];
@@ -73,15 +73,15 @@ int versionFor(int n) {
 void init() {
     static const bool ready = [] {
         std::vector<int32_t> &out = storage();
-        // waves 1-4: the fundamental as a sine (as the sine wave plays), harmonic h's phase
-        // measured relative to it: cos(h t + phase_h - h pi / 2)
+        // waves 1-4: cos(h t + phase_h - h pi / 2) plus a constant (waves 1 and 2 run from 0
+        // to their peak); the phases place the wave in its cycle as the reference does
         for (int s = 0; s < kSets; s++)
             build(s, kWaveHarmonicAmp + kWaveHarmonicOffset[s], kWaveHarmonicPhase + kWaveHarmonicOffset[s],
-                  kWaveHarmonicCount[s], 1, -kTwoPi / 4, out);
+                  kWaveHarmonicCount[s], 1, -kTwoPi / 4, kWaveHarmonicDc[s], out);
         // windows: component d from 0
         for (int s = 0; s < kWindows; s++)
             build(kSets + s, kWaveWindowAmp + kWaveWindowOffset[s], kWaveWindowPhase + kWaveWindowOffset[s],
-                  kWaveWindowCount[s], 0, 0.0, out);
+                  kWaveWindowCount[s], 0, 0.0, 0.0, out);
         out.shrink_to_fit();
         return true;
     }();
