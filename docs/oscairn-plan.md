@@ -1115,6 +1115,14 @@ fixed frequencies below 20 Hz.
 11. A modulator's level follows its own measured curve (0.75 dB per step, audible down to
     level 6), different from a carrier's; an operator is a modulator when its algorithm does
     not route it to the output (no algorithm does both).
+12. Operator waves 1 and 2 carry a constant (they run from 0 to their peak) because the
+    reference's modulators show it; as carriers the constant reaches the output only as a DC
+    step that Dexed's output DC filter removes (the reference's own output highpass does the
+    same). A carrier-only offset-free version would be indistinguishable after that filter.
+13. The reference's output highpass (about 10.3 Hz, first order) is not copied; Dexed's DC
+    filter (about 20 Hz) stays for Extended sounds too, 1 dB lower at 33 Hz (note 24).
+14. CI: the macOS job of `oscairn-tests` now runs on macos-15 (GitHub's macos-14 brownout);
+    `dexed-pipeline` is left as upstream has it.
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1184,6 +1192,46 @@ harmonic 1 (the fold model holds at spreads 0-3 only); the wave choice follows t
 frequency only (pitch EG, LFO and bend moves are not followed; marked as a shortcut in
 `ext_note.cc`); Extended sounds could use the reference's 10.3 Hz output highpass instead of
 Dexed's DC filter (1 dB at 33 Hz).
+
+### M6 (started 2026-10-31: filter measurements only, nothing in the engine yet)
+
+Measurement code: oscairn/measurement `fm/filter.py` (`be859e5`). Renders in
+`forks/measurements/m4/filt` (every type at cutoffs 256/512/768, resonance 0/127), `filt2`
+(cutoff every 32nd value, key follow, invalid types) and `filt3` (cutoff every 8th value from
+96 to 896 for LPF12+HPF12 and HPF12, resonance sweeps of four types at cutoff 512). Source: a
+feedback-7 sine at note 36 through the filter, against the same tone through Thru. Whether this
+filter is the same as the analog engine's (RFC 0014/0015's open question) is not settled here;
+the analog agent's own measurements are in `analog/`, not compared yet.
+
+- **Type values.** The reference refuses filter types 9, 18 and 20 (the recorder keeps the
+  previous filter; checked by rendering each after a distinctive filter), so the 19 named types
+  are 0-8, 10-17, 19 and 21: 0 LPF24D, 1 LPF24A, 2 LPF18, 3 LPF18s, 4 LPF12+HPF12,
+  5 LPF6+HPF12, 6 HPF24D, 7 HPF12, 8 BPF12D, 10 BPFw, 11 BPF6, 12 BEF12, 13 BEF6, 14 DualLPF,
+  15 DualHPF, 16 DualBPF, 17 DualBEF, 19 LPF12+BPF6, 21 Thru (the default). The first `filt`
+  campaign's types 9, 18 and 20 are therefore copies of the previous render; type 17 (DualBEF,
+  Distance 0) measures identical to type 12.
+- **Shapes at resonance 0** (cutoff 256, about 88 Hz, every type at the same frequency): LPF24D
+  is four identical one-pole low-passes, LPF18 three, LPF12 a two-pole with Q 0.49, LPF24A a
+  Q-1 two-pole times two one-poles, HPF24D/HPF12 the high-pass mirrors, BPF12D two Q-0.5
+  band-passes (-12 dB), BPFw two Q-1 band-passes, DualLPF/DualHPF the 12 dB shapes +6 dB; all
+  within 0.03 dB. LPF6, BPF6, DualBPF and LPF12+BPF6 fit their prototypes only within 0.4-1.3 dB;
+  the band-eliminate types and LPF18s have no fitted model yet.
+- **Resonance:** Q = 0.5 x 2^(resonance / 16) (HPF12 at cutoff 512: 0.98, 1.98, 3.98, 7.99,
+  15.99 at resonance 16-80, residual 0.00 dB; LPF12 the same within 0.2 dB). LPF24D and BPF12D
+  with resonance do not fit their prototypes (resonance on one section only, presumably;
+  unmeasured).
+- **Cutoff:** the cutoff frequency rises in segments about 104 values long (boundaries near
+  204, 308, 412, 516, 616 and 716), roughly an octave each, with the step shrinking within a
+  segment (0.13-0.15 octave per 8 values after a boundary, 0.04-0.05 before the next): 96 ->
+  27 Hz, 256 -> 88.7 Hz, 512 -> 464 Hz, 704 -> 1965 Hz (HPF12 fits, residual 0.05 dB or less
+  up to 704). Above about 720 (2.2 kHz) the analog prototypes stop fitting (the high-pass types
+  read 4-20 dB above 0 dB over the cutoff), so the top of the range needs a model of the
+  digital filter itself; key follow renders (`filt2`, kf 0/64/96/128 at four notes) are not
+  analysed yet.
+- **Next:** fit the band-eliminate types and LPF18s; model the filter above 2 kHz; analyse key
+  follow; then the engine: a per-voice filter for Extended sounds (cascaded one-pole and
+  two-pole TPT sections with the cutoff table at every 8th value), its test, FEG and the other
+  M6 blocks.
 
 ### How to run the tests
 
