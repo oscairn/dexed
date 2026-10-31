@@ -132,6 +132,10 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
         contexts[c].lfo.init(sampleRate);
         contexts[c].fx.init(sampleRate);
         contexts[c].noteRandom = 0x2545F491u + (uint32_t)c;
+        contexts[c].noteCount = 0;
+        contexts[c].fxRight.init(sampleRate);
+        if ( c > 0 )
+            contexts[c].blockRight.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
         if ( c > 0 )
             contexts[c].block.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
     }
@@ -288,7 +292,7 @@ namespace {
     };
 }
 
-void SynthEngine::render(float *channelData, int numSamples, EventSource &events) {
+void SynthEngine::render(float *channelData, float *right, int numSamples, EventSource &events) {
     // A block longer than the contexts' buffers (prepare's maxFrames): render it in parts,
     // so every sound keeps playing. Output does not depend on block size.
     const int maxBlock = (int)contexts[1].block.size();
@@ -296,7 +300,7 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
         for (int offset = 0; offset < numSamples; offset += maxBlock) {
             const int n = numSamples - offset < maxBlock ? numSamples - offset : maxBlock;
             OffsetEvents part(events, offset);
-            render(channelData + offset, n, part);
+            render(channelData + offset, right != nullptr ? right + offset : nullptr, n, part);
         }
         return;
     }
@@ -307,6 +311,7 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
     // did), and any other that is selected, has voices or has not yet gone silent.
     bool active[MAX_CONTEXTS] = { true };
     float *outputs[MAX_CONTEXTS] = { channelData };
+    float *outputsRight[MAX_CONTEXTS] = { right };
     int activeCount = 1;
     bool hasVoice[MAX_CONTEXTS] = {};
     for (int n = 0; n < MAX_ACTIVE_NOTES; n++)
@@ -320,10 +325,11 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
         }
         if ( !x.rendering ) // starting again: nothing rendered ahead
             for (int j = 0; j < N; j++)
-                x.extra_buf[j] = 0;
+                x.extra_buf[j] = x.extra_bufRight[j] = 0;
         x.rendering = true;
         active[c] = true;
         outputs[c] = x.block.data();
+        outputsRight[c] = x.blockRight.data();
         activeCount++;
     }
 
@@ -333,6 +339,8 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
             continue;
         for (i=0; i < numSamples && i < extra_buf_size; i++) {
             outputs[c][i] = contexts[c].extra_buf[i];
+            if ( right != nullptr )
+                outputsRight[c][i] = contexts[c].extra_bufRight[i];
         }
     }
     i = numSamples < extra_buf_size ? numSamples : extra_buf_size;
@@ -343,8 +351,10 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
             if ( !active[c] )
                 continue;
             float *extra_buf = contexts[c].extra_buf;
+            float *extra_bufRight = contexts[c].extra_bufRight;
             for (int j = 0; j < extra_buf_size - numSamples; j++) {
                 extra_buf[j] = extra_buf[j + numSamples];
+                extra_bufRight[j] = extra_bufRight[j + numSamples];
             }
         }
         extra_buf_size -= numSamples;
@@ -355,6 +365,7 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
         for (; i < numSamples; i += N) {
             AlignedBuf<int32_t, N> audiobuf;
             float sumbuf[MAX_CONTEXTS][N];
+            float sumbufRight[MAX_CONTEXTS][N]; // (stereo rendering)
 
             events.dispatchUntil(i);
 
@@ -367,7 +378,7 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                 if ( !active[c] )
                     continue;
                 for (int j = 0; j < N; ++j)
-                    sumbuf[c][j] = 0;
+                    sumbuf[c][j] = sumbufRight[c][j] = 0;
                 if ( contexts[c].lfo.perSample() ) {
                     for (int j = 0; j < N; ++j)
                         lfosamples[c][j] = contexts[c].lfo.getsample();
@@ -392,6 +403,8 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                                                    contexts[c].lfo.perSample() ? lfosamples[c] : nullptr);
 
                     ProcessorVoice &v = voices[note];
+                    float gainLeft = 1, gainRight = 1;
+                    const bool panned = right != nullptr && v.dx7_note->panned(gainLeft, gainRight);
                     for (int j=0; j < N; ++j) {
                         int32_t val = audiobuf.get()[j];
 
@@ -405,7 +418,13 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                             if ( v.fadeLeft > 0 )
                                 v.fadeLeft--;
                         }
-                        sumbuf[c][j] += f;
+                        if ( panned ) {
+                            sumbuf[c][j] += f * gainLeft;
+                            sumbufRight[c][j] += f * gainRight;
+                        } else {
+                            sumbuf[c][j] += f;
+                            sumbufRight[c][j] += f;
+                        }
                         audiobuf.get()[j] = 0;
                     }
                     if ( v.fadeTotal > 0 && v.fadeLeft == 0 ) {
@@ -430,6 +449,15 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                         extra_buf[j - jmax] = sumbuf[c][j];
                     }
                 }
+                if ( right != nullptr ) {
+                    float *outRight = outputsRight[c];
+                    for (int j = 0; j < N; ++j) {
+                        if (j < jmax)
+                            outRight[i + j] = sumbufRight[c][j];
+                        else
+                            contexts[c].extra_bufRight[j - jmax] = sumbufRight[c][j];
+                    }
+                }
             }
         }
         extra_buf_size = i - numSamples;
@@ -437,6 +465,8 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
 
     events.dispatchUntil(numSamples);
     contexts[0].fx.process(channelData, numSamples);
+    if ( right != nullptr )
+        processRight(contexts[0], right, numSamples);
 
     // Each context through its own output filter, then summed (RFC 0005).
     if ( activeCount > 1 ) {
@@ -450,11 +480,30 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                 channelData[j] += out[j];
                 sound = sound || out[j] != 0;
             }
+            if ( right != nullptr ) {
+                float *outRight = outputsRight[c];
+                processRight(contexts[c], outRight, numSamples);
+                for (int j = 0; j < numSamples; j++) {
+                    right[j] += outRight[j];
+                    sound = sound || outRight[j] != 0;
+                }
+                for (int j = 0; j < extra_buf_size && !sound; j++)
+                    sound = contexts[c].extra_bufRight[j] != 0;
+            }
             for (int j = 0; j < extra_buf_size && !sound; j++)
                 sound = contexts[c].extra_buf[j] != 0;
             contexts[c].tail = sound;
         }
     }
+}
+
+// The right channel through its own output filter, with the left one's settings: given the
+// same input it gives the same output, so unpanned sounds stay identical in both channels.
+void SynthEngine::processRight(SynthContext &x, float *right, int numSamples) {
+    x.fxRight.uiCutoff = x.fx.uiCutoff;
+    x.fxRight.uiReso = x.fx.uiReso;
+    x.fxRight.uiGain = x.fx.uiGain;
+    x.fxRight.process(right, numSamples);
 }
 
 void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo) {
@@ -520,16 +569,22 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].keydown_seq = nextKeydownSeq++;
     // to avoid click, don't sync oscillators when voice stealing
     bool voice_steal = voices[note].dx7_note->isPlaying();
-    uint32_t random = 0;
+    ExtStart start;
     if ( x.extended() ) {
         // deterministic: the same notes after prepare give the same values (xorshift32)
-        uint32_t &r = x.noteRandom;
-        r ^= r << 13;
-        r ^= r >> 17;
-        r ^= r << 5;
-        random = r;
+        auto next = [&x] {
+            uint32_t &r = x.noteRandom;
+            r ^= r << 13;
+            r ^= r >> 17;
+            r ^= r << 5;
+            return r;
+        };
+        start.randomPitch = next();
+        start.randomPan = next();
+        start.count = x.noteCount++;
+        start.tempo = tempo;
     }
-    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext, random, tempo);
+    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext, start);
     // (Extended sounds reset each operator by its own Key On Reset)
     if ( (x.extended() || patch[OSC_KEY_SYNC]) && !voice_steal ) {
         voices[note].dx7_note->oscSync();

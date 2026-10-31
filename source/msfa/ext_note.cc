@@ -469,11 +469,21 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
 }
 
 void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
-                   uint32_t random, double tempo) {
+                   const ExtStart &st) {
     initialised_ = true;
-    random_ = random;
+    random_ = st.randomPitch;
+    {
+        // pan: alternate (this side on the sound's first note, the other on the next, ...),
+        // scaling and random positions added
+        using namespace ext;
+        const int alt = std::clamp(v.common(AlternatePan), -64, 63);
+        const int pos = ((st.count & 1) ? -alt : alt) + extScalingPanPosition(v.common(ScalingPan), midinote) +
+                        extRandomPanPosition(v.common(RandomPan), st.randomPan);
+        extPanGains(std::clamp(pos, -64, 63), gainL_, gainR_);
+    }
     {
         using namespace ext;
+        const double tempo = st.tempo;
         const double seconds = v.common(KeyOnDelaySync) ? extKeyOnDelayBeats(v.common(KeyOnDelayNote)) * 60.0 / std::max(tempo, 1.0)
                                                         : extKeyOnDelayMs(v.common(KeyOnDelay)) / 1000.0;
         delay_ = std::llround(seconds * rate->sampleRate);

@@ -721,7 +721,7 @@ int topologyTest() {
 // One note of an Extended sound: operator 1 alone (algorithm 1, every other operator silent,
 // instant envelope, release time 0) unless params say otherwise. Mono output at 48 kHz.
 std::vector<float> renderExtended(const std::vector<std::pair<uint32_t, double>> &params, int key, double velocity,
-                                  double hold, double seconds) {
+                                  double hold, double seconds, std::vector<float> *right = nullptr) {
     Host h(entry);
     const double rate = 48000;
     h.activate(rate, 512);
@@ -746,6 +746,8 @@ std::vector<float> renderExtended(const std::vector<std::pair<uint32_t, double>>
         h.process(512, in);
         in.clear();
         out.insert(out.end(), h.left.begin(), h.left.begin() + 512);
+        if (right != nullptr)
+            right->insert(right->end(), h.right.begin(), h.right.begin() + 512);
     }
     return out;
 }
@@ -1016,6 +1018,65 @@ int extendedTest() {
                                                                            std::to_string(firstSound(sync)));
         const auto early = renderExtended({ { 58, 40 } }, 69, 1.0, 0.2, 2.0);
         expect(firstSound(early) == early.size(), "a note released within its key-on delay never sounds");
+    }
+    // -- pan: the far side's gain by position, the near side at full level; scaling by key;
+    // alternate pan swaps sides on each note; unpanned sounds are the same in both channels
+    {
+        auto rms = [](const std::vector<float> &x) {
+            double e = 0;
+            for (size_t i = 4800; i < x.size(); i++)
+                e += (double)x[i] * x[i];
+            return std::sqrt(e / (double)(x.size() - 4800));
+        };
+        for (int ap : { -64, -20, 0, 32, 63 }) {
+            std::vector<float> r;
+            const auto l = renderExtended({ { 53, ap } }, 69, 1.0, 0.5, 0.5, &r);
+            float gl, gr;
+            extPanGains(ap, gl, gr);
+            const bool ok = ap == 0 ? l == r
+                                    : std::fabs(rms(l) * gr - rms(r) * gl) < 1e-4 * rms(ap < 0 ? l : r);
+            expect(ok, "alternate pan " + std::to_string(ap) + ": left " + std::to_string(rms(l)) + ", right " +
+                           std::to_string(rms(r)));
+        }
+        {
+            std::vector<float> r;
+            const auto l = renderExtended({ { 54, 63 } }, 84, 1.0, 0.5, 0.5, &r);
+            float gl, gr;
+            extPanGains(extScalingPanPosition(63, 84), gl, gr);
+            expect(extScalingPanPosition(63, 84) == 40 && extScalingPanPosition(32, 62) == 0 &&
+                       extScalingPanPosition(32, 48) == -12 && std::fabs(rms(l) / rms(r) - gl / gr) < 1e-3,
+                   "scaling pan by key");
+        }
+        float gl, gr;
+        extPanGains(32, gl, gr);
+        expect(gr == 1.0f && std::fabs(20 * std::log10(gl) + 6.41) < 0.01, "pan law: -6.41 dB on the far side at 32");
+        extPanGains(-64, gl, gr);
+        expect(gl == 1.0f && gr == 0.0f, "pan law: hard left");
+        // two notes of one sound in one host: the second goes to the other side
+        Host h(entry);
+        h.activate(48000, 512);
+        EventList in;
+        in.events.reserve(64);
+        in.param(0, 5, 1);
+        in.param(0, 53, -40);
+        h.process(512, in);
+        in.clear();
+        double side[2][2] = {};
+        for (int n = 0; n < 2; n++) {
+            in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, 69, 1.0);
+            for (int b = 0; b < 40; b++) {
+                if (b == 30)
+                    in.note(CLAP_EVENT_NOTE_OFF, 0, -1, 0, 69, 0);
+                h.process(512, in);
+                in.clear();
+                if (b >= 10 && b < 30)
+                    for (int i = 0; i < 512; i++) {
+                        side[n][0] += (double)h.left[i] * h.left[i];
+                        side[n][1] += (double)h.right[i] * h.right[i];
+                    }
+            }
+        }
+        expect(side[0][0] > 4 * side[0][1] && side[1][1] > 4 * side[1][0], "alternate pan: left, then right");
     }
     // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
     // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic
@@ -1296,7 +1357,7 @@ int extendedTest() {
 
 // render <out.wav> <rate> <note> <velocity 1-127> <hold s> <tail s> [id=value ...]: one note
 // with the given parameter values, as a mono 32-bit float WAV (the note starts at frame 0).
-int renderToWav(const std::vector<char *> &args) {
+int renderToWav(const std::vector<char *> &args, bool stereo) {
     if (args.size() < 8)
         return 2;
     const char *path = args[2];
@@ -1318,22 +1379,27 @@ int renderToWav(const std::vector<char *> &args) {
     h.process(512, in);
     in.clear();
     std::vector<float> out;
-    out.reserve(total + 512);
+    out.reserve((total + 512) * 2);
     in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)key, velocity);
     for (size_t done = 0; done < total; done += 512) {
         if (holdFrames >= done && holdFrames < done + 512)
             in.note(CLAP_EVENT_NOTE_OFF, (uint32_t)(holdFrames - done), -1, 0, (int16_t)key, 0);
         h.process(512, in);
         in.clear();
-        out.insert(out.end(), h.left.begin(), h.left.begin() + 512);
+        for (size_t i = 0; i < 512; i++) {
+            out.push_back(h.left[i]);
+            if (stereo)
+                out.push_back(h.right[i]);
+        }
     }
-    out.resize(total);
+    const uint16_t channels = stereo ? 2 : 1;
+    out.resize(total * channels);
     std::ofstream f(path, std::ios::binary);
     auto u32 = [&](uint32_t v) { f.write((const char *)&v, 4); };
     auto u16 = [&](uint16_t v) { f.write((const char *)&v, 2); };
     const uint32_t bytes = (uint32_t)(out.size() * 4);
-    f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8); u32(16); u16(3); u16(1);
-    u32((uint32_t)rate); u32((uint32_t)rate * 4); u16(4); u16(32); f.write("data", 4); u32(bytes);
+    f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8); u32(16); u16(3); u16(channels);
+    u32((uint32_t)rate); u32((uint32_t)rate * 4 * channels); u16(4 * channels); u16(32); f.write("data", 4); u32(bytes);
     f.write((const char *)out.data(), bytes);
     return f ? 0 : 1;
 }
@@ -1841,8 +1907,8 @@ int main(int argc, char **argv) {
         return threadsTest();
     if (cmd == "extended")
         return extendedTest();
-    if (cmd == "render")
-        return renderToWav(args);
+    if (cmd == "render" || cmd == "render-stereo")
+        return renderToWav(args, cmd == "render-stereo");
     if (cmd == "topology")
         return topologyTest();
     if (cmd == "contexts")

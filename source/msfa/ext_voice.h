@@ -68,6 +68,9 @@ enum Common {
     KeyOnDelay,         // 0-127: time before the note starts (tempo sync off)
     KeyOnDelaySync,     // 0-1
     KeyOnDelayNote,     // 0-16: note length with tempo sync (16th ... 4th x 8, extKeyOnDelayBeats)
+    RandomPan,          // 0-127
+    AlternatePan,       // -64-+63 (left 64 ... right 63)
+    ScalingPan,         // -64-+63
     CommonCount
 };
 

@@ -166,7 +166,7 @@ Dx7Note::Dx7Note(std::shared_ptr<TuningState> ts, MTSClient *mtsc, const SynthRa
 }
 
 void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls,
-                   const ExtendedVoice *ext, uint32_t random, double tempo) {
+                   const ExtendedVoice *ext, const ExtStart &start) {
     initialised_ = true;
     extended_ = ext != nullptr && ext->extended();
     if (extended_) {
@@ -174,7 +174,7 @@ void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int cha
         playingMidiNote = midinote;
         midiChannel = channel;
         mpePitchBend = 8192;
-        ext_.init(*ext, midinote, velocity, rate_, *tuning_state_, random, tempo);
+        ext_.init(*ext, midinote, velocity, rate_, *tuning_state_, start);
         return;
     }
     currentPatch = patch;

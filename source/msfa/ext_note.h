@@ -122,6 +122,13 @@ private:
     bool down_ = false;
 };
 
+// What a note takes from its sound's state at note-on.
+struct ExtStart {
+    uint32_t randomPitch = 0, randomPan = 0; // uniform 32-bit values drawn for this note
+    uint32_t count = 0;                      // the sound's Extended notes before this one (alternate pan)
+    double tempo = 120;                      // beats per minute (tempo-synced key-on delay)
+};
+
 class ExtNote {
 public:
     // an operator's wave (msfa/ext_waves.h)
@@ -130,10 +137,11 @@ public:
         const int32_t *table = nullptr; // Table: the wave; Formant: the window
         int32_t centre = 1;             // Formant: the centre harmonic
     };
-    // random: a uniform 32-bit value drawn for this note (random pitch)
-    // tempo: beats per minute (tempo-synced key-on delay)
     void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
-              uint32_t random = 0, double tempo = 120);
+              const ExtStart &start = ExtStart());
+    // its pan gains (both 1 at the centre)
+    float gainLeft() const { return gainL_; }
+    float gainRight() const { return gainR_; }
     // the voice's values changed while it plays (envelopes keep their state)
     void update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
     // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency); lfo_samples is
@@ -166,6 +174,7 @@ private:
     ExtPitchEnv peg_[8];
     ExtPartPitchEnv ppeg_;
     uint32_t random_ = 0;        // this note's random value (random pitch)
+    float gainL_ = 1, gainR_ = 1; // pan
     // key-on delay: samples before the note starts, then its output runs `shift_` samples late
     // within the 64-sample grid (carry_ holds the samples that spill into the next block)
     int64_t delay_ = 0;

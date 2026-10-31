@@ -80,14 +80,18 @@ struct SynthContext {
     Controllers ctrl;               // settings and controller values
     Lfo lfo;
     PluginFx fx;
+    PluginFx fxRight; // the right channel's output filter (stereo rendering), fx's settings
     bool monoMode = false;
     int engineType = -1;
     int lastActiveVoice = 0;
-    uint32_t noteRandom = 0x2545F491u; // xorshift state: one value per Extended note (reset by prepare)
+    uint32_t noteRandom = 0x2545F491u; // xorshift state: values per Extended note (reset by prepare)
+    uint32_t noteCount = 0;            // Extended notes since prepare (alternate pan)
 
     // audio thread
     float extra_buf[N];        // rendered ahead (see SynthEngine::render)
+    float extra_bufRight[N];   // the same for the right channel (stereo rendering)
     std::vector<float> block;  // contexts other than 0 render a block here before mixing
+    std::vector<float> blockRight;
     bool rendering = false;    // rendered in the current block
     bool tail = false;         // the last block was not silent
     uint16_t selectedChannels = 0;
@@ -155,7 +159,11 @@ public:
 
     // Renders numSamples mono samples into out (overwriting it), dispatching events on the
     // 64-sample grid as it goes, then applies the output filter.
-    void render(float *out, int numSamples, EventSource &events);
+    void render(float *out, int numSamples, EventSource &events) { render(out, nullptr, numSamples, events); }
+    // The same in stereo when right is not null: voices that are not panned (every Classic
+    // voice) go to both channels alike, so the left channel is the mono output and the right
+    // one the same wherever nothing is panned.
+    void render(float *left, float *right, int numSamples, EventSource &events);
 
     // A short MIDI channel message (not SysEx). channel is 1-16.
     MidiResult processMidiMessage(const uint8_t *buf, int channel);
@@ -229,6 +237,7 @@ private:
     Controllers &voiceCtrl(int c, int ch) { return perChannel ? channelCtrl[c][(ch - 1) & 15] : contexts[c].ctrl; }
     // the channels (bit mask) a controller message on channel ch (1-16) reaches
     unsigned controllerTargets(int ch);
+    void processRight(SynthContext &x, float *right, int numSamples);
 
     // Extra buffering for when GetSamples wants a buffer not a multiple of N (the samples
     // are per context; the count is shared, so every context keeps the same 64-sample grid)

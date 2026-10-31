@@ -205,6 +205,9 @@ static std::vector<Param> build() {
         extv(58, c, "Key On Delay", 0, 127, ext::KeyOnDelay);
         extv(59, c, "Key On Delay Tempo Sync", 0, 1, ext::KeyOnDelaySync, Text::Switch, offOn);
         extv(96, c, "Key On Delay Note Length", 0, 16, ext::KeyOnDelayNote, Text::Choice, lengths);
+        extv(52, c, "Random Pan", 0, 127, ext::RandomPan);
+        extv(53, c, "Alternate Pan", -64, 63, ext::AlternatePan, Text::Signed);
+        extv(54, c, "Scaling Pan", -64, 63, ext::ScalingPan, Text::Signed);
     }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
@@ -466,6 +469,8 @@ bool convertToClassic(std::vector<double> &values) {
         return false; // random pitch, pitch key follow
     if (x.geti(58) != 0 || x.geti(59) != 0)
         return false; // key-on delay
+    if (x.geti(52) != 0 || x.geti(53) != 0 || x.geti(54) != 0)
+        return false; // pan (Classic voices are mono)
     for (int d = 1; d <= 6; d++) {
         const uint32_t e = 1000 * m.op[d - 1];
         if (x.geti(e + 30) != keySync || x.geti(e + 58) != pitchSens)

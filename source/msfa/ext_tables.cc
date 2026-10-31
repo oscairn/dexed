@@ -401,3 +401,40 @@ double extKeyOnDelayBeats(int note) {
     static const double beats[17] = { 0.25, 1 / 3.0, 0.375, 0.5, 2 / 3.0, 0.75, 1, 4 / 3.0, 1.5, 2, 8 / 3.0, 3, 4, 5, 6, 7, 8 };
     return beats[clampi(note, 0, 16)];
 }
+
+// ---- pan ----
+
+void extPanGains(int position, float &left, float &right) {
+    // the far side's gain by distance from the centre, every 4 positions (measured with
+    // alternate pan, the same both ways within 0.02 dB); the near side keeps full level
+    // (constant at the centre: no pan law dip); nothing from 63 on; straight in amplitude between
+    static const float g[17] = { 1.0f, 0.99916f, 0.95598f, 0.91621f, 0.83947f, 0.7698f, 0.67598f, 0.56891f, 0.47799f,
+                                 0.3689f, 0.28422f, 0.20131f, 0.13042f, 0.07105f, 0.02864f, 0.00528f, 0.0f };
+    const int p = clampi(position, -64, 63), d = p < 0 ? -p : p;
+    float far;
+    if (d >= 63)
+        far = 0;
+    else if (d >= 60)
+        far = g[15] * (63 - d) / 3.0f;
+    else
+        far = g[d / 4] + (g[d / 4 + 1] - g[d / 4]) * (float)(d % 4) / 4.0f;
+    left = p > 0 ? far : 1.0f;
+    right = p < 0 ? far : 1.0f;
+}
+
+int extScalingPanPosition(int depth, int midinote) {
+    // depth / 32 positions per key from note 60 down and from note 64 up, none between; +63
+    // plays as 64, two per key (measured at depths +63 and +32, notes 24-108 every 6)
+    const int n = midinote < 60 ? midinote - 60 : midinote > 64 ? midinote - 64 : 0;
+    const int d = clampi(depth, -64, 63);
+    return (int)std::lround((d == 63 ? 64 : d) * n / 32.0);
+}
+
+int extRandomPanPosition(int depth, uint32_t random) {
+    // shortcut: uniform within 64 (depth / 127)^2 positions either way: the reference's 16
+    // notes at 127 reached 50 and 8 notes at 64 reached 14; its distribution (13 of 16 to the
+    // left) was not resolved
+    const double d = clampi(depth, 0, 127) / 127.0;
+    const int range = (int)std::lround(64 * d * d);
+    return (int)(random % (uint32_t)(2 * range + 1)) - range;
+}

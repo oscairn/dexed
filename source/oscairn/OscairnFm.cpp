@@ -407,9 +407,7 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
         right = bus.channel_count > 1 ? bus.data32[1] : nullptr;
     }
     if (left != nullptr && frames > 0) {
-        s.engine.render(left, (int)frames, events);
-        if (right != nullptr)
-            std::memcpy(right, left, frames * sizeof(float));
+        s.engine.render(left, right, (int)frames, events);
     } else {
         events.dispatchUntil(INT32_MAX);
     }

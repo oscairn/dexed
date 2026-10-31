@@ -46,7 +46,7 @@ public:
     // ext: the sound's Extended values; when its profile is Extended the note plays those
     // (ExtNote) instead of the DX7 voice
     void init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls,
-              const ExtendedVoice *ext = nullptr, uint32_t random = 0, double tempo = 120);
+              const ExtendedVoice *ext = nullptr, const ExtStart &start = ExtStart());
     void initPortamento(const Dx7Note &srcNote);
 
     // Note: this _adds_ to the buffer. Interesting question whether it's
@@ -70,6 +70,12 @@ public:
     // Stops the note for good: it no longer counts as playing (after a choke's fade).
     void silence() { initialised_ = false; ext_.silence(); }
     bool extended() const { return extended_; }
+    // Extended notes: false when centred; otherwise the pan gains
+    bool panned(float &left, float &right) const {
+        left = ext_.gainLeft();
+        right = ext_.gainRight();
+        return extended_ && (left != 1.0f || right != 1.0f);
+    }
 
     // We should put this as a function and not a DX7Note method
     //int32_t osc_freq(int midinote, int mode, int coarse, int fine, int detune);

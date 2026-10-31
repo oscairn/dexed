@@ -51,6 +51,10 @@ double extPitchKeyFollowCents(int value, int midinote, int centre); // offset fr
 double extRandomPitchCents(int depth, uint32_t random); // random pitch 0-127, random: a uniform 32-bit value
 double extKeyOnDelayMs(int time);    // key-on delay 0-127
 double extKeyOnDelayBeats(int note); // tempo-synced key-on delay 0-16 (16th ... 4th x 8), in beats
+// pan: positions -64 (left) ... +63 (right)
+void extPanGains(int position, float &left, float &right);
+int extScalingPanPosition(int depth, int midinote); // scaling pan -64-+63
+int extRandomPanPosition(int depth, uint32_t random); // random pan 0-127
 
 // LFO
 double extLfoHz(int speed);         // speed range Normal, 0-99
