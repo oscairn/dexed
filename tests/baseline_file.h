@@ -3,10 +3,8 @@
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3 of the License, or
- * (at your option) any later version.
+ * SPDX-License-Identifier: MIT
+ * Test helper, MIT licensed so any project can reuse it (docs/oscairn-plan.md, section 10).
  */
 #pragma once
 

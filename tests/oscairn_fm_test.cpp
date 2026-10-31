@@ -43,27 +43,7 @@ extern "C" const clap_plugin_entry_t clap_entry;
 using namespace testhost;
 using namespace dx7cases;
 
-// ---- allocation guard ----
-
-static thread_local bool forbidAllocation = false;
-static std::atomic<int> forbiddenAllocations { 0 };
-
-static void *allocate(size_t size) {
-    if (forbidAllocation) {
-        forbiddenAllocations++;
-        static const char message[] = "allocation while processing\n";
-        (void)!write(2, message, sizeof message - 1);
-    }
-    if (void *p = std::malloc(size ? size : 1))
-        return p;
-    throw std::bad_alloc();
-}
-void *operator new(size_t size) { return allocate(size); }
-void *operator new[](size_t size) { return allocate(size); }
-void operator delete(void *p) noexcept { std::free(p); }
-void operator delete[](void *p) noexcept { std::free(p); }
-void operator delete(void *p, size_t) noexcept { std::free(p); }
-void operator delete[](void *p, size_t) noexcept { std::free(p); }
+#include "allocation_guard.h"
 
 namespace {
 
