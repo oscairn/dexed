@@ -1018,6 +1018,73 @@ tracking in the engine), `8d0f288` (native CLAP and its tests).
   question 4): a raw MIDI note-off releases the first matching voice slot, which is not always
   the oldest press; no note expressions.
 
+### M4 (in progress, 2026-10-31)
+
+Commits: `02c6811` (Extended voice, 88 algorithms, parameters, conversion), `c2ad09a` (fitted
+tables, per-sample envelopes, init sounds, Extended test). Measurement code: oscairn/measurement
+`f12fb53` (`fm/eg.py`, `fit_eg.py`, `lfo.py`, `fit_tables.py`, `make_tables.py`, `calibrate.py`,
+`compare.py`, `topology.py`).
+
+- **Profile.** Parameter 5 (Classic, Extended) per sound. Extended values have their own IDs:
+  40-51 common, 1000 n + 30..59 for operators 1-8; the Classic IDs are unchanged and the
+  parameter list only grew (`tests/baseline/oscairn-fm-params.txt`, 431 parameters). The
+  engine reads an `ExtendedVoice` beside the 156-byte DX7 voice (`msfa/ext_voice.h`); without
+  one (the desktop Dexed) every sound is Classic. Classic stays bit-identical: the 164
+  baseline cases pass through the engine, the JUCE plugin and the native CLAP.
+- **Extended voice** (`msfa/ext_note.*`): 8 operators through the compiled graph with
+  `extAlgorithms[88]`; multi-operator feedback (12, 14) rendered sample by sample;
+  per-sample envelopes (hold at the release level, attack, decay 1, decay 2, release) with
+  each operator's per-sample gains passed to its own kernels; time-based operator pitch EG;
+  fixed-mode key follow; per-operator key-on reset; common pitch velocity depth; 2nd LFO
+  start phase and extended speed range (`Lfo::reset(ExtendedVoice)`). Tables in
+  `msfa/ext_tables_data.h`, written by `fm/make_tables.py`.
+- **Init sounds:** `assets/octet/Classic Init.octet` (the DX7 init voice) and
+  `assets/octet/Extended Init.octet` (the documented defaults, profile Extended: operator 8
+  at level 85 in algorithm 69). **Conversion:** `convertToExtended` / `convertToClassic` in
+  `oscairn/Parameters.cpp` (DX7 algorithm n maps to an Extended graph found by search, mostly
+  n + 8 with operators 8..3); back to Classic only within the subset listed below.
+- **Measurements** (renders of the reference plugin in `forks/measurements/m4/`, never
+  committed): about 1,500 single-note renders in campaigns for envelopes (decay, release and
+  decay 2 at every time value, attack and hold timed by a marker carrier at 31 times the
+  fundamental, fast segments on a 4.19 kHz carrier), pitch (coarse, every fine value, detune
+  at 8 notes, fixed mode, key follow, pitch velocity), operator pitch EG, LFO rates and
+  topology (each algorithm with eight unrelated operator frequencies, with and without
+  feedback). `fm/compare.py` runs the same analysis on reference and Octet renders of every
+  case and checks `fm/tolerances.json`. Every pitch the reference plays is +0.91 cents sharp
+  (ratio 1 at several notes; fixed mode +0.66); the comparison renders add +0.91 cents of
+  master tune, the engine keeps standard tuning.
+
+**Gate status** (as measured on 2026-10-31; "pending" means the reference renders were still
+queued on the shared recorder when this was written):
+
+| Gate | Result |
+| --- | --- |
+| Topology, all 88 | In-fork test (graph against Octet's render, solo and pairwise) passes for all 88 and the 32 DX7 graphs. Against the reference, 170 of 177 cases show the same spectral peak pattern. **Algorithm 65 resolved:** the transcribed reading (operators 3 and 4 both modulate 5-8) matches; the alternative (4 modulates 5 only) differs at many strong peaks. **Not met:** algorithm 70 (with and without feedback) has a strong reference-only line at f4 + 2 f1 + f3 (-19 dB), so its graph differs from the chart transcription somewhere not yet found (adding 1 > 3 made it worse); algorithms 2, 69 and 79 show only weak engine-only lines (-37 to -43 dB) on deep chains, probably modulation-depth calibration, unverified |
+| EG segment times 2 % | Decay 1 at all 100 time values, release and decay 2 (every even value 0-30, and 55-99): pass (fast values on the 4.19 kHz carrier; the 262 Hz carrier cannot resolve decays faster than about 1 ms per dB). Attack: pass at 0-40 (even) and 40-80, including attack to a lower EG level and lower operator levels. Hold: pass at 2-40 (even) and 40-80 except hold 0 (-0.011 ms, half a sample). **Pending:** attack 85-99 (currently 5-7 % fast, values interpolated), hold at odd values below 40 and at 85-99. **Not met:** operator pitch EG segment times (rate spread 23.6-24.9 across time values, about 5 %) |
+| Pitch 1 cent | Pass for every measurable case: coarse 0-31, fine 0-127 at several coarse values, detune -15..+15 at 8 notes, fixed mode 20 Hz-14 kHz with fine, key follow 0-99 at 5 notes, common pitch velocity depth -64..+63 at 9 velocities. Exceptions: coarse 31 with fine above 100 (the reference gave 13.0 in one campaign and 6.658 in another, so its behaviour there is not stable), fixed frequencies below about 20 Hz (not measurable in short notes), common pitch velocity +32 at velocity 1 (1.11 cents), operator pitch EG held levels (3.1-3.4 cents) |
+| LFO rate 1 % | Normal speeds 0-99: 93 pass; 4, 5, 7, 8, 10, 13 and 17 differ by 1.0-4.4 %. The reference renders of slow speeds hold only 1.7-5 cycles, and Octet's own render of its table measures as far off, so this is measurement noise; longer renders pending. Extended speeds 0-415: **pending** (table provisional). In-fork test: Octet's LFO matches its tables within 1 % at every normal speed and every fifth extended speed |
+
+**Tests run locally:** Release CTest 36/36 (164 Classic cases bit-identical through engine,
+JUCE plugin and native CLAP; topology 32 + 88; Extended test; Oscairn scanner and renderer),
+ASan/UBSan 36/36, TSan 19/19. CI (`oscairn-tests`) for `c2ad09a`: see the next commit.
+
+**Decisions taken while implementing (for Jacob to confirm)**
+
+1. Extended values are separate parameters (IDs above), not shared with Classic ones even where
+   the range matches; Classic Transpose and the settings (100-199) apply to both profiles.
+2. The operator Pitch Velocity Sensitivity had no audible effect in the reference (-7..+7 at
+   depths -64 and +63); it is kept as a parameter and not applied.
+3. The reference's +0.91 cent tuning is not copied into the engine (standard tuning in M4).
+4. Back to Classic only when: the algorithm is the image of a DX7 algorithm with the other two
+   operators silent; one key-on reset and one LFO pitch depth offset for all operators; no
+   hold, operator pitch EG, pitch velocity, key follow or negative velocity; amplitude depth
+   offsets 0, 2, 4 or 7; LFO phase 0 and the normal speed range. Rates, times, fine and detune
+   convert to the nearest value (approximate both ways).
+5. Unmeasured, using the Classic curves: level scaling, level velocity (mirrored for negative
+   values), time key follow, LFO depth offsets, LFO delay; the LFO start phase is taken as the
+   start of the drawn wave.
+6. The init sounds are named "Classic Init" and "Extended Init" (no product names).
+
 ### How to run the tests
 
 ```
