@@ -1131,8 +1131,8 @@ fixed frequencies below 20 Hz.
     +200 %) rather than percent.
 17. The reference overloads at high resonance (LPF24D, HPF24D, BPF12D above resonance 80 give
     an output full of harmonics); Octet does not model that, it only bounds the filter's
-    states. Its filter runs in floating point after the operators and before Dexed's
-    16-bit rounding of each voice.
+    states. Its filter runs in floating point after the operators; Extended voices are no
+    longer rounded to 16 bits (decision 32).
 18. Filter coefficients and the filter EG are updated once per 64-sample block, ramping the
     coefficients linearly across it (the FEG's fastest measured segments, 0-20, are instant
     in the reference and take one block in Octet).
@@ -1178,6 +1178,10 @@ fixed frequencies below 20 Hz.
 31. The part LFO's envelope (delay, fade in, hold, fade out) restarts whenever its phase resets,
     and on a first key-on when key-on reset is off (unmeasured); a sound with a part LFO
     destination that has depth does not convert to Classic.
+32. Extended voices skip Dexed's 16-bit rounding of each voice (fifth session): each voice's
+    output goes to the mix in floating point (full scale unchanged, clipped at +-1). Classic
+    voices keep the rounding, so Classic output is bit-identical. Reason and numbers: the
+    filter gate below.
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1333,7 +1337,7 @@ Chamberlin filter's own shape near a sixth of the rate). Per type, with Q = 0.5 
   at 0.78; up to about 90 cents from Octet's path), apparently following the cutoff segments.
 - **Engine** (`msfa/ext_filter.*`, data `msfa/ext_filter_data.h` written by
   `fm/fit_filter.py`; parameters 60-95, `ExtendedVoice` common values): per voice, Extended
-  sounds only, after the operators and before the voice's 16-bit rounding, in floating point;
+  sounds only, after the operators, in floating point (Extended voices are not rounded to 16 bits, decision 32);
   coefficients and the FEG per 64-sample block with linear ramps of F, damping and gain.
   Thru at gain 255 (the default) skips the filter, so existing Extended sounds render
   unchanged. Classic sounds never reach it; a sound with a filter does not convert to Classic.
@@ -1350,32 +1354,44 @@ Chamberlin filter's own shape near a sixth of the rate). Per type, with Q = 0.5 
 **Gate** (`fm/compare_filter.py`: each side's response against its own thru, every harmonic
 the reference passes within 40 dB, below 16 kHz, and at most 60 dB below the strongest
 harmonic in either render and in Octet's thru, within 1 dB; `fm/compare_feg.py`: segment
-durations within 2 % or 2 ms, static levels within 15 cents). The level limit is there because
-each Octet voice is rounded to 16 bits (Dexed's design) and on a periodic tone the rounding
-lands on the harmonics, about 70 dB below this source's strongest.
+durations within 2 % or 2 ms, static levels within 15 cents). The level limit was added because
+each Octet voice was rounded to 16 bits (Dexed's design) and on a periodic tone the rounding
+lands on the harmonics, about 70 dB below this source's strongest; Extended voices no longer
+are (decision 32), and the gate is reported both with and without the limit below.
 
 | Gate | Result |
 | --- | --- |
-| Filter response within 1 dB, per type (`filt`, `filt3`, `filt4`, `feg2` filter cases: 670 of 697 met) | **Met:** LPF24A 6/6, LPF18 6/6, LPF18s 24/24, LPF12+HPF12 126/126, LPF6+HPF12 7/7, HPF12 397/397 (every cutoff, resonance 0-127, key follow, velocity, scaling), BPF6 6/6, BEF12 6/6, BEF6 6/6, DualLPF 12/12, DualHPF 6/6, DualBEF 12/12; worst 0.88 dB. **Not met:** LPF24D, HPF24D and BPF12D at resonance 96-127 (8-51 dB: the reference overloads, its output full of harmonics, which Octet does not model; at 0-80 they meet, worst 0.67), BPF12D at cutoff 512 resonance 0 in `filt` (2.9 dB in the deep stop band; the same case in `filt3` meets), BPFw 14/16 (1.1-1.3 dB at cutoff 256, widths 64 and 127), DualBPF at Distance +127 (8.1 dB; the second section's limit above F = 1 is a guess), LPF12+BPF6 13/21 (1.0-4.0 dB, the model is approximate) |
+| Filter response within 1 dB, per type (`filt`, `filt3`, `filt4`, `feg2` filter cases, with the level limit: 670 of 697 met with 16-bit voices, 676 without the rounding; per-type figures below are the 16-bit ones) | **Met:** LPF24A 6/6, LPF18 6/6, LPF18s 24/24, LPF12+HPF12 126/126, LPF6+HPF12 7/7, HPF12 397/397 (every cutoff, resonance 0-127, key follow, velocity, scaling), BPF6 6/6, BEF12 6/6, BEF6 6/6, DualLPF 12/12, DualHPF 6/6, DualBEF 12/12; worst 0.88 dB. **Not met:** LPF24D, HPF24D and BPF12D at resonance 96-127 (8-51 dB: the reference overloads, its output full of harmonics, which Octet does not model; at 0-80 they meet, worst 0.67), BPF12D at cutoff 512 resonance 0 in `filt` (2.9 dB in the deep stop band; the same case in `filt3` meets), BPFw 14/16 (1.1-1.3 dB at cutoff 256, widths 64 and 127), DualBPF at Distance +127 (8.1 dB; the second section's limit above F = 1 is a guess), LPF12+BPF6 13/21 (1.0-4.0 dB, the model is approximate) |
 | FEG times within 2 % | **Met** in `feg2` (the campaign the tables were fitted from) for 91 of 92 cases: decay 1 at every second value 0-92 and at 100 and 108, holds 0-96, depth velocity; decay 42 misses by 2.0 ms. In `feg` (an earlier campaign, same probe) 43 of 49: attack, decay 2 and hold at 0-16 and 64-80 meet; 6 cases at 24-48 do not (4-18 %): the reference itself differs between campaigns by up to 7.3 ms at the same setting (decay 48: 132.5 and 139.8 ms; hold 48: 192.4 and 185.1 ms), so short segments cannot be gated at 2 % |
 | FEG levels, depth and depth velocity (15 cents) | **Met:** all `feg` and `feg2` static cases |
 
 **The filter gate without its level limit (for Jacob to judge).** The limit (harmonics more than
 60 dB below the strongest in either render or in Octet's thru are not checked) changes how the
-gate is evaluated and has not been approved. Re-run in this session on the same campaigns with
-the limit removed (every other condition unchanged: within 40 dB of the reference's strongest
-passed harmonic, below 16 kHz, 1 dB), on renders from the current engine: **129 of 697 met**
-(with the limit: 670 of 697, unchanged). Per type, met without / with the limit, and the median
-and largest worst-harmonic difference without it: LPF24D 6/8 of 14 (37.4, 75.9 dB), LPF24A 5/6
-of 6 (0.1, 40.6), LPF18 5/6 of 6 (0.1, 38.4), LPF18s 8/24 of 24 (2.5, 47.3), LPF12+HPF12 60/126
-of 126 (1.8, 47.1), LPF6+HPF12 0/7 of 7 (36.5, 42.8), HPF24D 0/3 of 6 (29.4, 75.0), HPF12
-22/397 of 397 (13.2, 28.3), BPF12D 5/7 of 14 (33.0, 75.1), BPFw 1/14 of 16 (18.1, 48.3), BPF6
-2/6 of 6 (11.6, 53.1), BEF12 0/6 of 6 (11.1, 15.6), BEF6 0/6 of 6 (11.0, 13.2), DualLPF 7/12 of
-12 (0.7, 38.7), DualHPF 1/6 of 6 (14.7, 19.5), DualBPF 2/11 of 12 (21.9, 46.2), DualBEF 0/12 of
-12 (10.0, 22.2), LPF12+BPF6 5/13 of 21 (15.6, 43.7). The previous session attributes the
-failures without the limit to Octet's 16-bit voice rounding (after the filter), about 70 dB
-below this source's strongest harmonic; not re-verified here, and rounding Extended voices to
-more bits than Dexed's 16 was not tried.
+gate is evaluated and has not been approved. Without it (every other condition unchanged:
+within 40 dB of the reference's strongest passed harmonic, below 16 kHz, 1 dB), on the same
+campaigns: **129 of 697 met** with Octet's voices rounded to 16 bits as in Dexed (fourth
+session), **590 of 697 met** without that rounding for Extended voices (fifth session,
+decision 32); with the limit, 670 and **676 of 697**.
+
+Why (fifth session, measured on these renders): the failures without the limit were at
+harmonics 110-130 dB below full scale (median -113 dBFS in the reference, -133 in Octet), and
+Octet's harmonics there were the rounding error of its 16-bit voice output, which on a
+periodic tone lands on the harmonics (Octet's floor between the harmonics was 20 dB lower, at
+-141). The reference's own floor at the harmonics is lower than that rounding error. With the
+voice output left in floating point (a local experiment first, then the change), Octet's floor
+between harmonics is -182 dBFS against the reference's -124, and 461 more cases meet. Per type,
+met without the limit / with it, of the cases, and the median and largest worst-harmonic
+difference without it: LPF24D 7/9 of 14 (16.4, 81.8 dB), LPF24A 6/6 of 6 (0.0, 0.7), LPF18 6/6
+of 6 (0.0, 0.9), LPF18s 22/24 of 24 (0.0, 14.7), LPF12+HPF12 117/126 of 126 (0.0, 2.9),
+LPF6+HPF12 7/7 of 7 (0.2, 0.7), HPF24D 2/4 of 6 (17.4, 45.1), HPF12 338/397 of 397 (0.0, 9.4),
+BPF12D 6/8 of 14 (16.8, 50.4), BPFw 13/14 of 16 (0.1, 1.4), BPF6 5/6 of 6 (0.3, 2.9), BEF12 5/6
+of 6 (0.1, 9.1), BEF6 5/6 of 6 (0.1, 4.5), DualLPF 11/12 of 12 (0.0, 4.6), DualHPF 6/6 of 6 (0.1,
+0.7), DualBPF 10/11 of 12 (0.4, 8.7), DualBEF 10/12 of 12 (0.1, 40.1), LPF12+BPF6 14/16 of 21
+(1.0, 5.1). Of the 107 cases still not met without the limit, 62 miss by 1.3 dB at one harmonic
+near 14.9 kHz, where the reference's own source (its thru render) dips to 96-98 dB below its
+strongest harmonic (Octet's source is 33 dB lower than the reference's around 14 kHz, so the
+two sources differ there, not the filters); 20 are the resonance 96-127 overload cases
+(decision 17); about 25 others are spread over the types.
 
 Unmeasured or unresolved: FEG time velocity sensitivity (the reference made the segment
 instant at velocity 127 with both -64 and +63 and left it at velocity 1; not applied), FEG
