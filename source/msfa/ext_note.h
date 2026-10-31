@@ -131,14 +131,16 @@ public:
         int32_t centre = 1;             // Formant: the centre harmonic
     };
     // random: a uniform 32-bit value drawn for this note (random pitch)
+    // tempo: beats per minute (tempo-synced key-on delay)
     void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
-              uint32_t random = 0);
+              uint32_t random = 0, double tempo = 120);
     // the voice's values changed while it plays (envelopes keep their state)
     void update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
     // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency); lfo_samples is
     // the LFO at every sample of the block, or null to use lfo_val throughout
     void compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
                  const Controllers *ctrls);
+    bool waiting() const { return delay_ > 0; } // in its key-on delay
     void keyup();
     bool isPlaying() const;
     void oscSync();            // the operators with Key On Reset start from phase 0
@@ -150,6 +152,8 @@ public:
 
 private:
     void setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning, bool start);
+    void render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
+                const Controllers *ctrls);
     void setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start);
     void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay);
 
@@ -162,6 +166,11 @@ private:
     ExtPitchEnv peg_[8];
     ExtPartPitchEnv ppeg_;
     uint32_t random_ = 0;        // this note's random value (random pitch)
+    // key-on delay: samples before the note starts, then its output runs `shift_` samples late
+    // within the 64-sample grid (carry_ holds the samples that spill into the next block)
+    int64_t delay_ = 0;
+    int shift_ = 0;
+    int32_t carry_[N] = {};
     FmOpParams params_[8] = {};
     int32_t basepitch_[8] = {};
     bool fixed_[8] = {};

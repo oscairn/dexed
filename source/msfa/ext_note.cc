@@ -469,9 +469,16 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
 }
 
 void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
-                   uint32_t random) {
+                   uint32_t random, double tempo) {
     initialised_ = true;
     random_ = random;
+    {
+        using namespace ext;
+        const double seconds = v.common(KeyOnDelaySync) ? extKeyOnDelayBeats(v.common(KeyOnDelayNote)) * 60.0 / std::max(tempo, 1.0)
+                                                        : extKeyOnDelayMs(v.common(KeyOnDelay)) / 1000.0;
+        delay_ = std::llround(seconds * rate->sampleRate);
+        shift_ = 0;
+    }
     setup(v, midinote, velocity, rate, tuning, true);
 }
 
@@ -569,6 +576,33 @@ void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay) {
 
 void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
                       int32_t pitchBase, const Controllers *ctrls) {
+    if (!initialised_)
+        return; // (released within its key-on delay)
+    if (delay_ >= N) {
+        delay_ -= N; // nothing moves before the note starts
+        return;
+    }
+    if (delay_ > 0) {
+        shift_ = (int)delay_;
+        delay_ = 0;
+        std::fill(carry_, carry_ + N, 0);
+    }
+    if (shift_ == 0) {
+        render(buf, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls);
+        return;
+    }
+    // started within a block: every block runs shift_ samples late
+    int32_t tmp[N] = {};
+    render(tmp, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls);
+    for (int s = 0; s < shift_; s++)
+        buf[s] += carry_[s];
+    for (int s = shift_; s < N; s++)
+        buf[s] += tmp[s - shift_];
+    std::copy(tmp + N - shift_, tmp + N, carry_);
+}
+
+void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
+                     int32_t pitchBase, const Controllers *ctrls) {
     // LFO pitch and amplitude modulation as the DX7 voice computes them, per operator, but at
     // every sample when the LFO runs per sample
     int32_t lfo[N];
@@ -656,6 +690,10 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
 }
 
 void ExtNote::keyup() {
+    if (delay_ > 0) {
+        initialised_ = false; // released before its key-on delay ended: never sounds
+        return;
+    }
     for (auto &e : env_)
         e.keydown(false);
     feg_.keydown(false);
@@ -665,6 +703,8 @@ void ExtNote::keyup() {
 bool ExtNote::isPlaying() const {
     if (!initialised_)
         return false;
+    if (delay_ > 0)
+        return true;
     const CompiledAlgorithm &a = extCompiled(algorithm_);
     for (int i = 0; i < ext::Ops; i++)
         if (((a.outputs >> i) & 1) && env_[i].isActive())

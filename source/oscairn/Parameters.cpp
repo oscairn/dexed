@@ -73,6 +73,7 @@ static ExtendedVoice buildExtDefaults() {
     e.v[FilterBreak4] = 72;
     e.v[PitchKeyFollow] = 96; // +100 %
     e.v[PitchKeyCentre] = 60;
+    e.v[KeyOnDelayNote] = 9; // 1/2 (the documented default)
     for (int n = 1; n <= Ops; n++) {
         int16_t *o = e.v + op(n, KeyOnReset);
         o[KeyOnReset] = 1;
@@ -197,6 +198,13 @@ static std::vector<Param> build() {
         extv(55, c, "Random Pitch", 0, 127, ext::RandomPitch);
         extv(56, c, "Pitch Key Follow", 0, 127, ext::PitchKeyFollow, Text::Choice, keyFollow);
         extv(57, c, "Pitch Key Follow Centre", 0, 127, ext::PitchKeyCentre, Text::Key);
+        static const char *const lengths[] = { "1/16", "1/8 triplet", "1/16 dotted", "1/8", "1/4 triplet",
+                                               "1/8 dotted", "1/4", "1/2 triplet", "1/4 dotted", "1/2",
+                                               "1/1 triplet", "1/2 dotted", "4 beats", "5 beats", "6 beats",
+                                               "7 beats", "8 beats", nullptr };
+        extv(58, c, "Key On Delay", 0, 127, ext::KeyOnDelay);
+        extv(59, c, "Key On Delay Tempo Sync", 0, 1, ext::KeyOnDelaySync, Text::Switch, offOn);
+        extv(96, c, "Key On Delay Note Length", 0, 16, ext::KeyOnDelayNote, Text::Choice, lengths);
     }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
@@ -456,6 +464,8 @@ bool convertToClassic(std::vector<double> &values) {
             return false; // the common pitch EG (Classic's pitch EG is not converted either way)
     if (x.geti(55) != 0 || x.geti(56) != 96)
         return false; // random pitch, pitch key follow
+    if (x.geti(58) != 0 || x.geti(59) != 0)
+        return false; // key-on delay
     for (int d = 1; d <= 6; d++) {
         const uint32_t e = 1000 * m.op[d - 1];
         if (x.geti(e + 30) != keySync || x.geti(e + 58) != pitchSens)

@@ -49,6 +49,8 @@ double extPartPegTimeKeyFollowScale(int sensitivity, int midinote); // 0-7: mult
 int extPitchKeyFollowPercent(int value);   // pitch key follow 0-127 -> -200 ... +200 %
 double extPitchKeyFollowCents(int value, int midinote, int centre); // offset from the note's own pitch
 double extRandomPitchCents(int depth, uint32_t random); // random pitch 0-127, random: a uniform 32-bit value
+double extKeyOnDelayMs(int time);    // key-on delay 0-127
+double extKeyOnDelayBeats(int note); // tempo-synced key-on delay 0-16 (16th ... 4th x 8), in beats
 
 // LFO
 double extLfoHz(int speed);         // speed range Normal, 0-99

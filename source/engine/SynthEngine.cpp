@@ -529,7 +529,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
         r ^= r << 5;
         random = r;
     }
-    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext, random);
+    voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext, random, tempo);
     // (Extended sounds reset each operator by its own Key On Reset)
     if ( (x.extended() || patch[OSC_KEY_SYNC]) && !voice_steal ) {
         voices[note].dx7_note->oscSync();

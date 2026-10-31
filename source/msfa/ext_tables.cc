@@ -378,3 +378,26 @@ double extRandomPitchCents(int depth, uint32_t random) {
     const int k = (clampi(depth, 0, 127) + 2) / 4;
     return ((int)(random % (uint32_t)(2 * k + 1)) - k) * 18.75;
 }
+
+// ---- key-on delay ----
+
+// Key-on delay by value: whole 64-sample blocks at 44.1 kHz (measured at every value against a
+// second part without delay, each within 0.07 blocks of the grid; 0 to 8.08 s)
+static const uint16_t kKeyOnDelayBlocks[128] = {
+    0, 10, 15, 20, 39, 46, 57, 75, 91, 108, 126, 148, 168, 186, 206, 227,
+    248, 280, 296, 325, 357, 371, 401, 430, 464, 492, 515, 544, 582, 606, 643, 679,
+    703, 740, 775, 809, 844, 875, 916, 955, 986, 1027, 1065, 1100, 1137, 1182, 1211, 1252,
+    1298, 1337, 1376, 1420, 1460, 1502, 1545, 1591, 1635, 1676, 1721, 1762, 1814, 1863, 1901, 1952,
+    1994, 2041, 2089, 2133, 2181, 2234, 2276, 2329, 2380, 2433, 2476, 2523, 2580, 2626, 2684, 2731,
+    2790, 2836, 2887, 2947, 3004, 3050, 3106, 3159, 3211, 3269, 3324, 3376, 3437, 3487, 3547, 3604,
+    3660, 3712, 3778, 3831, 3896, 3948, 4009, 4069, 4125, 4192, 4245, 4308, 4367, 4432, 4494, 4554,
+    4614, 4679, 4740, 4803, 4862, 4923, 4987, 5047, 5119, 5178, 5245, 5313, 5370, 5443, 5506, 5570,
+};
+double extKeyOnDelayMs(int time) { return kKeyOnDelayBlocks[clampi(time, 0, 127)] * 64 / 44.1; }
+
+double extKeyOnDelayBeats(int note) {
+    // 16th, 8th triplet, dotted 16th, 8th, quarter triplet, dotted 8th, quarter, half triplet,
+    // dotted quarter, half, whole triplet, dotted half, then 4-8 quarters
+    static const double beats[17] = { 0.25, 1 / 3.0, 0.375, 0.5, 2 / 3.0, 0.75, 1, 4 / 3.0, 1.5, 2, 8 / 3.0, 3, 4, 5, 6, 7, 8 };
+    return beats[clampi(note, 0, 16)];
+}

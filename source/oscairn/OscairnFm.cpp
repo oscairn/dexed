@@ -396,6 +396,8 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     s.out = process->out_events;
     s.now = 0;
     s.beforeEvents(); // before this call's events (RFC 0005)
+    if (process->transport != nullptr && (process->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0)
+        s.engine.setTempo(process->transport->tempo);
     const uint32_t frames = process->frames_count;
     ProcessEvents events(s, process->in_events);
     float *left = nullptr, *right = nullptr;

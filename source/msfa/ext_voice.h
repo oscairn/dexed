@@ -65,6 +65,9 @@ enum Common {
     RandomPitch,        // 0-127
     PitchKeyFollow,     // 0-127: -200 % ... +200 % (extPitchKeyFollowPercent; 64 is 0 %, 96 +100 %)
     PitchKeyCentre,     // 0-127 (MIDI note)
+    KeyOnDelay,         // 0-127: time before the note starts (tempo sync off)
+    KeyOnDelaySync,     // 0-1
+    KeyOnDelayNote,     // 0-16: note length with tempo sync (16th ... 4th x 8, extKeyOnDelayBeats)
     CommonCount
 };
 

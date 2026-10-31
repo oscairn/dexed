@@ -994,6 +994,29 @@ int extendedTest() {
         expect(a == b && std::fabs(cents / 18.75 - std::round(cents / 18.75)) < 0.06 && std::fabs(cents) <= 600.5,
                "random pitch is deterministic and on its grid: " + std::to_string(cents) + " cents");
     }
+    // -- key-on delay: the note starts that many samples late (exact, within the 64-sample
+    // grid), tempo-synced lengths at the host's tempo (120 without transport), and a note
+    // released before its delay ends never sounds
+    {
+        auto firstSound = [](const std::vector<float> &x) {
+            size_t i = 0;
+            while (i < x.size() && x[i] == 0)
+                i++;
+            return i;
+        };
+        for (int kd : { 1, 7, 33 }) {
+            const auto x = renderExtended({ { 58, kd } }, 69, 1.0, 2.0, 1.5);
+            const size_t want = (size_t)std::llround(extKeyOnDelayMs(kd) * rate / 1000);
+            const size_t got = firstSound(x);
+            expect(got >= want && got <= want + 1, "key-on delay " + std::to_string(kd) + ": first sound at " +
+                                                       std::to_string(got) + ", expected " + std::to_string(want));
+        }
+        const auto sync = renderExtended({ { 58, 100 }, { 59, 1 }, { 96, 6 } }, 69, 1.0, 1.0, 0.8);
+        expect(firstSound(sync) >= 24000 && firstSound(sync) <= 24001, "tempo-synced key-on delay 1/4 at 120: " +
+                                                                           std::to_string(firstSound(sync)));
+        const auto early = renderExtended({ { 58, 40 } }, 69, 1.0, 0.2, 2.0);
+        expect(firstSound(early) == early.size(), "a note released within its key-on delay never sounds");
+    }
     // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
     // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic
     {

@@ -145,6 +145,8 @@ public:
     void setExtended(int c, const ExtendedVoice *ext) { contexts[c].ext = ext; }
     void setTuning(std::shared_ptr<TuningState> tuning);
     void setMtsClient(MTSClient *client) { mtsClient = client; }
+    // The host's tempo (beats per minute), for tempo-synced key-on delays; 120 without one.
+    void setTempo(double bpm) { tempo = bpm > 0 ? bpm : 120; }
 
     // maxFrames: the largest block render() will get; contexts other than 0 can only play
     // when it is given.
@@ -238,6 +240,7 @@ private:
 
     SynthRate rate;
     double sampleRate = 44100;
+    double tempo = 120;
     std::shared_ptr<TuningState> tuningState;
     MTSClient *mtsClient = nullptr;
 

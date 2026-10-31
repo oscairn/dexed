@@ -46,6 +46,8 @@
 55 | Extended/Common | Random Pitch | 0 | 127 | 0 | stepped
 56 | Extended/Common | Pitch Key Follow | 0 | 127 | 96 | stepped enum
 57 | Extended/Common | Pitch Key Follow Centre | 0 | 127 | 60 | stepped
+58 | Extended/Common | Key On Delay | 0 | 127 | 0 | stepped
+59 | Extended/Common | Key On Delay Tempo Sync | 0 | 1 | 0 | stepped enum
 60 | Extended/Filter | Type | 0 | 18 | 18 | stepped enum
 61 | Extended/Filter | Cutoff | 0 | 1023 | 1023 | stepped
 62 | Extended/Filter | Cutoff Velocity Sensitivity | -64 | 63 | 0 | stepped
@@ -82,6 +84,7 @@
 93 | Extended/Filter/Scaling | Offset 4 | -128 | 127 | 0 | stepped
 94 | Extended/Filter | HPF Key Follow | -64 | 63 | 0 | stepped
 95 | Extended/LFO 2 | Filter Depth | 0 | 99 | 0 | stepped
+96 | Extended/Common | Key On Delay Note Length | 0 | 16 | 9 | stepped enum
 100 | Voice | Engine | 0 | 2 | 1 | stepped enum
 101 | Voice | Mono | 0 | 1 | 0 | stepped enum
 102 | Voice | Portamento Time | 0 | 99 | 0 | stepped
