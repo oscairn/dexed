@@ -839,7 +839,7 @@ UI or show the graph only is for review.
 
 **Decisions (Jacob, 2026-10-31)**
 
-These answer the seven questions this section used to list.
+These answer six of the seven questions this section used to list; question 7 is pending.
 
 1. **Licences.** The shared DSP blocks (filter, FEG, LFOs) are GPL-3.0-or-later. Test helpers
    (test host, allocation guard, render-comparison tools) are MIT. No Oscairn AGPL code has
@@ -865,9 +865,10 @@ These answer the seven questions this section used to list.
    rebase before pushing; never rewrite others' history.
 6. **Desktop JUCE editor:** it should eventually show every feature, but that is careful UI
    work, deferred and not part of these milestones.
-7. **No MTS-ESP in the Oscairn build.** FM-X micro tuning is stored in the plugin state as
-   Scala data. A host-level Oscairn tuning feature comes later and is not part of this plan.
-   The desktop Dexed keeps MTS-ESP.
+7. **MTS-ESP: pending.** Oscairn as MTS-ESP master is under consideration (tuning would then be
+   saved with the Performance, and plugins would keep an MTS-ESP client that follows it).
+   No tuning code is added or removed for it meanwhile; the native CLAP stays on standard
+   tuning for now, and the desktop Dexed keeps MTS-ESP.
 
 **Notes from implementation**
 
