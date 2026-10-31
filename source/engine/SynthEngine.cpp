@@ -851,28 +851,19 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
                         }
                         return MidiResult::Handled;
                     }
-                case 123:
-                    if ( !perChannel ) {
-                        for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-                            if (voices[note].keydown)
-                                keyup(channel, voices[note].midi_note, 0);
-                        }
-                    } else {
-                        // all notes off for the channel, matching voices exactly as the
-                        // instrument-wide branch does (including Dexed's second transpose of
-                        // the held pitch, kept so single-channel output stays identical)
-                        const unsigned t = controllerTargets(channel);
-                        for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-                            if ( voices[note].keydown && (t & (1u << ((voices[note].channel - 1) & 15))) ) {
-                                const int found = findKeyupVoice(channel, voices[note].midi_note, t);
-                                if ( found >= 0 ) {
-                                    voices[found].keydown = false;
-                                    keyupVoice(found);
-                                }
-                            }
+                case 123: {
+                    // all notes off: every held note of the channel releases, as on a DX7
+                    // (Dexed matched each held voice's already transposed pitch transposed
+                    // again, so with a transpose it released nothing)
+                    const unsigned t = perChannel ? controllerTargets(channel) : 1u << ((channel - 1) & 15);
+                    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+                        if ( voices[note].keydown && (t & (1u << ((voices[note].channel - 1) & 15))) ) {
+                            voices[note].keydown = false;
+                            keyupVoice(note);
                         }
                     }
                     break;
+                }
                 default:
                     return MidiResult::UnhandledControlChange;
                 }

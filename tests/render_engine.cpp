@@ -39,8 +39,12 @@ struct BlockEvents : SynthEngine::EventSource {
     }
 };
 
+// --dump DIR: also write each case's output to DIR/<case>.f32
+const char *dumpDir = nullptr;
+
 // Renders one case block by block, as the plugin would.
 struct CaseRenderer {
+    std::vector<float> dump;
     const Case &c;
     uint8_t patch[156];
     SynthEngine engine;
@@ -100,6 +104,8 @@ struct CaseRenderer {
         // the plugin copies the mono output to both channels
         hash.add(left.data(), n);
         hash.add(left.data(), n);
+        if (dumpDir != nullptr) // raw float32 mono output, one file per case, for diffing renders
+            dump.insert(dump.end(), left.begin(), left.begin() + n);
         pos += n;
         return true;
     }
@@ -108,6 +114,13 @@ struct CaseRenderer {
 uint64_t render(const Case &c) {
     CaseRenderer r(c);
     while (r.step()) {}
+    if (dumpDir != nullptr) {
+        const std::string path = std::string(dumpDir) + "/" + c.name + ".f32";
+        if (FILE *f = std::fopen(path.c_str(), "wb")) {
+            std::fwrite(r.dump.data(), sizeof(float), r.dump.size(), f);
+            std::fclose(f);
+        }
+    }
     return r.hash.h;
 }
 
@@ -259,6 +272,10 @@ int checkRobustness() {
 } // namespace
 
 int main(int argc, char **argv) {
+    if (argc >= 5 && std::strcmp(argv[argc - 2], "--dump") == 0) {
+        dumpDir = argv[argc - 1];
+        argc -= 2;
+    }
     if (argc == 2 && std::strcmp(argv[1], "--robustness") == 0)
         return checkRobustness();
     if (argc == 3 && std::strcmp(argv[1], "--interleaved") == 0)

@@ -882,10 +882,14 @@ These answer six of the seven questions this section used to list; question 7 is
   the default, so that plugin is not deterministic across machines. The tests give it a data
   folder in the build tree. The native CLAP touches no files.
 
-- Inherited from Dexed and kept for now: CC 123 (all notes off) transposes the held voices'
-  already transposed pitch a second time before matching, so with a voice transpose other than
-  0 (byte 144 != 24) it releases nothing. Fixing it changes 116 of the 164 baseline cases (the
-  generated voices use transposes 18-30), so it waits for Jacob's decision on re-recording.
+- **The baseline differs from unmodified Dexed in exactly one respect: CC 123.** Dexed
+  transposed each held voice's already transposed pitch a second time before matching, so with
+  a voice transpose other than 0 All Notes Off released nothing; a DX7 releases every note, and
+  the engine now does too (only the addressed channel's notes). Fixing it changed 116 of the 164
+  cases (the generated voices use transposes 18-30). For every changed case, on arm64 and on
+  x86_64, the output was bit-identical up to the CC 123 event's frame (first difference 0 to
+  4,955 samples after it); the other 48 cases did not change. The last baseline that was pure
+  Dexed is `tests/baseline/` as of commit `bee75c1` (files last changed in `a2ba0c0`).
 
 **Unverified in this plan**
 

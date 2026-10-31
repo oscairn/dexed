@@ -345,6 +345,30 @@ int notesTest() {
         f.process(256, fin);
         check(ends(f).empty(), "a new note reuses the choked voice; no held note is stolen");
     }
+    {
+        // CC 123 releases every held note of its channel, with a voice transpose too (Dexed
+        // transposed the held pitch twice and released nothing)
+        Host t(entry);
+        t.activate(48000, 256);
+        EventList tin;
+        tin.param(0, 4, 5); // transpose +5
+        const uint8_t a[] = { 0x90, 60, 100 }, b[] = { 0x90, 64, 100 }, other[] = { 0x91, 67, 100 }, allOff[] = { 0xB0, 123, 0 };
+        tin.midi(0, a, 3);
+        tin.midi(0, b, 3);
+        tin.midi(0, other, 3);
+        t.process(256, tin);
+        tin.clear();
+        tin.midi(0, allOff, 3);
+        std::set<int> released;
+        for (int k = 0; k < 200; k++) {
+            t.output.clear();
+            t.process(256, tin);
+            tin.clear();
+            for (auto &x : ends(t))
+                released.insert(x.key);
+        }
+        check(released == std::set<int>{ 60, 64 }, "CC 123 releases channel 1's held notes despite a transpose, not channel 2's");
+    }
     std::printf("note IDs, choke, wildcards, stealing, sustain and MIDI notes give the expected NOTE_END\n");
     return 0;
 }
