@@ -167,6 +167,18 @@ static std::vector<Param> build() {
         extv(94, f, "HPF Key Follow", -64, 63, ext::HpfKeyFollow, Text::Signed);
         extv(95, "Extended/LFO 2", "Filter Depth", 0, 99, ext::LfoFilterDepth);
     }
+    {
+        const std::string peg = "Extended/Pitch EG";
+        static const char *const segs[] = { "Initial", "Attack", "Decay 1", "Decay 2", "Release" };
+        for (int i = 0; i < 5; i++)
+            extv(28 + i, peg, std::string(segs[i]) + " Level", -50, 50, ext::PitchEgInitial + i, Text::Signed);
+        for (int i = 0; i < 4; i++)
+            extv(33 + i, peg, std::string(segs[i + 1]) + " Time", 0, 99, ext::PitchEgAttackTime + i);
+        static const char *const depths[] = { "8 octaves", "2 octaves", "1 octave", "0.5 octave", nullptr };
+        extv(37, peg, "Depth", 0, 3, ext::PitchEgDepth, Text::Choice, depths);
+        extv(38, peg, "Depth Velocity Sensitivity", 0, 7, ext::PitchEgVelocity);
+        extv(39, peg, "Time Key Follow", 0, 7, ext::PitchEgTimeKeyFollow);
+    }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
         const std::string env = op + "/Envelope", freq = op + "/Frequency", scale = op + "/Scaling",
@@ -420,6 +432,9 @@ bool convertToClassic(std::vector<double> &values) {
         return false; // LFO phase and the Extended speed range have no Classic equivalent
     if (x.geti(60) != extfilter::Thru || x.geti(67) != 255)
         return false; // Classic has no filter (Dexed's output filter is a plugin setting)
+    for (uint32_t id = 28; id <= 32; id++)
+        if (x.geti(id) != 0)
+            return false; // the common pitch EG (Classic's pitch EG is not converted either way)
     for (int d = 1; d <= 6; d++) {
         const uint32_t e = 1000 * m.op[d - 1];
         if (x.geti(e + 30) != keySync || x.geti(e + 58) != pitchSens)

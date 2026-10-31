@@ -56,6 +56,12 @@ enum Common {
     FilterOffset1, FilterOffset2, FilterOffset3, FilterOffset4, // -128-+127
     HpfKeyFollow,       // -64-+63 (shown as percent)
     LfoFilterDepth,     // 0-99
+    // the common pitch EG (every operator; msfa/ext_note.h ExtPartPitchEnv)
+    PitchEgInitial, PitchEgAttack, PitchEgDecay1, PitchEgDecay2, PitchEgRelease, // -50-+50
+    PitchEgAttackTime, PitchEgDecay1Time, PitchEgDecay2Time, PitchEgReleaseTime, // 0-99
+    PitchEgDepth,       // 0-3: 8, 2, 1, 0.5 octaves
+    PitchEgVelocity,    // 0-7: depth velocity sensitivity
+    PitchEgTimeKeyFollow, // 0-7
     CommonCount
 };
 

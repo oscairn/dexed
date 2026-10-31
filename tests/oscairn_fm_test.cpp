@@ -897,6 +897,67 @@ int extendedTest() {
                        " cents, expected " + std::to_string(expected(mid)));
         }
     }
+    // -- common pitch EG (M6): static levels per depth, scaled by velocity, and a decay at its
+    // time value's rate whatever the depth, then release after note-off (1 cent)
+    for (int depth : { 0, 1, 3 })
+        for (int lv : { -50, -37, 12, 36, 50 }) {
+            if (depth == 0 && lv < -20)
+                continue; // below 30 Hz at key 60
+            pitchCase({ { 28, lv }, { 29, lv }, { 30, lv }, { 31, lv }, { 32, lv }, { 37, depth } }, 60, 1.0,
+                      noteHz(60) * std::pow(2.0, extPartPegCents(lv, depth) / 1200),
+                      "common pitch EG level " + std::to_string(lv) + " depth " + std::to_string(depth));
+        }
+    for (int sens : { 3, 7 })
+        for (int vel : { 1, 64 })
+            pitchCase({ { 28, 50 }, { 29, 50 }, { 30, 50 }, { 31, 50 }, { 32, 50 }, { 37, 2 }, { 38, sens } }, 60,
+                      vel / 127.0,
+                      noteHz(60) * std::pow(2.0, extPartPegCents(50, 2) * extPartPegVelocityScale(sens, vel) / 1200),
+                      "common pitch EG velocity " + std::to_string(sens) + " velocity " + std::to_string(vel));
+    expect(std::fabs(1 / extPartPegTimeKeyFollowScale(7, 36) - 8.0) < 1e-12 &&
+               std::fabs(extPartPegVelocityScale(3, 64) - 102 / 128.0) < 1e-12 &&
+               extPartPegCentsPerMs(0) == 0 && std::fabs(extPartPegCentsPerMs(99) - 0.05619077) < 1e-9,
+           "common pitch EG tables: time key follow, velocity, rates");
+    pitchCase({ { 28, 50 }, { 29, 50 }, { 30, 50 }, { 31, 50 }, { 32, 50 }, { 37, 2 }, { 1031, 1 }, { 1032, 16 } }, 60, 1.0,
+              extFixedHz(16, 0), "a fixed-frequency operator does not follow the common pitch EG");
+    for (const auto &pc : std::vector<std::array<int, 4>>{ { 1, 30, 0, 0 }, { 2, 50, 0, 0 }, { 1, 70, 40, 0 }, { 2, 80, 0, 5 } }) {
+        // +50 to 0 by decay 1 at pc[1]; with pc[2], released at 0.1 s towards +50 at that time;
+        // time key follow pc[3]
+        const int depth = pc[0];
+        std::vector<std::pair<uint32_t, double>> p = { { 28, 50 }, { 29, 50 }, { 30, 0 }, { 31, 0 }, { 32, pc[2] ? 50 : 0 },
+                                                       { 34, pc[1] }, { 36, pc[2] }, { 37, depth }, { 39, pc[3] },
+                                                       { 1048, 99 } }; // (sounding after note-off)
+        const double hold = pc[2] ? 0.1 : 1.0;
+        const auto x = renderExtended(p, 81, 1.0, hold, 0.3);
+        const double key = extPartPegTimeKeyFollowScale(pc[3], 81);
+        const double top = extPartPegCents(50, depth), rd = extPartPegCentsPerMs(pc[1]) / key;
+        const double rr = pc[2] ? extPartPegCentsPerMs(pc[2]) / key : 0;
+        auto expected = [&](double ms) {
+            double c = std::max(0.0, top - rd * std::min(ms, hold * 1000));
+            if (ms > hold * 1000)
+                c = std::min(top, c + rr * (ms - hold * 1000));
+            return c;
+        };
+        for (double ms = 4; ms < 280; ms += 12) {
+            double first = -1, last = -1;
+            int cycles = 0;
+            for (size_t i = (size_t)(ms * rate / 1000) + 1; i < (size_t)((ms + 4) * rate / 1000); i++)
+                if (x[i - 1] < 0 && x[i] >= 0) {
+                    const double t = (double)(i - 1) + x[i - 1] / (x[i - 1] - x[i]);
+                    cycles += first >= 0;
+                    first = first < 0 ? t : first;
+                    last = t;
+                }
+            const double mid = (first + last) / 2 / rate * 1000;
+            if (std::fabs(mid - hold * 1000) < 4)
+                continue; // (the note-off lands within a 64-sample block)
+            const double got = 1200 * std::log2(cycles * rate / (last - first) / noteHz(81));
+            expect(cycles > 0 && std::fabs(got - expected(mid)) < 1.5,
+                   "common pitch EG " + std::to_string(pc[0]) + "/" + std::to_string(pc[1]) + "/" + std::to_string(pc[2]) +
+                       "/" + std::to_string(pc[3]) +
+                       " at " + std::to_string(mid) + " ms: " + std::to_string(got) + " cents, expected " +
+                       std::to_string(expected(mid)));
+        }
+    }
     // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
     // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic
     {

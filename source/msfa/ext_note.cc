@@ -34,6 +34,7 @@ int32_t dbToLog(double db) { return (int32_t)std::lround(db * kLog2PerDb * kQ24)
 // Extended carrier at full level is as loud as a Classic one.
 constexpr int32_t kFullScale = ((((127 >> 1) << 6) + (127 << 5) - 4256) << 16);
 constexpr double kExtendedOutputDb = -6.57; // Extended carriers' overall level (see setup)
+const int32_t kNoPitch[N] = {};
 
 // The modern kernels with sample-by-sample rendering of multi-operator feedback loops.
 struct ExtKernels {
@@ -269,6 +270,39 @@ int32_t ExtPitchEnv::getsample() {
     return level();
 }
 
+// ---- common pitch EG ----
+
+void ExtPartPitchEnv::init(const double cents[5], const double centsPerMs[4], double sampleRate) {
+    auto q = [](double c) { return (int64_t)std::llround(c / 1200.0 * kQ24) << 16; };
+    level_ = q(cents[0]);
+    for (int i = 0; i < 4; i++) {
+        target_[i] = q(cents[i + 1]);
+        // (rate 0: instant)
+        inc_[i] = centsPerMs[i] <= 0 ? INT64_MAX / 4
+                                     : std::max<int64_t>(1, std::llround(centsPerMs[i] / 1200.0 * kQ24 * 65536.0 * 1000.0 / sampleRate));
+    }
+    ix_ = 0;
+}
+
+int32_t ExtPartPitchEnv::getsample() {
+    while (ix_ < 4) {
+        const int64_t t = target_[ix_];
+        if (level_ < t)
+            level_ = std::min(t, level_ + inc_[ix_]);
+        else if (level_ > t)
+            level_ = std::max(t, level_ - inc_[ix_]);
+        if (level_ != t)
+            break;
+        // decay 2's level holds while the key is down; release ends the EG
+        ix_ = ix_ >= 2 ? 4 : ix_ + 1;
+        if (ix_ == 4 || target_[ix_] != level_)
+            break;
+    }
+    return level();
+}
+
+void ExtPartPitchEnv::keyup() { ix_ = 3; }
+
 // ---- filter EG ----
 
 void ExtFilterEnv::configure(const int levels[5], const int times[5], double timeScale, double sampleRate) {
@@ -412,6 +446,20 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         pitchSens_[i] = extPitchDepthOffset(std::clamp(o(ext::PitchDepthOffset), 0, 7));
         ampSens_[i] = extAmpDepthOffset(std::clamp(o(ext::AmpDepthOffset), 0, 7));
     }
+    if (start) {
+        // the common pitch EG: levels by depth; velocity scales levels and rates alike (the
+        // reference's segment times do not change with velocity); time key follow by note
+        using namespace ext;
+        const int depth = std::clamp(v.common(PitchEgDepth), 0, 3);
+        const double vel = extPartPegVelocityScale(v.common(PitchEgVelocity), velocity);
+        const double keyScale = extPartPegTimeKeyFollowScale(v.common(PitchEgTimeKeyFollow), midinote);
+        double cents[5], rates[4];
+        for (int k = 0; k < 5; k++)
+            cents[k] = extPartPegCents(v.common((Common)(PitchEgInitial + k)), depth) * vel;
+        for (int k = 0; k < 4; k++)
+            rates[k] = extPartPegCentsPerMs(v.common((Common)(PitchEgAttackTime + k))) * vel / keyScale;
+        ppeg_.init(cents, rates, sampleRate);
+    }
     setupFilter(v, midinote, velocity, start);
 }
 
@@ -531,12 +579,19 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
         amd[s] = std::max(a, w);
         ampMod |= amd[s] != 0;
     }
+    // the common pitch EG, every sample of the block (fixed-frequency operators do not follow
+    // it in the reference)
+    int32_t ppeg[N];
+    const bool ppegMoving = ppeg_.active();
+    for (int s = 0; s < N; s++)
+        ppeg[s] = ppeg_.getsample();
     uint32_t phase0[ext::Ops];
     for (int i = 0; i < ext::Ops; i++) {
         const int32_t pitch = basepitch_[i] + pitchBase;
         int32_t *f = freqs_[i];
         const bool lfoPitch = !fixed_[i] && pitchSens_[i] != 0 && pitchMod;
-        if (lfoPitch || peg_[i].active()) {
+        const int32_t *pp = fixed_[i] ? kNoPitch : ppeg;
+        if (lfoPitch || peg_[i].active() || (ppegMoving && !fixed_[i])) {
             for (int s = 0; s < N; s++) {
                 int32_t pmod = 0;
                 if (lfoPitch) {
@@ -545,10 +600,10 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
                     const int32_t pmodWheel = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
                     pmod = std::abs(pmod) >= std::abs(pmodWheel) ? pmod : pmodWheel;
                 }
-                f[s] = rate_->freqlut.lookup(pitch + peg_[i].getsample() + pmod);
+                f[s] = rate_->freqlut.lookup(pitch + peg_[i].getsample() + pmod + pp[s]);
             }
         } else {
-            std::fill(f, f + N, rate_->freqlut.lookup(pitch + peg_[i].level()));
+            std::fill(f, f + N, rate_->freqlut.lookup(pitch + peg_[i].level() + pp[N - 1]));
         }
         params_[i].freq = f[0];
         phase0[i] = (uint32_t)params_[i].phase;
@@ -597,6 +652,7 @@ void ExtNote::keyup() {
     for (auto &e : env_)
         e.keydown(false);
     feg_.keydown(false);
+    ppeg_.keyup();
 }
 
 bool ExtNote::isPlaying() const {
@@ -620,6 +676,7 @@ void ExtNote::oscSync() {
 
 void ExtNote::transferState(const ExtNote &src) {
     feg_.transfer(src.feg_);
+    ppeg_ = src.ppeg_;
     filter_ = src.filter_;
     filterStarted_ = src.filterStarted_;
     for (int i = 0; i < ext::Ops; i++) {

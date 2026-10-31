@@ -299,3 +299,50 @@ double extFegTimeKeyFollowScale(int sensitivity, int midinote, int centre) {
 // LFO; deeper settings run into the cutoff's limits in the probes)
 // shortcut: straight in depth from one measured depth; measure 5-20 with a lower cutoff
 double extFilterLfoOctaves(int depth) { return std::clamp(depth, 0, 99) * 68.0 / 1200.0; }
+
+// ---- the common pitch EG (fm/fit_peg.py) ----
+
+// Its level in 37.5-cent steps at depth 8 octaves: one step per level to +-32, then wider
+// (measured at every level at depth 2 octaves, each within 0.32 cents of the step grid)
+static const int16_t kPartPegSteps[101] = {
+    -128, -116, -104, -95, -85, -76, -68, -61, -56, -52, -49, -46, -43, -41, -39, -37,
+    -35, -33, -32, -31, -30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20, -19,
+    -18, -17, -16, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3,
+    -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+    30, 31, 32, 33, 34, 35, 38, 40, 43, 46, 49, 53, 58, 65, 73, 82,
+    92, 103, 115, 127, 128,
+};
+
+double extPartPegCents(int level, int depth) {
+    static const double scale[4] = { 1.0, 0.25, 0.125, 0.0625 }; // 8, 2, 1, 0.5 octaves
+    return kPartPegSteps[clampi(level, -50, 50) + 50] * 37.5 * scale[clampi(depth, 0, 3)];
+}
+
+double extPartPegVelocityScale(int sensitivity, int velocity) {
+    // the levels lose this many of their 128 steps at +50 at velocity 1, in proportion to
+    // 127 - velocity below that, rounded down (measured: every sensitivity at velocity 1 and
+    // 7 and 3 at four and two more velocities, each within 0.3 cents at depth 1 octave)
+    static const int lost[8] = { 0, 17, 35, 53, 70, 88, 106, 126 };
+    const int v = clampi(velocity, 1, 127);
+    return (128 - lost[clampi(sensitivity, 0, 7)] * (127 - v) / 126) / 128.0;
+}
+
+double extPartPegTimeKeyFollowScale(int sensitivity, int midinote) {
+    // rates times 1 + sensitivity (note - 3) / 33 (measured at 0-7 and notes 24-108 every
+    // octave, within 0.6 %)
+    // shortcut: below note 3 the rate is left unchanged (unmeasured)
+    return 1.0 / (1.0 + clampi(sensitivity, 0, 7) * std::max(0, midinote - 3) / 33.0);
+}
+
+// Every segment's rate is a whole multiple of 0.05619077 cents per ms (each measured within
+// 0.05 % of it, from decays across 2400 cents at every time value; the same at every depth);
+// time 0 is instant.
+static const uint8_t kPartPegRateSteps[100] = {
+    0, 254, 244, 233, 212, 203, 194, 186, 179, 172, 166, 160, 154, 148, 142, 136, 131, 125, 120, 115,
+    110, 106, 102, 98, 94, 91, 88, 85, 82, 79, 76, 74, 72, 70, 68, 66, 64, 62, 60, 58,
+    56, 54, 53, 51, 49, 47, 46, 44, 42, 41, 39, 38, 37, 36, 34, 33, 31, 30, 28, 27,
+    26, 25, 24, 23, 22, 21, 20, 19, 18, 18, 17, 16, 16, 15, 14, 14, 13, 13, 12, 12,
+    11, 11, 10, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 1,
+};
+double extPartPegCentsPerMs(int time) { return kPartPegRateSteps[clampi(time, 0, 99)] * 0.05619077; }

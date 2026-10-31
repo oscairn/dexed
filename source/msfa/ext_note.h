@@ -78,6 +78,26 @@ private:
     int ix_ = 2;                  // 0 attack, 1 decay, 2 done
 };
 
+// The common pitch EG (every operator): from the initial level to the attack, decay 1 and
+// decay 2 levels (held while the key is down), then from wherever it is to the release level;
+// each segment straight in cents at its time value's rate (a segment of no distance takes no
+// time), per sample.
+class ExtPartPitchEnv {
+public:
+    // levels in cents (initial, attack, decay 1, decay 2, release); rates in cents per ms
+    // (attack, decay 1, decay 2, release)
+    void init(const double cents[5], const double centsPerMs[4], double sampleRate);
+    int32_t getsample(); // log frequency offset (Q24 per octave)
+    int32_t level() const { return (int32_t)(level_ >> 16); }
+    bool active() const { return ix_ < 4; }
+    void keyup();
+private:
+    int64_t level_ = 0;      // Q24 per octave with 16 more fraction bits
+    int64_t target_[4] = {}; // attack, decay 1, decay 2, release
+    int64_t inc_[4] = { 1, 1, 1, 1 };
+    int ix_ = 4;             // 0 attack, 1 decay 1, 2 decay 2, 3 release, 4 still
+};
+
 // The filter EG: levels in cents (hold, attack, decay 1, decay 2 sustained, release). Each
 // segment takes its time value's duration whatever its distance (measured), moving straight in
 // cents; advanced per block.
@@ -138,6 +158,7 @@ private:
     uint8_t reset_ = 0;          // operators (FmOpParams index) with Key On Reset
     ExtEnv env_[8];
     ExtPitchEnv peg_[8];
+    ExtPartPitchEnv ppeg_;
     FmOpParams params_[8] = {};
     int32_t basepitch_[8] = {};
     bool fixed_[8] = {};

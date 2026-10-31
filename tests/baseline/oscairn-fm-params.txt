@@ -19,6 +19,18 @@
 25 | Pitch/EG | Level 2 | 0 | 99 | 50 | stepped
 26 | Pitch/EG | Level 3 | 0 | 99 | 50 | stepped
 27 | Pitch/EG | Level 4 | 0 | 99 | 50 | stepped
+28 | Extended/Pitch EG | Initial Level | -50 | 50 | 0 | stepped
+29 | Extended/Pitch EG | Attack Level | -50 | 50 | 0 | stepped
+30 | Extended/Pitch EG | Decay 1 Level | -50 | 50 | 0 | stepped
+31 | Extended/Pitch EG | Decay 2 Level | -50 | 50 | 0 | stepped
+32 | Extended/Pitch EG | Release Level | -50 | 50 | 0 | stepped
+33 | Extended/Pitch EG | Attack Time | 0 | 99 | 0 | stepped
+34 | Extended/Pitch EG | Decay 1 Time | 0 | 99 | 0 | stepped
+35 | Extended/Pitch EG | Decay 2 Time | 0 | 99 | 0 | stepped
+36 | Extended/Pitch EG | Release Time | 0 | 99 | 0 | stepped
+37 | Extended/Pitch EG | Depth | 0 | 3 | 0 | stepped enum
+38 | Extended/Pitch EG | Depth Velocity Sensitivity | 0 | 7 | 0 | stepped
+39 | Extended/Pitch EG | Time Key Follow | 0 | 7 | 0 | stepped
 40 | Extended/Common | Algorithm | 1 | 88 | 69 | stepped
 41 | Extended/Common | Feedback | 0 | 7 | 0 | stepped
 42 | Extended/LFO 2 | Wave | 0 | 5 | 0 | stepped enum

@@ -41,6 +41,11 @@ double extKeyFollowCents(int sensitivity, int midinote);  // fixed mode
 double extPitchVelocityCents(int depth, int sensitivity, int velocity); // common depth, operator sensitivity
 double extPegCents(int level);      // operator pitch EG level -50-+50
 double extPegCentsPerMs(int time);   // operator pitch EG: a segment's rate, straight in cents
+// the common pitch EG
+double extPartPegCents(int level, int depth);   // level -50-+50, depth 0-3 (8, 2, 1, 0.5 octaves)
+double extPartPegCentsPerMs(int time);           // 0-99: a segment's rate (0: instant)
+double extPartPegVelocityScale(int sensitivity, int velocity); // 0-7: multiplies the levels
+double extPartPegTimeKeyFollowScale(int sensitivity, int midinote); // 0-7: multiplies segment times
 
 // LFO
 double extLfoHz(int speed);         // speed range Normal, 0-99
