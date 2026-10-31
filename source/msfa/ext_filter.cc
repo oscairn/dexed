@@ -26,13 +26,15 @@ enum Out { Lp, Bp, Hp, Br };
 // resonance 80 distort); Octet only keeps its states bounded, at 18 dB above full scale
 constexpr float kLimit = 8.0f;
 
+constexpr double kPi = 3.14159265358979323846; // (M_PI is not standard; MSVC lacks it)
+
 } // namespace
 
 void extFilterCoefficients(double fc, double q, double sampleRate, float &F, float &damping) {
     // the reference stops at a sixth of its 44.1 kHz rate (F = 1) and damps more as the cutoff
     // nears that (extFilterMaxDamping)
     fc = std::clamp(fc, 1.0, std::min(extFilterMaxHz(), sampleRate / 6));
-    F = (float)(2 * std::sin(M_PI * fc / sampleRate));
+    F = (float)(2 * std::sin(kPi * fc / sampleRate));
     damping = (float)std::min(1 / std::max(q, 0.01), extFilterMaxDamping(fc));
     // and never where the section turns unstable (the limit above keeps it well inside at
     // 44.1 kHz and above; this guards lower rates)
