@@ -33,6 +33,7 @@ int32_t dbToLog(double db) { return (int32_t)std::lround(db * kLog2PerDb * kQ24)
 // 99 (Env::advance: ((127 >> 1) << 6) + 99 * 32 - 4256 + ... in units of 1 << 16), so an
 // Extended carrier at full level is as loud as a Classic one.
 constexpr int32_t kFullScale = ((((127 >> 1) << 6) + (127 << 5) - 4256) << 16);
+constexpr double kExtendedOutputDb = -6.57; // Extended carriers' overall level (see setup)
 
 // The modern kernels with sample-by-sample rendering of multi-operator feedback loops.
 struct ExtKernels {
@@ -326,7 +327,11 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         db += extLevelScalingDb(midinote, o(ext::BreakPoint), o(ext::LowDepth), o(ext::HighDepth), o(ext::LowCurve),
                                 o(ext::HighCurve));
         db += extLevelVelocityDb(o(ext::LevelVelocity), velocity);
-        const int32_t outlevel = kFullScale + dbToLog(std::min(0.0, db));
+        // carriers: the reference's output level for this algorithm (up to 13.6 dB above
+        // algorithm 1), and its overall level: its probes play a full-level sine 6.57 dB below
+        // Octet's Classic-scale carrier, which keeps the loudest algorithms from clipping
+        const double algorithmGain = modulator ? 0.0 : extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb;
+        const int32_t outlevel = kFullScale + dbToLog(std::min(0.0, db) + algorithmGain);
         const int levels[4] = { o(ext::AttackLevel), o(ext::Decay1Level), o(ext::Decay2Level), o(ext::ReleaseLevel) };
         const int times[4] = { o(ext::AttackTime), o(ext::Decay1Time), o(ext::Decay2Time), o(ext::ReleaseTime) };
         const double timeScale = extTimeKeyFollowScale(o(ext::TimeKeyFollow), midinote);

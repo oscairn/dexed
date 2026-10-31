@@ -26,6 +26,7 @@ double extEgLevelDb(int level);     // EG level 0-99, dB relative to level 99
 double extOpLevelDb(int level);     // operator level 0-99, dB relative to level 99
 double extModLevelDb(int level);    // the same for a modulator (its modulation index: 4 pi at 0 dB)
 double extFeedbackScale(int feedback); // feedback 1-7, relative to the DX7's amount
+double extAlgorithmGainDb(int algorithm); // carriers' output level by algorithm 1-88, dB re algorithm 1
 double extTimeKeyFollowScale(int sensitivity, int midinote); // multiplies every segment time
 
 // level scaling and velocity, dB

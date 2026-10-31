@@ -63,6 +63,7 @@ double extModLevelDb(int l) {
     return l < kModLevelX[0] ? -200.0 : interpolate(kModLevelX, kModLevelDb, l);
 }
 double extFeedbackScale(int f) { return kFeedbackScale[clampi(f, 0, 7)]; }
+double extAlgorithmGainDb(int a) { return kAlgorithmGainDb[clampi(a, 1, 88) - 1]; }
 
 double extOpLevelDb(int l) {
     l = clampi(l, 0, 99);
