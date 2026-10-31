@@ -1191,8 +1191,9 @@ fixed frequencies below 20 Hz.
     detune is shown as signed steps (-128..+127) rather than Hz or cents.
 35. A note whose part velocity comes out at 0 or below plays nothing and gets its NOTE_END at
     once; fractional part velocities are rounded.
-36. Mod Depth cannot raise a modulator past level 99 in Octet (the reference's modulation keeps
-    growing above it, unmeasured how far).
+36. Mod Depth cannot raise a modulator past level 99, in Octet as in the reference (`m7e`: a
+    static pair at levels 60, 80 and 99 with the macro taking it to 99-147 plays exactly as
+    level 99, 20 cases within 0.16 dB rms).
 37. Extended sounds bend by the part's signed ranges, Pitch Bend Upper and Lower (253, 254,
     -48..+24 semitones, defaults +2 and -2, the documented values), not by the plugin's Pitch
     Bend Up/Down settings; the plugin's bend step setting, when on, still quantises as in
@@ -1602,7 +1603,8 @@ that separate feedback, EG levels and operator level; the ratio macro every 11 s
 modulator ratios 1 and 4; the texture macro every 11 steps; every macro on a lone carrier; the
 AEG offsets at +-4, 8, 16), `m7c` (detune every eighth value, the attack offset on the pair at
 6 values, 24 more velocity cases, the depth macro at feedback 1, 2 and 7 and on a stack of three
-modulators). The first `m7a` macro renders used the wrong raw values (the Data List's two-byte
+modulators), `m7d` (operator level velocity sensitivity, below), `m7e` (the depth macro
+taking a modulator past level 99). The first `m7a` macro renders used the wrong raw values (the Data List's two-byte
 values are 7-bit byte pairs: 0 is raw 128, not 256) and were re-recorded. How each value acts
 was found by rendering Octet over every candidate value of one operator or filter parameter
 and taking the one closest to the reference render (`m7fit.py`, local), then checked by
@@ -1650,7 +1652,7 @@ Extended/Part and Extended/Macros):
 | Pitch, 1 cent | **Met:** note shift 4 of 4, detune 49 of 49 (the table comes from `m7c`'s own renders for 37 of them; the 12 `m7a` cases at notes 36 and 72 are independent) |
 | Filter offsets, level within 0.5 dB | **Met:** 18 of 18 |
 | AEG offsets, harmonics within 1 dB | 44 of 62: decay met at every offset tested, release at all but -8 (1.0 dB); attack misses at +16 (3.1 dB on the carrier, 3.6 on the pair), +24 (2.0, pair) and +32/+63 (1.9-5.6 dB, both probes); sustain misses at -64, -32, -16, +16, +32 and +63 (1.2-2.3 dB: the reference moves the level by 26 values at -16 where 1.5 per step gives 24, and stops at 98 at +16) |
-| Mod depth, harmonics within 1 dB | Without feedback (probes A, B): 12 of 12. Static EG at level 85 (C) and the pair with feedback 4 (D): 8 of 12 (+25 and +50 miss by 1.7-3.7 dB). Feedback 1, 2, 7 (`df`): 7 of 12 (+50 misses at feedback 1 and 2 by 1.9-2.6 dB; at feedback 7 the base case misses by 17.7 dB, so a modulator with feedback 7 is not reproduced, an M4 matter, and -50 and +50 miss too). Stack of three: 3 of 4 (+25: 8.8 dB). `m7a`: 8 of 18 (pair: -25 and +25 by 1.0-1.1 dB, +50 and +99 by 8.8 dB; static pair with feedback 4: +25 to +99 by 1.8-8.4 dB: the reference keeps raising the modulation past level 99, Octet stops at 99; the wave probe's base case already misses by 3.2 dB, an M5 matter) |
+| Mod depth, harmonics within 1 dB | Without feedback (probes A, B): 12 of 12. Static EG at level 85 (C) and the pair with feedback 4 (D): 8 of 12 (+25 and +50 miss by 1.7-3.7 dB). Feedback 1, 2, 7 (`df`): 7 of 12 (+50 misses at feedback 1 and 2 by 1.9-2.6 dB; at feedback 7 the base case misses by 17.7 dB, so a modulator with feedback 7 is not reproduced, an M4 matter, and -50 and +50 miss too). Stack of three: 3 of 4 (+25: 8.8 dB). `m7a`: 8 of 18 (pair: -25 and +25 by 1.0-1.1 dB, +50 and +99 by 8.8 dB; static pair with feedback 4: +25 to +99 by 1.8-8.4 dB, unexplained: in a static pair without feedback the reference stops at level 99 as Octet does (decision 36), so the misses come from the envelope levels or the feedback, not from a level past 99; the wave probe's base case already misses by 3.2 dB, an M5 matter) |
 | Envelope macros, harmonics within 1 dB | Pair and static probes: 44 of 48 (attack +25 1.0 dB on the pair, sustain +25, +50, +99 1.5 dB); wave probe 4 of 24 (its base case misses by 3.2 dB) |
 | Velocity, level within 0.5 dB | **56 of 64** with the measured level velocity table below (29 of 64 with M4's, which used Dexed's curve: up to 14 dB off). Not met: velocities 2 and 3 at sensitivity +7 (0.8-1.5 dB: the table is straight between velocities 1 and 8 where the curve bends), fractional part velocities (0.5 plays 12 dB quieter in the reference than Octet's rounding to 1; 0.98 1.9 dB), and part velocity 36 (0.8 dB, between table points) |
 | Ratio shift and texture | Not modelled (17 of 25 and 2 of 19 cases happen to meet) |
