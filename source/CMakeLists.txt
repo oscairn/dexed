@@ -7,6 +7,7 @@ add_library(dexed_engine STATIC
 	msfa/env.cc
 	msfa/ext_note.cc
 	msfa/ext_tables.cc
+	msfa/ext_waves.cc
 	msfa/exp2.cc
 	msfa/fm_core.cc
 	msfa/fm_op_kernel.cc

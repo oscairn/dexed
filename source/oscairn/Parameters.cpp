@@ -39,6 +39,8 @@ static const char *const modes[] = { "Ratio", "Fixed", nullptr };
 static const char *const profiles[] = { "Classic", "Extended", nullptr };
 static const char *const phases[] = { "0 degrees", "90 degrees", "180 degrees", "270 degrees", nullptr };
 static const char *const speedRanges[] = { "Normal", "Extended", nullptr };
+static const char *const waves[] = { "Sine", "All harmonics 1", "All harmonics 2", "Odd harmonics 1",
+                                     "Odd harmonics 2", "Formant 1", "Formant 2", nullptr };
 
 static ExtendedVoice buildExtDefaults() {
     using namespace ext;
@@ -150,6 +152,10 @@ static std::vector<Param> build() {
         x(57, mod, "Velocity Sensitivity", -7, 7, ext::LevelVelocity, Text::Signed);
         x(58, mod, "LFO Pitch Depth Offset", 0, 7, ext::PitchDepthOffset);
         x(59, mod, "LFO Amp Depth Offset", 0, 7, ext::AmpDepthOffset);
+        const std::string wave = op + "/Wave";
+        x(60, wave, "Wave", 0, 6, ext::Wave, Text::Choice, waves);
+        x(61, wave, "Spread", 0, 7, ext::WaveSpread);
+        x(62, wave, "Formant", 0, 99, ext::WaveFormant);
     }
 
     setting(100, "Voice", "Engine", 0, 2, 1, Setting::Engine, Text::Choice, engines);
@@ -366,8 +372,8 @@ bool convertToClassic(std::vector<double> &values) {
         if (x.geti(e + 30) != keySync || x.geti(e + 58) != pitchSens)
             return false; // one value for the whole voice in Classic
         if (x.geti(e + 49) != 0 || x.geti(e + 37) != 0 || x.geti(e + 38) != 0 || x.geti(e + 36) != 0 ||
-            x.geti(e + 35) != 0 || x.geti(e + 57) < 0)
-            return false; // hold, operator pitch EG, pitch velocity, key follow, negative velocity
+            x.geti(e + 35) != 0 || x.geti(e + 57) < 0 || x.geti(e + 60) != 0)
+            return false; // hold, operator pitch EG, pitch velocity, key follow, negative velocity, wave
         if (std::find(ampSensToOffset, ampSensToOffset + 4, x.geti(e + 59)) == ampSensToOffset + 4)
             return false;
     }

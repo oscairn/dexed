@@ -17,6 +17,7 @@
 #include "controllers.h"
 #include "exp2.h"
 #include "ext_tables.h"
+#include "ext_waves.h"
 #include "fm_core.h"
 #include "sin.h"
 #include "tuning.h"
@@ -43,7 +44,21 @@ struct ExtKernels {
     const int32_t (*freqOf)[N] = nullptr;
     const FmOpParams *base = nullptr;
     int64_t fbGain = 0; // feedback: the average of the last two outputs times this, Q24
+    const ExtNote::Wave *waves = nullptr; // each operator's wave
     int cur = 0;
+    int32_t wave(int op, int32_t ph) const {
+        const ExtNote::Wave &w = waves[op];
+        switch (w.kind) {
+        case ExtNote::Wave::Table:
+            return extwave::lookup(w.table, ph);
+        case ExtNote::Wave::Formant:
+            return (int32_t)(((int64_t)extwave::lookup(w.table, ph) * Sin::lookup(ph * w.centre)) >> 24);
+        case ExtNote::Wave::Silent:
+            return 0;
+        default:
+            return Sin::lookup(ph);
+        }
+    }
     bool gains(FmOpParams &p, int32_t &gain1, int32_t &gain2) {
         const int kLevelThresh = 1120;
         cur = (int)(&p - base);
@@ -62,7 +77,7 @@ struct ExtKernels {
         ramp(g1, g2, g);
         const int32_t *f = freqOf[cur];
         for (int i = 0; i < N; i++, ph += f[i - 1]) {
-            const int32_t y = (int32_t)(((int64_t)Sin::lookup(ph + in[i]) * g[i]) >> 24);
+            const int32_t y = (int32_t)(((int64_t)wave(cur, ph + in[i]) * g[i]) >> 24);
             o[i] = add ? o[i] + y : y;
         }
     }
@@ -71,7 +86,7 @@ struct ExtKernels {
         ramp(g1, g2, g);
         const int32_t *f = freqOf[cur];
         for (int i = 0; i < N; i++, ph += f[i - 1]) {
-            const int32_t y = (int32_t)(((int64_t)Sin::lookup(ph) * g[i]) >> 24);
+            const int32_t y = (int32_t)(((int64_t)wave(cur, ph) * g[i]) >> 24);
             o[i] = add ? o[i] + y : y;
         }
     }
@@ -84,7 +99,7 @@ struct ExtKernels {
         for (int i = 0; i < N; i++, ph += f[i - 1]) {
             const int32_t scaled = (int32_t)(((int64_t)(y0 + y) * fbGain) >> 25);
             y0 = y;
-            y = (int32_t)(((int64_t)Sin::lookup(ph + (in ? in[i] : 0) + scaled) * g[i]) >> 24);
+            y = (int32_t)(((int64_t)wave(cur, ph + (in ? in[i] : 0) + scaled) * g[i]) >> 24);
             o[i] = y;
         }
         fb[0] = y0;
@@ -128,7 +143,7 @@ struct ExtKernels {
                         in += bufs[j].get()[i];
                 if (k == 0)
                     in += (int32_t)(((int64_t)(y0 + y) * fbGain) >> 25);
-                const int32_t out = (int32_t)(((int64_t)Sin::lookup(ph[k] + in) * gain) >> 24);
+                const int32_t out = (int32_t)(((int64_t)wave(op, ph[k] + in) * gain) >> 24);
                 ph[k] += freqOf[op][i];
                 bufs[op].get()[i] = out;
                 if (k == a.loopLength - 1) {
@@ -285,6 +300,24 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             pitch = notePitch + (int32_t)std::lround(std::log2(extRatio(o(ext::Coarse), o(ext::Fine))) * kQ24);
         }
         basepitch_[i] = pitch + (int32_t)std::lround(cents / 1200.0 * kQ24);
+        // the wave, band-limited for this note's frequency (shortcut: chosen at note-on and
+        // on edits; pitch EG, LFO and bend moves are not followed)
+        {
+            const double hz = rate_->freqlut.lookup(basepitch_[i]) * sampleRate / kQ24;
+            const int below = (int)std::floor(sampleRate / 2 / std::max(hz, 1.0)); // harmonics below Nyquist
+            const int w = std::clamp(o(ext::Wave), 0, 6), spread = std::clamp(o(ext::WaveSpread), 0, 7);
+            Wave &wv = waves_[i];
+            if (w == 0) {
+                wv = Wave {};
+            } else if (w <= 4) {
+                wv.kind = Wave::Table;
+                wv.table = extwave::table(w, spread, below);
+            } else {
+                wv.centre = std::clamp(o(ext::WaveFormant), 0, 99) + 1;
+                wv.table = extwave::window(w, spread, below - wv.centre);
+                wv.kind = wv.table ? Wave::Formant : Wave::Silent;
+            }
+        }
         // level: operator level, scaling and velocity, in dB, then MSFA's log format
         // modulators have their own level curve (the modulation index the reference plays)
         const bool modulator = !((extCompiled(algorithm_).outputs >> i) & 1);
@@ -378,6 +411,7 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
     k.freqOf = freqs_;
     k.base = params_;
     k.fbGain = fbGain_;
+    k.waves = waves_;
     renderGraph(k, extCompiled(algorithm_), buf, params_, fbBuf_, fbShift_, bufs_, sum_.get());
     // every operator moved by its per-sample increments (renderGraph assumed `freq` throughout)
     for (int i = 0; i < ext::Ops; i++) {

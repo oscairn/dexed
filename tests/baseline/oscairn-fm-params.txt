@@ -110,6 +110,9 @@
 1057 | Operator 1/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 1058 | Operator 1/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 1059 | Operator 1/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+1060 | Operator 1/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+1061 | Operator 1/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+1062 | Operator 1/Extended/Wave | Formant | 0 | 99 | 0 | stepped
 2001 | Operator 2/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 2002 | Operator 2/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 2003 | Operator 2/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -162,6 +165,9 @@
 2057 | Operator 2/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 2058 | Operator 2/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 2059 | Operator 2/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+2060 | Operator 2/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+2061 | Operator 2/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+2062 | Operator 2/Extended/Wave | Formant | 0 | 99 | 0 | stepped
 3001 | Operator 3/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 3002 | Operator 3/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 3003 | Operator 3/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -214,6 +220,9 @@
 3057 | Operator 3/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 3058 | Operator 3/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 3059 | Operator 3/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+3060 | Operator 3/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+3061 | Operator 3/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+3062 | Operator 3/Extended/Wave | Formant | 0 | 99 | 0 | stepped
 4001 | Operator 4/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 4002 | Operator 4/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 4003 | Operator 4/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -266,6 +275,9 @@
 4057 | Operator 4/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 4058 | Operator 4/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 4059 | Operator 4/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+4060 | Operator 4/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+4061 | Operator 4/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+4062 | Operator 4/Extended/Wave | Formant | 0 | 99 | 0 | stepped
 5001 | Operator 5/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 5002 | Operator 5/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 5003 | Operator 5/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -318,6 +330,9 @@
 5057 | Operator 5/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 5058 | Operator 5/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 5059 | Operator 5/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+5060 | Operator 5/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+5061 | Operator 5/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+5062 | Operator 5/Extended/Wave | Formant | 0 | 99 | 0 | stepped
 6001 | Operator 6/Envelope | Rate 1 | 0 | 99 | 99 | stepped
 6002 | Operator 6/Envelope | Rate 2 | 0 | 99 | 99 | stepped
 6003 | Operator 6/Envelope | Rate 3 | 0 | 99 | 99 | stepped
@@ -370,6 +385,9 @@
 6057 | Operator 6/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 6058 | Operator 6/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 6059 | Operator 6/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+6060 | Operator 6/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+6061 | Operator 6/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+6062 | Operator 6/Extended/Wave | Formant | 0 | 99 | 0 | stepped
 7030 | Operator 7/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
 7031 | Operator 7/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
 7032 | Operator 7/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
@@ -400,6 +418,9 @@
 7057 | Operator 7/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 7058 | Operator 7/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 7059 | Operator 7/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+7060 | Operator 7/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+7061 | Operator 7/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+7062 | Operator 7/Extended/Wave | Formant | 0 | 99 | 0 | stepped
 8030 | Operator 8/Extended/Frequency | Key On Reset | 0 | 1 | 1 | stepped enum
 8031 | Operator 8/Extended/Frequency | Mode | 0 | 1 | 0 | stepped enum
 8032 | Operator 8/Extended/Frequency | Coarse | 0 | 31 | 1 | stepped
@@ -430,3 +451,6 @@
 8057 | Operator 8/Extended/Modulation | Velocity Sensitivity | -7 | 7 | 0 | stepped
 8058 | Operator 8/Extended/Modulation | LFO Pitch Depth Offset | 0 | 7 | 3 | stepped
 8059 | Operator 8/Extended/Modulation | LFO Amp Depth Offset | 0 | 7 | 3 | stepped
+8060 | Operator 8/Extended/Wave | Wave | 0 | 6 | 0 | stepped enum
+8061 | Operator 8/Extended/Wave | Spread | 0 | 7 | 0 | stepped
+8062 | Operator 8/Extended/Wave | Formant | 0 | 99 | 0 | stepped

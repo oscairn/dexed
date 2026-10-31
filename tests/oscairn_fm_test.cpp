@@ -29,6 +29,7 @@
 #include "oscairn/Parameters.h"
 #include "msfa/algorithms.h"
 #include "msfa/ext_tables.h"
+#include "msfa/ext_waves_data.h"
 #include "msfa/lfo.h"
 #include "msfa/synth.h"
 #include <oscairn-clap/sound-contexts.h>
@@ -888,6 +889,34 @@ int extendedTest() {
                    "pitch EG " + std::to_string(pc[0]) + "/" + std::to_string(pc[1]) + "/" + std::to_string(pc[2]) +
                        "/" + std::to_string(pc[3]) + " at " + std::to_string(mid) + " ms: " + std::to_string(got) +
                        " cents, expected " + std::to_string(expected(mid)));
+        }
+    }
+    // -- operator waves (M5): harmonic levels of waves 1-4 against their table data, relative
+    // to a sine at the same level (0.5 dB), from a Hann-windowed DFT at each harmonic
+    {
+        auto harmonic = [&](const std::vector<float> &x, double hz) {
+            const size_t a = 9600, n = 38400; // 0.2 s in, 0.8 s long
+            double re = 0, im = 0;
+            for (size_t i = 0; i < n; i++) {
+                const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n);
+                re += w * x[a + i] * std::cos(2 * M_PI * hz * i / rate);
+                im += w * x[a + i] * std::sin(2 * M_PI * hz * i / rate);
+            }
+            return std::hypot(re, im);
+        };
+        const double f0 = noteHz(48);
+        const double sine = harmonic(renderExtended({}, 48, 1.0, 1.1, 1.1), f0);
+        for (int w = 1; w <= 4; w++) {
+            const int set = (w - 1) * 8 + 3;
+            const auto x = renderExtended({ { 1060, w }, { 1061, 3 } }, 48, 1.0, 1.1, 1.1);
+            for (int h = 1; h <= 8 && h <= kWaveHarmonicCount[set]; h++) {
+                const double want = kWaveHarmonicAmp[kWaveHarmonicOffset[set] + h - 1];
+                if (want < 1e-3)
+                    continue;
+                const double db = 20 * std::log10(harmonic(x, f0 * h) / sine / want);
+                expect(std::fabs(db) < 0.5, "wave " + std::to_string(w) + " spread 3 harmonic " + std::to_string(h) +
+                                                ": " + std::to_string(db) + " dB from its table");
+            }
         }
     }
     // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw; Extended

@@ -59,6 +59,9 @@ enum Op {
     LevelVelocity, // -7-+7
     PitchDepthOffset, // 0-7
     AmpDepthOffset,   // 0-7
+    Wave,         // 0-6: sine, all harmonics 1 and 2, odd harmonics 1 and 2, formant 1 and 2
+    WaveSpread,   // 0-7
+    WaveFormant,  // 0-99 (formant waves)
     OpCount
 };
 

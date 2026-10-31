@@ -79,6 +79,12 @@ private:
 
 class ExtNote {
 public:
+    // an operator's wave (msfa/ext_waves.h)
+    struct Wave {
+        enum Kind { Sine, Table, Formant, Silent } kind = Sine;
+        const int32_t *table = nullptr; // Table: the wave; Formant: the window
+        int32_t centre = 1;             // Formant: the centre harmonic
+    };
     void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
     // the voice's values changed while it plays (envelopes keep their state)
     void update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
@@ -114,6 +120,7 @@ private:
     int32_t fbBuf_[2] = {};
     int32_t gains_[8][N];        // per operator, this block's gain per sample
     int32_t freqs_[8][N];        // per operator, this block's phase increment per sample
+    Wave waves_[8];
     AlignedBuf<int32_t, N> bufs_[8];
     AlignedBuf<int32_t, N> sum_;
     const SynthRate *rate_ = nullptr;

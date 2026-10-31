@@ -21,6 +21,7 @@
 // Moved from PluginProcessor.cpp, midi/PluginMidi.cpp and Tuning.cpp without behaviour change.
 
 #include "SynthEngine.h"
+#include "msfa/ext_waves.h"
 
 #include "msfa/freqlut.h"
 #include "msfa/sin.h"
@@ -91,6 +92,7 @@ SynthEngine::SynthEngine() {
         Tanh::init();
         Sin::init();
         (void)dx7Compiled(0); // the compiled DX7 algorithms
+        extwave::init();      // the Extended profile's operator waves
         return true;
     }();
     (void)sharedTablesReady;
