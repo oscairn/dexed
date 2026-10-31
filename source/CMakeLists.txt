@@ -175,3 +175,7 @@ set_target_properties(oscairn_fm PROPERTIES
     SUFFIX ".clap"
     OUTPUT_NAME oscairn-fm
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/oscairn)
+if(UNIX AND NOT APPLE)
+    target_link_options(oscairn_fm PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/oscairn/exports.map")
+    set_target_properties(oscairn_fm PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/oscairn/exports.map)
+endif()

@@ -1,0 +1,6 @@
+/* Linux: the module exports clap_entry and nothing else (libstdc++'s inline type info
+   would otherwise be exported too). */
+{
+    global: clap_entry;
+    local: *;
+};
