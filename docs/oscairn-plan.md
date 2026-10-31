@@ -1477,7 +1477,7 @@ unchanged), its velocity scaling of rates (1.35 % at the one measured point), an
 continues or restarts in mono legato (Octet carries it over like the filter EG); key-on delay
 in mono and legato playing; positions 61-62 of the pan law.
 
-**Part LFO (fourth session, later): `84b1819`, `0433952`, `ef31f00`, `56e3a58`, `4f83501`, `996ee32`.** Renders: `m6g` (pilot at depth 127),
+**Part LFO (fourth session, later): `84b1819`, `0433952`, `ef31f00`, `56e3a58`, `4f83501`, `996ee32`, `ae58014`.** Renders: `m6g` (pilot at depth 127),
 `m6h` (every wave, phase, delay, fade in, hold, fade out, tempo sync and the user wave at depth
 8), `m6i`/`m6k` (speed at every value), `m6j` (the envelope times every eighth value, depth at
 17 values, depth ratio at 7, sample and hold, the user slopes, and the operator level and pan
@@ -1496,9 +1496,12 @@ cycles above speed 50).
   every value (0 stands still, 1 is 0.0019 Hz, 2 is 0.062 Hz, then about a doubling every 8
   values to 11.86 Hz at 63). Tempo sync: 1/16 to 64 beats per cycle at the host's tempo
   (1/4, 1/2 and 4 beats matched at 120 bpm). Delay, fade in, hold and fade out share one time
-  table (the four agree within the measurement's resolution from value 48 up): 0 to 11.5 s,
-  read from the delay's onset every eighth value, straight in log time between; hold 127 holds
-  for ever, any other hold is followed by the fade out.
+  table (the four, measured every eighth value, agree within the measurement's resolution from
+  value 48 up): 0 to 11.5 s, read from the delay's onset at every value (`m6o`: an LFO at
+  11.9 Hz), made non-decreasing where values 1-30 scatter by about 10 ms; hold 127 holds for
+  ever, any other hold is followed by the fade out. After a reset the reference's LFO starts
+  about 12 ms late (its onset with no delay; without modelling it, Octet's waves led the
+  reference's by 3-18 ms); Octet holds its LFO still for 12 ms.
 - **Operator frequency:** 3600/127 cents per depth step at the LFO's peak (17 depths, within
   0.3 cents); the operator's depth ratio applies as integer arithmetic: depth x ratio / 128
   rounded down, ratio 127 as 128 (7 ratios, within 0.4 cents). **Operator level:** at the
@@ -1530,7 +1533,8 @@ cycles above speed 50).
 | Gate | Result |
 | --- | --- |
 | LFO rates, 1 % | **Met** for speeds 2-63 (53 of 53 compared, worst 0.23 %; the table comes from the same renders, so this checks the implementation and analysis, not an independent sample) |
-| LFO shapes | Octet's pitch against the reference's after the best time shift, 95th percentile of the difference at depth 8 (peak 227 cents): every wave 0.1-7.5 cents, the phases 4.7-5.1, the user wave 0.5-9.7 (16 steps: 29.5, at the step edges); tempo sync at 1/4 and slower 8.3-16.1, at 1/16 and 1/8 33.6-62 (the tracker's smoothing at 5-8 Hz). Octet's LFO runs 3-18 ms ahead of the reference's in these renders (not resolved) |
+| LFO shapes | Octet's pitch against the reference's, 95th percentile of the difference at depth 8 (peak 227 cents), with the start latency modelled and no time shift: every wave 0.1-10.1 cents, the phases 4.8-8.0, the user wave 0.5-10.5 (16 steps: 137 at the step edges, 29.8 after the best shift of 18 ms), tempo sync at 1/4 and 1/2 9.3-17.6, 4 beats 17.8, 1/16 and 1/8 41.7-76.9 (the tracker's smoothing at 5-8 Hz); the best shifts now lie between -26 and +26 ms around 0 |
+| LFO delay at every value, 2 % or 10 ms | **Met** for 109 of 111 (`m6o`, worst 27 ms at value 125, 0.3 %); not met: values 9 and 23 (11 ms early: the non-decreasing table) |
 | Depth and ratio | **Met** within 0.4 cents (24 cases) |
 
 Not done or not measured: every destination was measured with a square wave only (the
@@ -1538,12 +1542,13 @@ values between the LFO's top and bottom are taken as straight, except where a st
 rounded); the LFO 2 speed destination in the Extended speed range; BPFw's width under the
 resonance destination. Random speed depth, the reference's key-on reset Off and
 1st-On behaviour (one note per render), the envelope's behaviour when the LFO does not reset,
-sample and hold 2, the times between every eighth value and below about 100 ms, whether the
+sample and hold 2, the fades and hold below about 100 ms (taken from the delay), whether the
 LFO reaches fixed-frequency operators, and the operator level at values between the LFO's top
 and bottom.
 
 **Tests run locally (fourth session)**, for each pushed commit's tree (`3049366`, `b408553`,
-`8db4d81`, `e0639e8`, `84b1819`, `0433952`, `ef31f00`, `56e3a58`, `4f83501`, `996ee32`): Release CTest 36/36 (the 164 Classic cases bit-identical through
+`8db4d81`, `e0639e8`, `84b1819`, `0433952`, `ef31f00`, `56e3a58`, `4f83501`, `996ee32`,
+`ae58014`): Release CTest 36/36 (the 164 Classic cases bit-identical through
 engine, JUCE plugin and native CLAP on arm64; the Extended test now also checks the common
 pitch EG levels per depth, velocity, decay and release rates and time key follow through the
 plugin, fixed operators unaffected, pitch key follow, random pitch's grid and determinism, the
