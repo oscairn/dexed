@@ -160,7 +160,7 @@ PUBLIC
 # Octet: a native CLAP over the headless engine, for Oscairn (docs/oscairn-plan.md, M1).
 # No JUCE. A plain .clap module file, as Oscairn's own plugins.
 add_library(oscairn_fm_objects OBJECT oscairn/OscairnFm.cpp oscairn/Parameters.cpp)
-target_include_directories(oscairn_fm_objects PUBLIC ../libs/clap-juce-extensions/clap-libs/clap/include .)
+target_include_directories(oscairn_fm_objects PUBLIC ../libs/clap-juce-extensions/clap-libs/clap/include ../libs/oscairn-clap/include .)
 target_compile_definitions(oscairn_fm_objects PUBLIC DEXED_HEADLESS=1)
 target_link_libraries(oscairn_fm_objects PUBLIC dexed_engine)
 set_target_properties(oscairn_fm_objects PROPERTIES

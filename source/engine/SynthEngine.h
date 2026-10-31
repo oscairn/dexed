@@ -24,7 +24,9 @@
 // DexedAudioProcessor unchanged so the plugin, the tests and (later) a CLAP direct-process
 // path share it. No JUCE.
 
+#include <atomic>
 #include <memory>
+#include <vector>
 
 #include "msfa/controllers.h"
 #include "msfa/dx7note.h"
@@ -57,6 +59,7 @@ struct ProcessorVoice {
 
     NoteRef ref;             // the note that started this voice
     bool noteActive = false; // the host has not been told the note ended
+    int context = 0;         // the sound (SynthContext) the voice plays
 };
 
 enum DexedEngineResolution {
@@ -65,9 +68,43 @@ enum DexedEngineResolution {
     DEXED_ENGINE_OPL
 };
 
+// One prepared sound (RFC 0005 sound context): its voice data and settings, its LFO (the DX7
+// had one per instrument) and its output filter. Context 0 is the default sound.
+struct SynthContext {
+    const uint8_t *patch = nullptr; // 156 bytes, owned by the engine's user
+    Controllers ctrl;               // settings and controller values
+    Lfo lfo;
+    PluginFx fx;
+    bool monoMode = false;
+    int engineType = -1;
+    int lastActiveVoice = 0;
+
+    // audio thread
+    float extra_buf[N];        // rendered ahead (see SynthEngine::render)
+    std::vector<float> block;  // contexts other than 0 render a block here before mixing
+    bool rendering = false;    // rendered in the current block
+    bool tail = false;         // the last block was not silent
+    uint16_t selectedChannels = 0;
+
+    // published by publishContextState() for the main thread
+    std::atomic<uint32_t> activeVoices { 0 };
+    std::atomic<uint32_t> selectedMask { 0 };
+    std::atomic<bool> silent { true }; // no voices, not selected, no tail
+};
+
+// Chooses the voice for a new note. One place, so the policy can be replaced without
+// touching context handling.
+// shortcut: Dexed's policy (+4 not playing, +2 key up, +1 same pitch, oldest key-down on ties)
+// across the whole shared pool, as a placeholder; pending the voice-stealing decision with
+// the main Oscairn agent (docs/oscairn-plan.md, section 10, question 4).
+struct VoiceStealing {
+    static int choose(const ProcessorVoice *voices, int count, int currentNote, int pitch);
+};
+
 class SynthEngine {
 public:
     static const int MAX_ACTIVE_NOTES = 16;
+    static const int MAX_CONTEXTS = 8;
 
     // Supplies the events of the block being rendered, in order.
     struct EventSource {
@@ -93,13 +130,16 @@ public:
     SynthEngine();
     ~SynthEngine();
 
-    // The 156-byte voice (155 DX7 bytes and the operator switch byte). Owned by the caller
-    // and read while voices play.
-    void setPatch(const uint8_t *patch) { this->patch = patch; }
+    // The 156-byte voice (155 DX7 bytes and the operator switch byte) of context 0 (or c).
+    // Owned by the caller and read while voices play.
+    void setPatch(const uint8_t *patch) { contexts[0].patch = patch; }
+    void setPatch(int c, const uint8_t *patch) { contexts[c].patch = patch; }
     void setTuning(std::shared_ptr<TuningState> tuning);
     void setMtsClient(MTSClient *client) { mtsClient = client; }
 
-    void prepare(double sampleRate);
+    // maxFrames: the largest block render() will get; contexts other than 0 can only play
+    // when it is given.
+    void prepare(double sampleRate, int maxFrames = 0);
     void release();
 
     // Renders numSamples mono samples into out (overwriting it), dispatching events on the
@@ -122,47 +162,58 @@ public:
     void collectEndedNotes();
     void setNoteEndSink(NoteEndSink *sink) { noteEndSink = sink; }
 
-    // Re-reads the patch into the playing voices and the LFO.
-    void refreshVoices();
-    void resetLfo();
+    // Re-reads the patch into the playing voices and the LFO (of context 0, or c).
+    void refreshVoices() { refreshVoices(0); }
+    void refreshVoices(int c);
+    void resetLfo() { resetLfo(0); }
+    void resetLfo(int c);
+    // Stops every voice of context c (no release).
+    void panicContext(int c);
 
     bool peekVoiceStatus(VoiceStatus &voiceStatus);
-    int tuningTranspositionShift();
+    int tuningTranspositionShift() { return tuningTranspositionShift(0); }
+    int tuningTranspositionShift(int c);
 
-    int getEngineType();
-    void setEngineType(int tp);
-    void setMonoMode(bool mono) { monoMode = mono; }
+    int getEngineType() { return contexts[0].engineType; }
+    void setEngineType(int tp) { setEngineType(0, tp); }
+    void setEngineType(int c, int tp);
+    void setMonoMode(bool mono) { contexts[0].monoMode = mono; }
+    void setMonoMode(int c, bool mono) { contexts[c].monoMode = mono; }
 
+    // Contexts. selectContext is for the audio thread, between blocks; channel -1 is all.
+    SynthContext &context(int c) { return contexts[c]; }
+    void selectContext(int c, int channel);
+    int selectedContext(int channel) const { return selected[channel]; }
+    // After a block (and collectEndedNotes): publishes voice counts, selections and silence.
+    void publishContextState();
+
+    SynthContext contexts[MAX_CONTEXTS];
+
+    // Context 0's controllers and output filter (the single sound of the desktop plugin).
     // in MIDI units (0x4000 is neutral)
-    Controllers controllers;
-    PluginFx fx;
+    Controllers &controllers { contexts[0].ctrl };
+    PluginFx &fx { contexts[0].fx };
     bool normalizeDxVelocity = false;
 
 private:
     ProcessorVoice voices[MAX_ACTIVE_NOTES];
     int currentNote;
 
-    // The original DX7 had one single LFO. Later units had an LFO per note.
-    Lfo lfo;
-
     bool sustain;
-    bool monoMode;
+    int selected[16] = {}; // the context each MIDI channel plays
 
-    // Extra buffering for when GetSamples wants a buffer not a multiple of N
-    float extra_buf[N];
+    // Extra buffering for when GetSamples wants a buffer not a multiple of N (the samples
+    // are per context; the count is shared, so every context keeps the same 64-sample grid)
     int extra_buf_size;
 
-    uint32_t engineType;
     FmCore engineMsfa;
     EngineMkI engineMkI;
     EngineOpl engineOpl;
 
     SynthRate rate;
-    const uint8_t *patch = nullptr;
     std::shared_ptr<TuningState> tuningState;
     MTSClient *mtsClient = nullptr;
 
-    int lastActiveVoice = 0;
     int32_t nextKeydownSeq;
 
     NoteEndSink *noteEndSink = nullptr;

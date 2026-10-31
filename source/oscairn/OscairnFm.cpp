@@ -19,12 +19,15 @@
 #include "engine/SynthEngine.h"
 #include "Parameters.h"
 
+#include <oscairn-clap/sound-contexts.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <locale>
 #include <memory>
 #include <sstream>
@@ -51,43 +54,73 @@ const clap_plugin_descriptor_t descriptor = {
 };
 
 constexpr const char *stateHeader = "oscairn-fm-state 1";
+constexpr const char *snapshotHeader = "octet-contexts 1";
 constexpr size_t maxStateBytes = 1 << 16;
+constexpr int contextCount = SynthEngine::MAX_CONTEXTS;
+constexpr int queueSize = 32;
 
 struct Plugin;
 Plugin &self(const clap_plugin_t *p);
+
+// A prepared sound (RFC 0005). Slot 0 is the protected default sound, ID 0.
+struct Slot {
+    std::atomic<bool> ready { false }; // prepared (main thread writes, audio reads)
+    uint32_t id = 0;                   // main thread
+    char name[64] = {};                // main thread
+    std::atomic<uint32_t> queued { 0 }; // accepted selections not yet applied
+    std::atomic<uint32_t> generation { 0 }; // bumped by every preparation
+    uint32_t loadedGeneration = 0;     // audio thread: which preparation the engine holds
+    uint8_t patch[156];                // the engine's voice data once loaded
+    uint8_t voiceName[10];             // main thread
+    std::vector<double> prepared;      // values from prepare, loaded by the audio thread
+};
+
+struct Selection { int slot; int16_t channel; };
 
 struct Plugin : SynthEngine::NoteEndSink {
     clap_plugin_t plugin {};
     const clap_host_t *host = nullptr;
 
     SynthEngine engine;
-    uint8_t patch[156];
-    // Current values, by index in params(); written by whichever thread owns the engine,
+    Slot slots[contextCount];
+    // Values by context and parameter index: written by whichever thread owns the engine,
     // read by the main thread.
     std::unique_ptr<std::atomic<double>[]> values;
+    std::atomic<int> view { 0 }; // the context selected on channel 1: what get_value shows
     bool active = false;
-    // The voice name, owned by the main thread (the audio thread has its own copy in patch).
-    uint8_t name[10];
+    uint32_t nextId = 1;
+
+    // Selections: single producer (main), single consumer (audio).
+    Selection queue[queueSize];
+    std::atomic<uint32_t> queueHead { 0 }, queueTail { 0 };
 
     // State loaded while active, handed to the audio thread at the start of a process call.
     std::vector<double> pendingValues;
     uint8_t pendingName[10];
     std::atomic<bool> pendingState { false };
 
-    // During process: where NOTE_END goes and at which frame.
+    // During process: where NOTE_END and parameter feedback go, and at which frame.
     const clap_output_events_t *out = nullptr;
     uint32_t now = 0;
 
-    Plugin() : values(new std::atomic<double>[params().size()]) {
-        std::memcpy(patch, initVoice, sizeof patch);
-        std::memcpy(name, initVoice + 145, sizeof name);
-        for (size_t i = 0; i < params().size(); i++)
-            values[i].store(params()[i].def, std::memory_order_relaxed);
+    std::atomic<double> &value(int c, size_t i) { return values[(size_t)c * params().size() + i]; }
+
+    Plugin() : values(new std::atomic<double>[contextCount * params().size()]) {
+        for (int c = 0; c < contextCount; c++) {
+            std::memcpy(slots[c].patch, initVoice, 156);
+            std::memcpy(slots[c].voiceName, initVoice + 145, 10);
+            slots[c].prepared.assign(params().size(), 0.0);
+            for (size_t i = 0; i < params().size(); i++)
+                value(c, i).store(params()[i].def, std::memory_order_relaxed);
+            engine.setPatch(c, slots[c].patch);
+        }
+        std::snprintf(slots[0].name, sizeof slots[0].name, "Default");
+        slots[0].ready.store(true, std::memory_order_release);
         pendingValues.resize(params().size());
         engine.setTuning(createStandardTuning());
-        engine.setPatch(patch);
         engine.setNoteEndSink(this);
-        applyAll();
+        for (int c = 0; c < contextCount; c++)
+            applyAll(c);
     }
 
     void noteEnded(const NoteRef &note) override {
@@ -103,77 +136,137 @@ struct Plugin : SynthEngine::NoteEndSink {
         out->try_push(out, &e.header);
     }
 
-    // Sets parameter index i on the engine (on whichever thread owns it).
-    void apply(size_t i, double value) {
+    // Sets parameter index i of context c on the engine (on whichever thread owns it).
+    void apply(int c, size_t i, double v) {
         const Param &p = params()[i];
-        value = std::clamp(value, p.min, p.max);
+        v = std::clamp(v, p.min, p.max);
         if (p.stepped())
-            value = std::round(value);
-        values[i].store(value, std::memory_order_relaxed);
-        Controllers &c = engine.controllers;
+            v = std::round(v);
+        value(c, i).store(v, std::memory_order_relaxed);
+        uint8_t *patch = slots[c].patch;
+        SynthContext &x = engine.context(c);
+        Controllers &ctrl = x.ctrl;
         switch (p.kind) {
         case Kind::Byte: {
-            const uint8_t b = (uint8_t)((int)value + p.offset);
+            const uint8_t b = (uint8_t)((int)v + p.offset);
             if (patch[p.target] == b)
                 return;
             patch[p.target] = b;
             if (p.target == 144) // transpose, as Dexed's setDxValue
-                engine.panic();
-            engine.refreshVoices();
+                engine.panicContext(c);
+            engine.refreshVoices(c);
             return;
         }
         case Kind::OpSwitch:
-            if (value > 0.5)
+            if (v > 0.5)
                 patch[155] |= (uint8_t)(1U << p.target);
             else
                 patch[155] &= (uint8_t)~(1U << p.target);
-            engine.refreshVoices();
+            engine.refreshVoices(c);
             return;
         case Kind::Setting:
             break;
         }
         // As Dexed's parameter listeners (source/parameter/ParametersMapper.cpp).
-        const float v = (float)value;
-        const bool on = v > 0.5f;
+        const float f = (float)v;
+        const bool on = f > 0.5f;
         auto mod = [&](FmMod &m, int field) {
-            if (field == 0) m.range = (int)v;
+            if (field == 0) m.range = (int)f;
             else if (field == 1) m.pitch = on;
             else if (field == 2) m.amp = on;
             else m.eg = on;
-            c.refresh();
+            ctrl.refresh();
         };
         const Setting s = (Setting)p.target;
         switch (s) {
-        case Setting::Engine: engine.setEngineType((int)std::round(v)); break;
-        case Setting::Mono: engine.panic(); engine.setMonoMode(on); break;
+        case Setting::Engine: engine.setEngineType(c, (int)std::round(f)); break;
+        case Setting::Mono: engine.panicContext(c); engine.setMonoMode(c, on); break;
         case Setting::PortamentoTime:
-            c.portamento_cc = (int32_t)(v * 127.0f / 99.0f);
-            c.portamento_enable_cc = c.portamento_cc > 0;
+            ctrl.portamento_cc = (int32_t)(f * 127.0f / 99.0f);
+            ctrl.portamento_enable_cc = ctrl.portamento_cc > 0;
             break;
-        case Setting::Glissando: c.portamento_gliss_cc = on; break;
-        case Setting::PitchBendUp: c.pitch_range_up = (int)v; break;
-        case Setting::PitchBendDown: c.pitch_range_dn = (int)v; break;
-        case Setting::PitchBendStep: c.pitch_step = (int)v; break;
+        case Setting::Glissando: ctrl.portamento_gliss_cc = on; break;
+        case Setting::PitchBendUp: ctrl.pitch_range_up = (int)f; break;
+        case Setting::PitchBendDown: ctrl.pitch_range_dn = (int)f; break;
+        case Setting::PitchBendStep: ctrl.pitch_step = (int)f; break;
         case Setting::MasterTune: {
-            int32_t tune = ((v / 2 + 0.5) * 0x4000) - 0x2000;
-            c.masterTune = ((float)(tune << 11)) * (1.0 / 12);
+            int32_t tune = ((f / 2 + 0.5) * 0x4000) - 0x2000;
+            ctrl.masterTune = ((float)(tune << 11)) * (1.0 / 12);
             break;
         }
-        case Setting::Cutoff: engine.fx.uiCutoff = v; break;
-        case Setting::Resonance: engine.fx.uiReso = v; break;
-        case Setting::Output: engine.fx.uiGain = v; break;
+        case Setting::Cutoff: x.fx.uiCutoff = f; break;
+        case Setting::Resonance: x.fx.uiReso = f; break;
+        case Setting::Output: x.fx.uiGain = f; break;
         case Setting::None: break;
         default: {
             const int k = (int)s - (int)Setting::WheelRange;
-            FmMod *sources[] = { &c.wheel, &c.foot, &c.breath, &c.at };
+            FmMod *sources[] = { &ctrl.wheel, &ctrl.foot, &ctrl.breath, &ctrl.at };
             mod(*sources[k / 4], k % 4);
         }
         }
     }
 
-    void applyAll() {
+    void applyAll(int c) {
         for (size_t i = 0; i < params().size(); i++)
-            apply(i, values[i].load(std::memory_order_relaxed));
+            apply(c, i, value(c, i).load(std::memory_order_relaxed));
+    }
+
+    // Loads a prepared slot into the engine (audio thread, or main thread when inactive or
+    // exclusive), with the default sound's current controller values.
+    void load(int c) {
+        Slot &slot = slots[c];
+        const uint32_t generation = slot.generation.load(std::memory_order_acquire);
+        if (slot.loadedGeneration == generation)
+            return;
+        slot.loadedGeneration = generation;
+        engine.panicContext(c);
+        Controllers &ctrl = engine.context(c).ctrl;
+        const Controllers &now = engine.context(0).ctrl;
+        ctrl.pitch_cc = now.pitch_cc;
+        ctrl.modwheel_cc = now.modwheel_cc;
+        ctrl.foot_cc = now.foot_cc;
+        ctrl.breath_cc = now.breath_cc;
+        ctrl.aftertouch_cc = now.aftertouch_cc;
+        ctrl.portamento_enable_cc = now.portamento_enable_cc;
+        ctrl.mpeEnabled = now.mpeEnabled;
+        std::memcpy(slot.patch, initVoice, 156);
+        std::memcpy(slot.patch + 145, slot.voiceName, 10);
+        for (size_t i = 0; i < params().size(); i++)
+            apply(c, i, slot.prepared[i]);
+        engine.resetLfo(c);
+    }
+
+    // Applies the queued selections (audio thread, at the start of a process call).
+    void takeSelections() {
+        const uint32_t head = queueHead.load(std::memory_order_acquire);
+        uint32_t tail = queueTail.load(std::memory_order_relaxed);
+        const int before = engine.selectedContext(0);
+        if (tail == head)
+            return;
+        for (uint32_t t = tail; t != head; t++) {
+            const Selection &s = queue[t % queueSize];
+            load(s.slot);
+            engine.selectContext(s.slot, s.channel);
+        }
+        // publish the new selections before releasing the queue's pins, so a discard that
+        // sees no pin also sees the selection
+        engine.publishContextState();
+        for (; tail != head; tail++)
+            slots[queue[tail % queueSize].slot].queued.fetch_sub(1, std::memory_order_release);
+        queueTail.store(tail, std::memory_order_release);
+        const int after = engine.selectedContext(0);
+        if (after != before) {
+            view.store(after, std::memory_order_relaxed);
+            // parameter feedback for the sound now shown
+            for (size_t i = 0; out != nullptr && i < params().size(); i++) {
+                clap_event_param_value_t e {};
+                e.header = { sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 };
+                e.param_id = params()[i].id;
+                e.note_id = e.port_index = e.channel = e.key = -1;
+                e.value = value(after, i).load(std::memory_order_relaxed);
+                out->try_push(out, &e.header);
+            }
+        }
     }
 
     void applyEvent(const clap_event_header_t *h) {
@@ -183,11 +276,22 @@ struct Plugin : SynthEngine::NoteEndSink {
         case CLAP_EVENT_PARAM_VALUE: {
             auto *e = reinterpret_cast<const clap_event_param_value_t *>(h);
             // per-note values are modulation targets this engine does not have
-            if (e->note_id >= 0 || e->key >= 0 || e->channel >= 0 || e->port_index > 0 || !std::isfinite(e->value))
+            if (e->note_id >= 0 || e->key >= 0 || e->channel > 15 || e->port_index > 0 || !std::isfinite(e->value))
                 return;
             const int i = indexOf(e->param_id);
-            if (i >= 0)
-                apply((size_t)i, e->value);
+            if (i < 0)
+                return;
+            // the sounds selected for the event's channel (all channels: every selected sound)
+            bool done[contextCount] = {};
+            for (int ch = 0; ch < 16; ch++) {
+                if (e->channel >= 0 && ch != e->channel)
+                    continue;
+                const int c = engine.selectedContext(ch);
+                if (!done[c]) {
+                    done[c] = true;
+                    apply(c, (size_t)i, e->value);
+                }
+            }
             return;
         }
         case CLAP_EVENT_NOTE_ON: {
@@ -232,14 +336,15 @@ struct Plugin : SynthEngine::NoteEndSink {
         }
     }
 
-    // Applies a state handed over by the main thread.
+    // Applies a state handed over by the main thread, to the sound shown.
     void takePendingState() {
         if (!pendingState.load(std::memory_order_acquire))
             return;
-        std::memcpy(patch + 145, pendingName, 10);
+        const int c = engine.selectedContext(0);
+        std::memcpy(slots[c].patch + 145, pendingName, 10);
         for (size_t i = 0; i < params().size(); i++)
-            apply(i, pendingValues[i]);
-        engine.panic();
+            apply(c, i, pendingValues[i]);
+        engine.panicContext(c);
         pendingState.store(false, std::memory_order_release);
     }
 };
@@ -265,9 +370,10 @@ struct ProcessEvents : SynthEngine::EventSource {
 
 clap_process_status process(const clap_plugin_t *p, const clap_process_t *process) {
     Plugin &s = self(p);
-    s.takePendingState();
     s.out = process->out_events;
     s.now = 0;
+    s.takeSelections(); // before this call's events (RFC 0005)
+    s.takePendingState();
     const uint32_t frames = process->frames_count;
     ProcessEvents events(s, process->in_events);
     float *left = nullptr, *right = nullptr;
@@ -285,6 +391,7 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     }
     s.now = frames > 0 ? frames - 1 : 0;
     s.engine.collectEndedNotes();
+    s.engine.publishContextState();
     s.out = nullptr;
     return CLAP_PROCESS_CONTINUE;
 }
@@ -316,7 +423,8 @@ bool paramsValue(const clap_plugin_t *plugin, clap_id id, double *value) {
     const int i = indexOf(id);
     if (i < 0)
         return false;
-    *value = self(plugin).values[i].load(std::memory_order_relaxed);
+    Plugin &s = self(plugin);
+    *value = s.value(s.view.load(std::memory_order_relaxed), (size_t)i).load(std::memory_order_relaxed);
     return true;
 }
 
@@ -399,20 +507,20 @@ const clap_plugin_params_t paramsExt = { paramsCount, paramsInfo, paramsValue, p
 
 // ---- state ----
 
-bool stateSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
-    Plugin &s = self(plugin);
+// The patch text of a sound: voice name and every parameter, by ID.
+std::string patchText(const uint8_t name[10], const std::function<double(size_t)> &valueOf) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out.precision(17);
     out << stateHeader << "\nname";
     char hex[3];
     for (int i = 0; i < 10; i++) {
-        std::snprintf(hex, sizeof hex, "%02x", s.name[i]);
+        std::snprintf(hex, sizeof hex, "%02x", name[i]);
         out << (i == 0 ? " " : "") << hex;
     }
     out << "\n";
     for (size_t i = 0; i < params().size(); i++) {
-        const double v = s.values[i].load(std::memory_order_relaxed);
+        const double v = valueOf(i);
         out << "p " << params()[i].id << " ";
         if (params()[i].stepped())
             out << (long)std::lround(v);
@@ -420,7 +528,10 @@ bool stateSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
             out << v;
         out << "\n";
     }
-    const std::string text = out.str();
+    return out.str();
+}
+
+bool writeAll(const clap_ostream_t *stream, const std::string &text) {
     for (size_t written = 0; written < text.size();) {
         const int64_t n = stream->write(stream, text.data() + written, text.size() - written);
         if (n <= 0)
@@ -428,6 +539,26 @@ bool stateSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
         written += (size_t)n;
     }
     return true;
+}
+
+bool readAll(const clap_istream_t *stream, std::string &text, size_t limit) {
+    char buffer[4096];
+    for (;;) {
+        const int64_t n = stream->read(stream, buffer, sizeof buffer);
+        if (n < 0)
+            return false;
+        if (n == 0)
+            return true;
+        text.append(buffer, (size_t)n);
+        if (text.size() > limit)
+            return false;
+    }
+}
+
+bool stateSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
+    Plugin &s = self(plugin);
+    const int c = s.view.load(std::memory_order_relaxed);
+    return writeAll(stream, patchText(s.slots[c].voiceName, [&](size_t i) { return s.value(c, i).load(std::memory_order_relaxed); }));
 }
 
 // Parses a whole state; false (and nothing changed) on anything unexpected.
@@ -484,26 +615,18 @@ bool parseState(const std::string &text, std::vector<double> &values, uint8_t na
 bool stateLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     Plugin &s = self(plugin);
     std::string text;
-    char buffer[4096];
-    for (;;) {
-        const int64_t n = stream->read(stream, buffer, sizeof buffer);
-        if (n < 0)
-            return false;
-        if (n == 0)
-            break;
-        text.append(buffer, (size_t)n);
-        if (text.size() > maxStateBytes)
-            return false;
-    }
+    if (!readAll(stream, text, maxStateBytes))
+        return false;
     std::vector<double> values(params().size());
     uint8_t name[10];
     if (!parseState(text, values, name))
         return false;
-    std::memcpy(s.name, name, 10);
+    const int c = s.view.load(std::memory_order_relaxed);
+    std::memcpy(s.slots[c].voiceName, name, 10);
     if (!s.active) {
-        std::memcpy(s.patch + 145, name, 10);
+        std::memcpy(s.slots[c].patch + 145, name, 10);
         for (size_t i = 0; i < values.size(); i++)
-            s.apply(i, values[i]);
+            s.apply(c, i, values[i]);
         return true;
     }
     // Active: hand the state to the audio thread. Wait (briefly) for a previous one to be taken.
@@ -521,6 +644,245 @@ bool stateLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
 }
 
 const clap_plugin_state_t stateExt = { stateSave, stateLoad };
+
+// ---- sound contexts (RFC 0005) ----
+
+uint32_t contextsCapacity(const clap_plugin_t *) { return contextCount; }
+
+bool contextsGet(const clap_plugin_t *plugin, uint32_t index, oscairn_sound_context_info_t *info) {
+    Plugin &s = self(plugin);
+    if (index >= (uint32_t)contextCount || !s.slots[index].ready.load(std::memory_order_acquire))
+        return false;
+    const Slot &slot = s.slots[index];
+    const SynthContext &x = s.engine.context((int)index);
+    *info = {};
+    info->id = slot.id;
+    std::snprintf(info->name, sizeof info->name, "%s", slot.name);
+    info->selected_channels = x.selectedMask.load(std::memory_order_relaxed);
+    info->active_voices = x.activeVoices.load(std::memory_order_relaxed);
+    info->idle = x.silent.load(std::memory_order_acquire) && slot.queued.load(std::memory_order_acquire) == 0;
+    return true;
+}
+
+void diagnostic(char *message, uint32_t capacity, const char *text) {
+    if (message != nullptr && capacity > 0)
+        std::snprintf(message, capacity, "%s", text);
+}
+
+uint32_t contextsPrepare(const clap_plugin_t *plugin, const char *name, const oscairn_sound_parameter_t *supplied, uint32_t count,
+                         const char *patch, const oscairn_asset_ref_t *base, char *message, uint32_t capacity) {
+    Plugin &s = self(plugin);
+    if (name == nullptr || std::strlen(name) > 63) {
+        diagnostic(message, capacity, "name missing or longer than 63 bytes");
+        return CLAP_INVALID_ID;
+    }
+    if (base != nullptr) {
+        diagnostic(message, capacity, "this instrument has no assets");
+        return CLAP_INVALID_ID;
+    }
+    if (count > 0 && supplied == nullptr) {
+        diagnostic(message, capacity, "parameters missing");
+        return CLAP_INVALID_ID;
+    }
+    std::vector<double> values(params().size());
+    uint8_t voiceName[10];
+    for (size_t i = 0; i < values.size(); i++)
+        values[i] = params()[i].def;
+    std::memcpy(voiceName, initVoice + 145, 10);
+    if (patch != nullptr && !parseState(patch, values, voiceName)) {
+        diagnostic(message, capacity, "patch text is not an oscairn-fm-state 1 patch, or has a bad line");
+        return CLAP_INVALID_ID;
+    }
+    std::vector<bool> seen(values.size(), false);
+    for (uint32_t k = 0; k < count; k++) {
+        const int i = indexOf(supplied[k].id);
+        const double v = supplied[k].value;
+        if (i < 0 || seen[i]) {
+            diagnostic(message, capacity, i < 0 ? "unknown parameter ID" : "parameter given twice");
+            return CLAP_INVALID_ID;
+        }
+        const Param &p = params()[i];
+        if (!std::isfinite(v) || v < p.min || v > p.max || (p.stepped() && v != std::round(v))) {
+            diagnostic(message, capacity, "parameter value out of range");
+            return CLAP_INVALID_ID;
+        }
+        seen[i] = true;
+        values[i] = v;
+    }
+    for (int c = 1; c < contextCount; c++) {
+        Slot &slot = s.slots[c];
+        if (slot.ready.load(std::memory_order_acquire))
+            continue;
+        // free: the audio thread does not touch this slot until it is selected
+        slot.prepared = values; // same size: no allocation
+        std::memcpy(slot.voiceName, voiceName, 10);
+        std::snprintf(slot.name, sizeof slot.name, "%s", name);
+        slot.id = s.nextId++;
+        slot.generation.fetch_add(1, std::memory_order_release);
+        slot.ready.store(true, std::memory_order_release);
+        if (!s.active) // nothing renders: load now, so get_value and state see it at once
+            s.load(c);
+        return slot.id;
+    }
+    diagnostic(message, capacity, "no free sound context");
+    return CLAP_INVALID_ID;
+}
+
+int slotOf(Plugin &s, uint32_t id) {
+    for (int c = 0; c < contextCount; c++)
+        if (s.slots[c].ready.load(std::memory_order_acquire) && s.slots[c].id == id)
+            return c;
+    return -1;
+}
+
+bool contextsSelect(const clap_plugin_t *plugin, uint32_t id, int16_t channel) {
+    Plugin &s = self(plugin);
+    const int c = slotOf(s, id);
+    if (c < 0 || channel < -1 || channel > 15)
+        return false;
+    const uint32_t head = s.queueHead.load(std::memory_order_relaxed);
+    if (head - s.queueTail.load(std::memory_order_acquire) >= (uint32_t)queueSize)
+        return false; // queue full
+    s.slots[c].queued.fetch_add(1, std::memory_order_relaxed);
+    s.queue[head % queueSize] = { c, channel };
+    s.queueHead.store(head + 1, std::memory_order_release);
+    if (!s.active) {
+        // nothing renders: apply at once
+        s.takeSelections();
+        s.engine.publishContextState();
+    } else if (s.host != nullptr && s.host->request_process != nullptr) {
+        s.host->request_process(s.host);
+    }
+    return true;
+}
+
+bool contextsDiscard(const clap_plugin_t *plugin, uint32_t id) {
+    Plugin &s = self(plugin);
+    const int c = slotOf(s, id);
+    if (c <= 0) // unknown, or the protected default sound
+        return false;
+    Slot &slot = s.slots[c];
+    const SynthContext &x = s.engine.context(c);
+    // queued is checked before the engine's view: the audio thread publishes a selection
+    // before it releases the queue entry
+    if (slot.queued.load(std::memory_order_acquire) != 0 || !x.silent.load(std::memory_order_acquire) ||
+        x.selectedMask.load(std::memory_order_relaxed) != 0 || x.activeVoices.load(std::memory_order_relaxed) != 0)
+        return false;
+    slot.ready.store(false, std::memory_order_release);
+    return true;
+}
+
+// The exclusive snapshot: every sound, and the sound each channel plays.
+bool snapshotSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
+    Plugin &s = self(plugin);
+    s.takeSelections(); // accepted selections belong to the snapshot
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << snapshotHeader << "\n";
+    for (int c = 0; c < contextCount; c++) {
+        if (!s.slots[c].ready.load(std::memory_order_acquire))
+            continue;
+        const std::string text = patchText(s.slots[c].voiceName, [&](size_t i) { return s.value(c, i).load(std::memory_order_relaxed); });
+        std::string hexName;
+        char hex[3];
+        for (const char *n = s.slots[c].name; *n; n++) {
+            std::snprintf(hex, sizeof hex, "%02x", (unsigned char)*n);
+            hexName += hex;
+        }
+        size_t lines = 0;
+        for (char ch : text)
+            lines += ch == '\n';
+        out << "context " << c << " " << (hexName.empty() ? "-" : hexName) << " " << lines << "\n" << text;
+    }
+    out << "channels";
+    for (int ch = 0; ch < 16; ch++)
+        out << " " << s.engine.selectedContext(ch);
+    out << "\n";
+    return writeAll(stream, out.str());
+}
+
+bool snapshotLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
+    Plugin &s = self(plugin);
+    std::string text;
+    if (!readAll(stream, text, maxStateBytes * contextCount))
+        return false;
+    // validate everything first
+    struct Loaded { bool used = false; std::string name; std::vector<double> values; uint8_t voiceName[10]; };
+    Loaded loaded[contextCount];
+    int channels[16];
+    std::istringstream in(text);
+    in.imbue(std::locale::classic());
+    std::string line;
+    if (!std::getline(in, line) || line != snapshotHeader)
+        return false;
+    bool haveChannels = false;
+    while (std::getline(in, line)) {
+        std::istringstream ls(line);
+        ls.imbue(std::locale::classic());
+        std::string tag;
+        ls >> tag;
+        if (tag == "context") {
+            int c;
+            std::string hexName;
+            size_t lines;
+            if (!(ls >> c >> hexName >> lines) || c < 0 || c >= contextCount || loaded[c].used || lines > 1000)
+                return false;
+            std::string patch;
+            for (size_t k = 0; k < lines; k++) {
+                if (!std::getline(in, line))
+                    return false;
+                patch += line + "\n";
+            }
+            Loaded &l = loaded[c];
+            l.used = true;
+            if (hexName != "-") {
+                if (hexName.size() % 2 || hexName.size() > 126)
+                    return false;
+                for (size_t k = 0; k < hexName.size(); k += 2)
+                    l.name += (char)std::strtoul(hexName.substr(k, 2).c_str(), nullptr, 16);
+            }
+            l.values.resize(params().size());
+            if (!parseState(patch, l.values, l.voiceName))
+                return false;
+        } else if (tag == "channels") {
+            for (int ch = 0; ch < 16; ch++)
+                if (!(ls >> channels[ch]) || channels[ch] < 0 || channels[ch] >= contextCount)
+                    return false;
+            haveChannels = true;
+        } else if (!tag.empty()) {
+            return false;
+        }
+    }
+    if (!loaded[0].used || !haveChannels)
+        return false;
+    for (int ch = 0; ch < 16; ch++)
+        if (!loaded[channels[ch]].used)
+            return false;
+    // replace: exclusive, so this thread owns the engine; fresh IDs
+    for (int c = 0; c < contextCount; c++) {
+        Slot &slot = s.slots[c];
+        slot.ready.store(false, std::memory_order_release);
+        slot.queued.store(0, std::memory_order_relaxed);
+        if (!loaded[c].used)
+            continue;
+        slot.prepared = loaded[c].values;
+        std::memcpy(slot.voiceName, loaded[c].voiceName, 10);
+        std::snprintf(slot.name, sizeof slot.name, "%s", loaded[c].name.c_str());
+        slot.id = c == 0 ? 0 : s.nextId++;
+        slot.generation.fetch_add(1, std::memory_order_release);
+        slot.ready.store(true, std::memory_order_release);
+        s.load(c);
+    }
+    s.queueTail.store(s.queueHead.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    for (int ch = 0; ch < 16; ch++)
+        s.engine.selectContext(channels[ch], ch);
+    s.view.store(s.engine.selectedContext(0), std::memory_order_relaxed);
+    s.engine.publishContextState();
+    return true;
+}
+
+const clap_plugin_state_t snapshotExt = { snapshotSave, snapshotLoad };
+const oscairn_plugin_sound_contexts_t contextsExt = { contextsCapacity, contextsGet, contextsPrepare, contextsSelect, contextsDiscard, &snapshotExt };
 
 // ---- ports ----
 
@@ -565,10 +927,11 @@ const clap_plugin_t *create(const clap_host_t *host) {
     s->plugin.plugin_data = s;
     s->plugin.init = [](const clap_plugin_t *) { return true; };
     s->plugin.destroy = [](const clap_plugin_t *p) { delete &self(p); };
-    s->plugin.activate = [](const clap_plugin_t *p, double rate, uint32_t, uint32_t) {
+    s->plugin.activate = [](const clap_plugin_t *p, double rate, uint32_t, uint32_t maxFrames) {
         Plugin &s = self(p);
-        s.engine.prepare(rate);
-        s.applyAll(); // prepare resets some controller state; the parameters stay as set
+        s.engine.prepare(rate, (int)maxFrames);
+        for (int c = 0; c < contextCount; c++)
+            s.applyAll(c); // prepare resets some controller state; the parameters stay as set
         s.active = true;
         return true;
     };
@@ -587,6 +950,7 @@ const clap_plugin_t *create(const clap_host_t *host) {
         if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &stateExt;
         if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPortsExt;
         if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePortsExt;
+        if (std::strcmp(id, OSCAIRN_EXT_SOUND_CONTEXTS) == 0) return &contextsExt;
         return nullptr;
     };
     s->plugin.on_main_thread = [](const clap_plugin_t *) {};

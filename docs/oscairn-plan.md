@@ -959,6 +959,39 @@ tracking in the engine), `8d0f288` (native CLAP and its tests).
   path makes five baseline cases (algorithms 4 and 6 on Mark I) differ, so the baseline
   covers it.
 
+### M3 (done 2026-10-31)
+
+- The engine holds eight sound contexts (`SynthContext`: voice data, controllers, LFO, output
+  filter, mono and portamento state) over one shared pool of 16 voices; each voice keeps its
+  context, key, channel and note ID. Every context renders on the same 64-sample grid, goes
+  through its own output filter, and the contexts are summed. Context 0 is the default sound;
+  with only it in use, rendering is unchanged (the 164 baseline cases are bit-identical through
+  the engine, the JUCE plugin and the native CLAP).
+- Voice choice is in one place, `VoiceStealing::choose` (Dexed's policy, unchanged), marked as
+  a placeholder pending the voice-stealing decision (section 10, question 4).
+- Octet implements `oscairn.sound-contexts/draft-4` (MIT header vendored in
+  `libs/oscairn-clap/`): prepare from defaults plus values, or from patch text (the
+  `oscairn-fm-state 1` format) plus values, refused whole on any bad value, with a diagnostic;
+  a 32-entry selection queue applied at the start of the next process call, before its
+  events; discard only when not selected, queued, sounding or ringing; IDs never reused; the
+  default sound (ID 0) cannot be discarded; parameter events edit the sounds selected for
+  their channel; `get_value` and CLAP state show the sound selected on channel 1, with
+  parameter feedback when that changes; the exclusive snapshot (`octet-contexts 1`) saves
+  every sound and each channel's selection.
+- Tests (`oscairn-fm-test contexts`, plus the no-allocation and threads tests): held notes keep
+  their sound across a switch and equal standalone instances sample for sample; old and new
+  sounds play together; edits reach only the selected sound; note-ID release at an exact frame;
+  raw MIDI repeated keys; sustain holding an outgoing sound; channel parts equal independent
+  instances; capacity, queue exhaustion and pins; stale IDs; refused preparations; patch text;
+  identical output for 37- and 512-frame blocks; snapshot round trip; no allocation while
+  selections are applied; concurrent prepare/select/discard while processing under TSan.
+  ASan+UBSan pass on macOS.
+- Where Octet differs from RFC 0005's description of the Basic Synth (kept from Dexed, so the
+  desktop plugin's behaviour does not change; revisit with question 4): controller values
+  (mod wheel, pitch bend, aftertouch, sustain) are instrument-wide, not per channel; CC 120
+  stops every sound, not only the addressed channel; a raw MIDI note-off releases the first
+  matching voice slot, which is not always the oldest press; no note expressions.
+
 ### How to run the tests
 
 ```

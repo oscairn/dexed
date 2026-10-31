@@ -62,6 +62,28 @@ static const int OSC_KEY_SYNC = 136;
 static const int LFO_PARAMS = 137;
 static const int TRANSPOSE = 144;
 
+int VoiceStealing::choose(const ProcessorVoice *voices, int count, int currentNote, int pitch) {
+    // Stealing preference (highest score wins; ties broken by least-recent keydown):
+    //   +4 not playing, +2 key up, +1 same pitch.
+    int bestNote   = currentNote;
+    int bestScore  = -1;
+    int note       = currentNote;
+    for (int i = 0; i < count; i++) {
+        const ProcessorVoice &v = voices[note];
+        int score = 0;
+        if ( !v.dx7_note->isPlaying() ) score += 4;
+        if ( !v.keydown )               score += 2;
+        if (  v.midi_note == pitch )    score += 1;
+        if ( score > bestScore ||
+             (score == bestScore && v.keydown_seq < voices[bestNote].keydown_seq) ) {
+            bestNote  = note;
+            bestScore = score;
+        }
+        note = (note + 1) % count;
+    }
+    return bestNote;
+}
+
 SynthEngine::SynthEngine() {
     // sample-rate independent tables shared by every instance: built once, thread-safely
     static const bool sharedTablesReady = [] {
@@ -73,15 +95,16 @@ SynthEngine::SynthEngine() {
     (void)sharedTablesReady;
 
     currentNote = -1;
-    engineType = -1;
-    monoMode = 0;
 
-    setEngineType(DEXED_ENGINE_MARKI);
-
-    controllers.pitch_range_up = 3;
-    controllers.pitch_range_dn = 3;
-    controllers.pitch_step = 0;
-    controllers.masterTune = 0;
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        SynthContext &x = contexts[c];
+        setEngineType(c, DEXED_ENGINE_MARKI);
+        x.ctrl.pitch_range_up = 3;
+        x.ctrl.pitch_range_dn = 3;
+        x.ctrl.pitch_step = 0;
+        x.ctrl.masterTune = 0;
+    }
+    contexts[0].selectedChannels = 0xffff;
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
         voices[note].dx7_note = NULL;
@@ -99,10 +122,14 @@ void SynthEngine::setTuning(std::shared_ptr<TuningState> t) {
             voices[i].dx7_note->tuning_state_ = tuningState;
 }
 
-void SynthEngine::prepare(double sampleRate) {
+void SynthEngine::prepare(double sampleRate, int maxFrames) {
     rate.init(sampleRate);
-    lfo.init(sampleRate);
-    fx.init(sampleRate);
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        contexts[c].lfo.init(sampleRate);
+        contexts[c].fx.init(sampleRate);
+        if ( c > 0 )
+            contexts[c].block.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
+    }
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
         voices[note].dx7_note = new Dx7Note(tuningState, mtsClient, &rate);
@@ -111,23 +138,32 @@ void SynthEngine::prepare(double sampleRate) {
         voices[note].sustained = false;
         voices[note].live = false;
         voices[note].keydown_seq = -1;
+        voices[note].noteActive = false;
+        voices[note].context = 0;
     }
 
     currentNote = 0;
     nextKeydownSeq = 0;
-    controllers.pitch_cc = 0x2000;
-    controllers.modwheel_cc = 0;
-    controllers.foot_cc = 0;
-    controllers.breath_cc = 0;
-    controllers.aftertouch_cc = 0;
-    controllers.portamento_enable_cc = false;
-    controllers.portamento_cc = 0;
-	controllers.refresh();
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        Controllers &ctrl = contexts[c].ctrl;
+        ctrl.pitch_cc = 0x2000;
+        ctrl.modwheel_cc = 0;
+        ctrl.foot_cc = 0;
+        ctrl.breath_cc = 0;
+        ctrl.aftertouch_cc = 0;
+        ctrl.portamento_enable_cc = false;
+        ctrl.portamento_cc = 0;
+        ctrl.refresh();
+        contexts[c].rendering = false;
+        contexts[c].tail = false;
+    }
 
     sustain = false;
     extra_buf_size = 0;
 
-    lfo.reset(patch + LFO_PARAMS);
+    for (int c = 0; c < MAX_CONTEXTS; c++)
+        if ( contexts[c].patch != nullptr )
+            contexts[c].lfo.reset(contexts[c].patch + LFO_PARAMS);
 }
 
 void SynthEngine::release() {
@@ -141,34 +177,106 @@ void SynthEngine::release() {
         voices[note].keydown = false;
         voices[note].sustained = false;
         voices[note].live = false;
+        voices[note].noteActive = false;
     }
 }
 
-void SynthEngine::refreshVoices() {
+void SynthEngine::refreshVoices(int c) {
+    SynthContext &x = contexts[c];
     for(int i=0;i < MAX_ACTIVE_NOTES;i++) {
-        if ( voices[i].live )
-            voices[i].dx7_note->update(patch, voices[i].midi_note, voices[i].velocity, voices[i].channel);
+        if ( voices[i].live && voices[i].context == c )
+            voices[i].dx7_note->update(x.patch, voices[i].midi_note, voices[i].velocity, voices[i].channel);
     }
-    lfo.reset(patch + LFO_PARAMS);
+    x.lfo.reset(x.patch + LFO_PARAMS);
 }
 
-void SynthEngine::resetLfo() {
-    lfo.reset(patch + LFO_PARAMS);
+void SynthEngine::resetLfo(int c) {
+    contexts[c].lfo.reset(contexts[c].patch + LFO_PARAMS);
+}
+
+void SynthEngine::panicContext(int c) {
+    for(int i=0;i<MAX_ACTIVE_NOTES;i++) {
+        if ( voices[i].context != c )
+            continue;
+        voices[i].midi_note = -1;
+        voices[i].keydown = false;
+        voices[i].live = false;
+        if ( voices[i].dx7_note != NULL ) {
+            voices[i].dx7_note->oscSync();
+        }
+    }
+}
+
+void SynthEngine::selectContext(int c, int channel) {
+    for (int ch = 0; ch < 16; ch++) {
+        if ( channel >= 0 && ch != channel )
+            continue;
+        contexts[selected[ch]].selectedChannels &= (uint16_t)~(1u << ch);
+        selected[ch] = c;
+        contexts[c].selectedChannels |= (uint16_t)(1u << ch);
+    }
+}
+
+void SynthEngine::publishContextState() {
+    uint32_t count[MAX_CONTEXTS] = {};
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        if ( voices[i].noteActive )
+            count[voices[i].context]++;
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        SynthContext &x = contexts[c];
+        x.activeVoices.store(count[c], std::memory_order_relaxed);
+        x.selectedMask.store(x.selectedChannels, std::memory_order_relaxed);
+        x.silent.store(count[c] == 0 && x.selectedChannels == 0 && !x.tail, std::memory_order_release);
+    }
 }
 
 void SynthEngine::render(float *channelData, int numSamples, EventSource &events) {
     ScopedFlushDenormals noDenormals;
     int i;
 
-    // flush first events
-    for (i=0; i < numSamples && i < extra_buf_size; i++) {
-        channelData[i] = extra_buf[i];
+    // Contexts that play this block: the default one (as the single-sound engine always
+    // did), and any other that is selected, has voices or has not yet gone silent.
+    bool active[MAX_CONTEXTS] = { true };
+    float *outputs[MAX_CONTEXTS] = { channelData };
+    int activeCount = 1;
+    bool hasVoice[MAX_CONTEXTS] = {};
+    for (int n = 0; n < MAX_ACTIVE_NOTES; n++)
+        if ( voices[n].live || voices[n].noteActive )
+            hasVoice[voices[n].context] = true;
+    for (int c = 1; c < MAX_CONTEXTS; c++) {
+        SynthContext &x = contexts[c];
+        if ( (int)x.block.size() < numSamples || !(x.selectedChannels || hasVoice[c] || x.tail) ) {
+            x.rendering = false;
+            continue;
+        }
+        if ( !x.rendering ) // starting again: nothing rendered ahead
+            for (int j = 0; j < N; j++)
+                x.extra_buf[j] = 0;
+        x.rendering = true;
+        active[c] = true;
+        outputs[c] = x.block.data();
+        activeCount++;
     }
+
+    // flush first events
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        if ( !active[c] )
+            continue;
+        for (i=0; i < numSamples && i < extra_buf_size; i++) {
+            outputs[c][i] = contexts[c].extra_buf[i];
+        }
+    }
+    i = numSamples < extra_buf_size ? numSamples : extra_buf_size;
 
     // remaining buffer is still to be processed
     if (extra_buf_size > numSamples) {
-        for (int j = 0; j < extra_buf_size - numSamples; j++) {
-            extra_buf[j] = extra_buf[j + numSamples];
+        for (int c = 0; c < MAX_CONTEXTS; c++) {
+            if ( !active[c] )
+                continue;
+            float *extra_buf = contexts[c].extra_buf;
+            for (int j = 0; j < extra_buf_size - numSamples; j++) {
+                extra_buf[j] = extra_buf[j + numSamples];
+            }
         }
         extra_buf_size -= numSamples;
 
@@ -177,27 +285,34 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
     } else {
         for (; i < numSamples; i += N) {
             AlignedBuf<int32_t, N> audiobuf;
-            float sumbuf[N];
+            float sumbuf[MAX_CONTEXTS][N];
 
             events.dispatchUntil(i);
 
             for (int j = 0; j < N; ++j) {
                 audiobuf.get()[j] = 0;
-                sumbuf[j] = 0;
             }
-            int32_t lfovalue = lfo.getsample();
-            int32_t lfodelay = lfo.getdelay();
+            int32_t lfovalue[MAX_CONTEXTS], lfodelay[MAX_CONTEXTS];
+            for (int c = 0; c < MAX_CONTEXTS; c++) {
+                if ( !active[c] )
+                    continue;
+                for (int j = 0; j < N; ++j)
+                    sumbuf[c][j] = 0;
+                lfovalue[c] = contexts[c].lfo.getsample();
+                lfodelay[c] = contexts[c].lfo.getdelay();
+            }
 
             bool checkMTSESPRetuning = tuningState->is_standard_tuning() &&
                                         MTS_HasMaster(mtsClient);
 
             for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
-                if (voices[note].live) {
+                const int c = voices[note].context;
+                if (voices[note].live && active[c]) {
 
                     if (checkMTSESPRetuning)
                         voices[note].dx7_note->updateBasePitches();
 
-                    voices[note].dx7_note->compute(audiobuf.get(), lfovalue, lfodelay, &controllers);
+                    voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &contexts[c].ctrl);
 
                     for (int j=0; j < N; ++j) {
                         int32_t val = audiobuf.get()[j];
@@ -207,18 +322,24 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
                         float f = ((float) clip_val) / (float) 0x8000;
                         if( f > 1 ) f = 1;
                         if( f < -1 ) f = -1;
-                        sumbuf[j] += f;
+                        sumbuf[c][j] += f;
                         audiobuf.get()[j] = 0;
                     }
                 }
             }
 
             int jmax = numSamples - i;
-            for (int j = 0; j < N; ++j) {
-                if (j < jmax) {
-                    channelData[i + j] = sumbuf[j];
-                } else {
-                    extra_buf[j - jmax] = sumbuf[j];
+            for (int c = 0; c < MAX_CONTEXTS; c++) {
+                if ( !active[c] )
+                    continue;
+                float *out = outputs[c];
+                float *extra_buf = contexts[c].extra_buf;
+                for (int j = 0; j < N; ++j) {
+                    if (j < jmax) {
+                        out[i + j] = sumbuf[c][j];
+                    } else {
+                        extra_buf[j - jmax] = sumbuf[c][j];
+                    }
                 }
             }
         }
@@ -226,7 +347,25 @@ void SynthEngine::render(float *channelData, int numSamples, EventSource &events
     }
 
     events.dispatchUntil(numSamples);
-    fx.process(channelData, numSamples);
+    contexts[0].fx.process(channelData, numSamples);
+
+    // Each context through its own output filter, then summed (RFC 0005).
+    if ( activeCount > 1 ) {
+        for (int c = 1; c < MAX_CONTEXTS; c++) {
+            if ( !active[c] )
+                continue;
+            float *out = outputs[c];
+            contexts[c].fx.process(out, numSamples);
+            bool sound = false;
+            for (int j = 0; j < numSamples; j++) {
+                channelData[j] += out[j];
+                sound = sound || out[j] != 0;
+            }
+            for (int j = 0; j < extra_buf_size && !sound; j++)
+                sound = contexts[c].extra_buf[j] != 0;
+            contexts[c].tail = sound;
+        }
+    }
 }
 
 void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo) {
@@ -243,52 +382,40 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
         return;
     }
 
-    pitch += tuningTranspositionShift();
+    const int c = selected[(channel - 1) & 15];
+    SynthContext &x = contexts[c];
+    const uint8_t *patch = x.patch;
+
+    pitch += tuningTranspositionShift(c);
 
     if ( normalizeDxVelocity ) {
         velo = ((float)velo) * 0.7874015; // 100/127
     }
 
-    // Single fused pass: voice-stealing scoring + triggerLfo (any keydown?)
-    // + MPE same-channel-keydown detection.
-    // Stealing preference (highest score wins; ties broken by least-recent keydown):
-    //   +4 not playing, +2 key up, +1 same pitch.
+    // triggerLfo (any key held in this sound?) + MPE same-channel-keydown detection
     bool triggerLfo = true;
-    int bestNote   = currentNote;
-    int bestScore  = -1;
-    int note       = currentNote;
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
-        const ProcessorVoice &v = voices[note];
-
+        const ProcessorVoice &v = voices[i];
         if ( v.keydown ) {
-            triggerLfo = false;
+            if ( v.context == c )
+                triggerLfo = false;
             // Two keydowns on the same channel => source is not MPE.
-            if ( controllers.mpeEnabled && v.channel == channel )
-                controllers.mpeEnabled = false;
+            if ( contexts[0].ctrl.mpeEnabled && v.channel == channel )
+                for (int k = 0; k < MAX_CONTEXTS; k++)
+                    contexts[k].ctrl.mpeEnabled = false;
         }
-
-        int score = 0;
-        if ( !v.dx7_note->isPlaying() ) score += 4;
-        if ( !v.keydown )               score += 2;
-        if (  v.midi_note == pitch )    score += 1;
-        if ( score > bestScore ||
-             (score == bestScore && v.keydown_seq < voices[bestNote].keydown_seq) ) {
-            bestNote  = note;
-            bestScore = score;
-        }
-
-        note = (note + 1) % MAX_ACTIVE_NOTES;
     }
 
     if ( triggerLfo )
-        lfo.keydown();
+        x.lfo.keydown();
 
-    note = bestNote;
+    int note = VoiceStealing::choose(voices, MAX_ACTIVE_NOTES, currentNote, pitch);
 
     if ( voices[note].noteActive )
         endNote(note); // stolen
     voices[note].ref = ref;
     voices[note].noteActive = true;
+    voices[note].context = c;
 
     currentNote = (note + 1) % MAX_ACTIVE_NOTES;
     voices[note].channel = channel;
@@ -299,18 +426,18 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].keydown_seq = nextKeydownSeq++;
     // to avoid click, don't sync oscillators when voice stealing
     bool voice_steal = voices[note].dx7_note->isPlaying();
-    voices[note].dx7_note->init(patch, pitch, velo, channel, &controllers);
+    voices[note].dx7_note->init(patch, pitch, velo, channel, &x.ctrl);
     if ( patch[OSC_KEY_SYNC] && !voice_steal ) {
         voices[note].dx7_note->oscSync();
     }
-    if ( (voices[lastActiveVoice].midi_note != -1 && controllers.portamento_enable_cc)
-       && controllers.portamento_cc > 0 ) {
-        voices[note].dx7_note->initPortamento(*voices[lastActiveVoice].dx7_note);
+    if ( (voices[x.lastActiveVoice].midi_note != -1 && x.ctrl.portamento_enable_cc)
+       && x.ctrl.portamento_cc > 0 ) {
+        voices[note].dx7_note->initPortamento(*voices[x.lastActiveVoice].dx7_note);
     }
 
-    if ( monoMode ) {
+    if ( x.monoMode ) {
         for(int i=0; i<MAX_ACTIVE_NOTES; i++) {
-            if ( voices[i].live ) {
+            if ( voices[i].live && voices[i].context == c ) {
                 // all keys are up, only transfer signal
                 if ( ! voices[i].keydown ) {
                     voices[i].live = false;
@@ -332,7 +459,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
         // clicking when voice stealing, but we've tried to choose a voice
         // to steal that will minimise the chances of clicking
         for(int i=0; i<MAX_ACTIVE_NOTES; i++) {
-            if ( i != note && voices[i].dx7_note->isPlaying() && voices[i].midi_note == pitch ) {
+            if ( i != note && voices[i].context == c && voices[i].dx7_note->isPlaying() && voices[i].midi_note == pitch ) {
                 voices[note].dx7_note->transferPhase(*voices[i].dx7_note);
                 break;
             }
@@ -340,17 +467,16 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     }
 
     voices[note].live = true;
-    lastActiveVoice = note;
+    x.lastActiveVoice = note;
 }
 
 void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
-    pitch += tuningTranspositionShift();
-
     int note;
     for (note=0; note<MAX_ACTIVE_NOTES; ++note) {
-        if ( ( ( controllers.mpeEnabled && voices[note].channel == chan ) || // MPE node - find voice by channel
-               (!controllers.mpeEnabled && voices[note].midi_note == pitch ) ) && // regular mode find voice by pitch
-            voices[note].keydown ) { // but still only grab the one which is keydown
+        // the pitch as the voice's sound transposed it
+        if ( voices[note].keydown && // but still only grab the one which is keydown
+             ( ( controllers.mpeEnabled && voices[note].channel == chan ) || // MPE node - find voice by channel
+               (!controllers.mpeEnabled && voices[note].midi_note == (uint8_t)(pitch + tuningTranspositionShift(voices[note].context)) ) ) ) { // regular mode find voice by pitch
             voices[note].keydown = false;
             break;
         }
@@ -365,11 +491,12 @@ void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
 }
 
 void SynthEngine::keyupVoice(int note) {
-    if ( monoMode ) {
+    const int c = voices[note].context;
+    if ( contexts[c].monoMode ) {
         int highNote = -1;
         int target = 0;
         for (int i=0; i<MAX_ACTIVE_NOTES;i++) {
-            if ( voices[i].keydown && voices[i].midi_note > highNote ) {
+            if ( voices[i].keydown && voices[i].context == c && voices[i].midi_note > highNote ) {
                 target = i;
                 highNote = voices[i].midi_note;
             }
@@ -442,23 +569,20 @@ void SynthEngine::panic() {
     }
 }
 
-int SynthEngine::getEngineType() {
-    return engineType;
-}
-
-void SynthEngine::setEngineType(int tp) {
+void SynthEngine::setEngineType(int c, int tp) {
+    Controllers &ctrl = contexts[c].ctrl;
     switch (tp)  {
         case DEXED_ENGINE_MARKI:
-            controllers.core = &engineMkI;
+            ctrl.core = &engineMkI;
             break;
         case DEXED_ENGINE_OPL:
-            controllers.core = &engineOpl;
+            ctrl.core = &engineOpl;
             break;
         default:
-            controllers.core = &engineMsfa;
+            ctrl.core = &engineMsfa;
             break;
     }
-    engineType = tp;
+    contexts[c].engineType = tp;
 }
 
 bool SynthEngine::peekVoiceStatus(VoiceStatus &voiceStatus) {
@@ -490,9 +614,9 @@ bool SynthEngine::peekVoiceStatus(VoiceStatus &voiceStatus) {
     return true;
 }
 
-int SynthEngine::tuningTranspositionShift() {
-    int transpose = patch[TRANSPOSE];
-    if( tuningState->is_standard_tuning() || ! controllers.transpose12AsScale )
+int SynthEngine::tuningTranspositionShift(int c) {
+    int transpose = contexts[c].patch[TRANSPOSE];
+    if( tuningState->is_standard_tuning() || ! contexts[c].ctrl.transpose12AsScale )
         return transpose - 24;
     else {
         int d144 = transpose;
@@ -560,20 +684,18 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
             int ctrl = buf[1];
             int value = buf[2];
                 switch(ctrl) {
+                // controller values reach every sound (Dexed's controllers are not per channel)
                 case 1:
-                    controllers.modwheel_cc = value;
-                    controllers.refresh();
+                    for (auto &x : contexts) { x.ctrl.modwheel_cc = value; x.ctrl.refresh(); }
                     break;
                 case 2:
-                    controllers.breath_cc = value;
-                    controllers.refresh();
+                    for (auto &x : contexts) { x.ctrl.breath_cc = value; x.ctrl.refresh(); }
                     break;
                 case 4:
-                    controllers.foot_cc = value;
-                    controllers.refresh();
+                    for (auto &x : contexts) { x.ctrl.foot_cc = value; x.ctrl.refresh(); }
                     break;
                 case 5:
-                    controllers.portamento_cc = value;
+                    for (auto &x : contexts) x.ctrl.portamento_cc = value;
                     break;
                 case 64:
                     sustain = value > 63;
@@ -587,7 +709,7 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
                     }
                     break;
                 case 65:
-                    controllers.portamento_enable_cc = value >= 64;
+                    for (auto &x : contexts) x.ctrl.portamento_enable_cc = value >= 64;
                     break;
                 case 120:
                     panic();
@@ -608,12 +730,11 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
             return MidiResult::ProgramChange;
 
         case 0xd0 :
-            controllers.aftertouch_cc = buf[1];
-            controllers.refresh();
+            for (auto &x : contexts) { x.ctrl.aftertouch_cc = buf[1]; x.ctrl.refresh(); }
             return MidiResult::Handled;
 
 		case 0xe0 :
-			controllers.pitch_cc = buf[1] | (buf[2] << 7);
+			for (auto &x : contexts) x.ctrl.pitch_cc = buf[1] | (buf[2] << 7);
             return MidiResult::Handled;
         }
     }

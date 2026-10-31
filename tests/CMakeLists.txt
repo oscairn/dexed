@@ -44,7 +44,7 @@ add_test(NAME dx7-baseline-engine-two-rates COMMAND dexed-render-engine --interl
 # oscairn-fm-test loads the built .clap; oscairn-fm-test-linked has the plugin linked in, so
 # its allocation guard sees the plugin's allocations. Never both copies in one process.
 add_executable(oscairn-fm-test oscairn_fm_test.cpp ../source/oscairn/Parameters.cpp)
-target_include_directories(oscairn-fm-test PRIVATE ../libs/clap-juce-extensions/clap-libs/clap/include ../source)
+target_include_directories(oscairn-fm-test PRIVATE ../libs/clap-juce-extensions/clap-libs/clap/include ../libs/oscairn-clap/include ../source)
 target_link_libraries(oscairn-fm-test PRIVATE ${CMAKE_DL_LIBS})
 add_dependencies(oscairn-fm-test oscairn_fm)
 add_executable(oscairn-fm-test-linked oscairn_fm_test.cpp)
@@ -59,6 +59,7 @@ add_test(NAME oscairn-fm-params COMMAND oscairn-fm-test params ${fm_params} ${fm
 add_test(NAME oscairn-fm-notes COMMAND oscairn-fm-test notes ${fm_module})
 add_test(NAME oscairn-fm-state COMMAND oscairn-fm-test state ${fm_module})
 add_test(NAME oscairn-fm-topology COMMAND oscairn-fm-test topology ${fm_module})
+add_test(NAME oscairn-fm-contexts COMMAND oscairn-fm-test contexts ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)
 add_test(NAME oscairn-fm-threads COMMAND oscairn-fm-test-linked threads)
 

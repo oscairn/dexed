@@ -10,6 +10,7 @@
  *   oscairn-fm-test no-alloc                         process never allocates
  *   oscairn-fm-test threads                          main-thread calls while processing (TSan)
  *   oscairn-fm-test topology                         the 32 algorithm graphs, against renders
+ *   oscairn-fm-test contexts                         native sound contexts (RFC 0005)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
  * linked in, which no-alloc needs.
@@ -26,6 +27,7 @@
 #include "baseline_file.h"
 #include "oscairn/Parameters.h"
 #include "msfa/algorithms.h"
+#include <oscairn-clap/sound-contexts.h>
 
 #include <atomic>
 #include <cmath>
@@ -34,6 +36,8 @@
 #include <set>
 #include <sstream>
 #include <thread>
+#include <tuple>
+#include <chrono>
 #include <unistd.h>
 
 #ifdef OSCAIRN_FM_LINKED
@@ -405,6 +409,28 @@ int noAllocTest() {
             forbidAllocation = false;
         }
     }
+    {
+        // sound contexts: selections loaded and applied inside process, several sounds playing
+        Host h(entry);
+        h.activate(48000, 512);
+        auto *ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
+        const oscairn_sound_parameter_t b[] = { { 1019, 2 }, { 1017, 90 } };
+        const uint32_t ids[] = { ctx->prepare(h.plugin, "A", nullptr, 0, nullptr, nullptr, nullptr, 0),
+                                 ctx->prepare(h.plugin, "B", b, 2, nullptr, nullptr, nullptr, 0) };
+        EventList in;
+        in.events.reserve(64);
+        for (int k = 0; k < 40; k++) {
+            ctx->select(h.plugin, ids[k % 2], (int16_t)(k % 3 == 0 ? -1 : k % 16));
+            in.clear();
+            in.note(CLAP_EVENT_NOTE_ON, 0, k, (int16_t)(k % 16), 40 + k);
+            in.note(CLAP_EVENT_NOTE_OFF, 300, k - 3, -1, -1);
+            in.param(10, 1017, 50 + k);
+            h.output.clear();
+            forbidAllocation = true;
+            h.process(512, in);
+            forbidAllocation = false;
+        }
+    }
     check(forbiddenAllocations.load() == 0, std::to_string(forbiddenAllocations.load()) + " allocations while processing");
     std::printf("no allocation while processing\n");
     return 0;
@@ -427,6 +453,26 @@ int threadsTest() {
             h.process(128, in);
         }
     });
+    // concurrent prepare, select and discard (RFC 0005: main thread, during processing)
+    auto *ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
+    uint32_t prepared = 0;
+    for (int i = 0; i < 300; i++) {
+        for (uint32_t k = 1; k < ctx->capacity(h.plugin); k++) {
+            oscairn_sound_context_info_t info;
+            if (ctx->get(h.plugin, k, &info) && info.idle)
+                ctx->discard(h.plugin, info.id);
+        }
+        const oscairn_sound_parameter_t p[] = { { 1019, (double)(i % 4) } };
+        const uint32_t id = ctx->prepare(h.plugin, "Concurrent", p, 1, nullptr, nullptr, nullptr, 0);
+        if (id != CLAP_INVALID_ID) {
+            prepared++;
+            ctx->select(h.plugin, id, (int16_t)(i % 2 ? -1 : i % 16));
+        } else {
+            ctx->select(h.plugin, 0, -1);
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+    }
+    check(prepared > 7, "concurrent preparation reuses discarded contexts");
     for (int i = 0; i < 200; i++) {
         double v;
         h.params->get_value(h.plugin, 1017, &v);
@@ -437,7 +483,7 @@ int threadsTest() {
     }
     done = true;
     audio.join();
-    std::printf("main-thread parameter reads, saves and loads while processing\n");
+    std::printf("main-thread parameter reads, saves, loads and context prepare/select/discard while processing (%u prepared)\n", prepared);
     return 0;
 }
 
@@ -554,6 +600,237 @@ int topologyTest() {
     return failures == 0 ? 0 : 1;
 }
 
+// ---- sound contexts ----
+
+struct Instrument {
+    Host host;
+    const oscairn_plugin_sound_contexts_t *ctx;
+    EventList in;
+    std::vector<float> out;
+    explicit Instrument(bool activate = true) : host(entry) {
+        ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(host.plugin->get_extension(host.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
+        check(ctx != nullptr, "sound contexts extension");
+        in.events.reserve(64);
+        if (activate)
+            host.activate(48000, 512);
+    }
+    uint32_t prepare(const char *name, std::vector<oscairn_sound_parameter_t> p, const char *patch = nullptr) {
+        char message[256] = {};
+        return ctx->prepare(host.plugin, name, p.data(), (uint32_t)p.size(), patch, nullptr, message, sizeof message);
+    }
+    bool select(uint32_t id, int16_t channel = -1) { return ctx->select(host.plugin, id, channel); }
+    bool discard(uint32_t id) { return ctx->discard(host.plugin, id); }
+    oscairn_sound_context_info_t info(uint32_t id) {
+        oscairn_sound_context_info_t i {};
+        for (uint32_t k = 0; k < ctx->capacity(host.plugin); k++)
+            if (ctx->get(host.plugin, k, &i) && i.id == id)
+                return i;
+        fail("missing context " + std::to_string(id));
+        return i;
+    }
+    // renders one block with the queued events, keeping the left channel
+    const std::vector<float> &run(uint32_t frames = 512) {
+        host.output.clear();
+        host.process(frames, in);
+        in.clear();
+        out.assign(host.left.begin(), host.left.begin() + frames);
+        return out;
+    }
+    void tail() { for (int i = 0; i < 200; i++) run(); }
+};
+
+// two clearly different sounds: the init voice, and operator 1 an octave up with a slower attack
+const std::vector<oscairn_sound_parameter_t> soundA = {};
+const std::vector<oscairn_sound_parameter_t> soundB = { { 1019, 2 }, { 1001, 60 }, { 1017, 90 } };
+
+void same(const std::vector<float> &x, const std::vector<float> &a, const std::vector<float> &b, const char *what) {
+    for (size_t i = 0; i < x.size(); i++)
+        check(x[i] == a[i] + b[i], what);
+}
+
+int contextsTest() {
+    const std::vector<float> silence(512, 0.0f);
+    {
+        Instrument mixed, a, b;
+        const uint32_t x = mixed.prepare("A", soundA), y = mixed.prepare("B", soundB);
+        check(x != CLAP_INVALID_ID && y != CLAP_INVALID_ID && x != y && x != 0, "prepare two sounds");
+        check(mixed.select(x) && a.select(a.prepare("A", soundA)) && b.select(b.prepare("B", soundB)), "select");
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 101, 0, 60);
+        a.in.note(CLAP_EVENT_NOTE_ON, 0, 101, 0, 60);
+        same(mixed.run(), a.run(), b.run(), "the first sound plays as a standalone instance");
+        check(mixed.select(y), "switch while a note is held");
+        for (int k = 0; k < 4; k++)
+            same(mixed.run(), a.run(), b.run(), "the held note keeps its sound after the switch");
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 102, 0, 60);
+        b.in.note(CLAP_EVENT_NOTE_ON, 0, 102, 0, 60);
+        same(mixed.run(37), a.run(37), b.run(37), "old and new sounds play together");
+        same(mixed.run(), a.run(), b.run(), "old and new sounds play together");
+        check(audible(a.out) && audible(b.out) && a.out != b.out, "both sounds are heard and differ");
+        mixed.in.param(0, 1017, 70);
+        b.in.param(0, 1017, 70);
+        same(mixed.run(), a.run(), b.run(), "a parameter edit changes the selected sound, the outgoing one stays");
+        check(!mixed.discard(x), "a sounding context cannot be discarded");
+        mixed.in.note(CLAP_EVENT_NOTE_OFF, 13, 101, 0, 60);
+        a.in.note(CLAP_EVENT_NOTE_OFF, 13, 101, 0, 60);
+        same(mixed.run(), a.run(), b.run(), "note ID 101 releases the old sound at its frame");
+        mixed.tail();
+        check(mixed.info(x).active_voices == 0 && mixed.info(y).active_voices == 1, "the old note ends, the new one plays on");
+        check(mixed.info(x).idle && !mixed.info(y).idle, "idle reports");
+        check(mixed.discard(x), "a silent unselected context is discarded");
+        const uint32_t again = mixed.prepare("A again", soundA);
+        check(again != CLAP_INVALID_ID && again != x, "IDs are never reused");
+        check(!mixed.select(x), "a stale ID is refused");
+    }
+    {
+        Instrument fifo;
+        const uint32_t x = fifo.prepare("A", soundA), y = fifo.prepare("B", soundB);
+        const uint8_t on[] = { 0x90, 60, 127 }, off[] = { 0x80, 60, 0 }, down[] = { 0xB0, 64, 127 }, up[] = { 0xB0, 64, 0 };
+        fifo.select(x);
+        fifo.in.midi(0, on, 3);
+        fifo.run();
+        fifo.select(y);
+        fifo.in.midi(0, on, 3);
+        fifo.run();
+        fifo.in.midi(0, off, 3);
+        fifo.tail();
+        check(fifo.info(x).active_voices == 0 && fifo.info(y).active_voices == 1, "a raw MIDI repeated key releases the older sound first");
+        fifo.in.midi(0, down, 3);
+        fifo.in.midi(1, off, 3);
+        fifo.run();
+        fifo.select(x);
+        fifo.tail();
+        check(fifo.info(y).active_voices == 1 && !fifo.discard(y), "the pedal holds the outgoing sound");
+        fifo.in.midi(0, up, 3);
+        fifo.tail();
+        check(fifo.info(y).active_voices == 0, "pedal up reaches the outgoing sound");
+        check(fifo.select(y, 1), "select for one channel");
+        fifo.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 62);
+        fifo.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 1, 65);
+        fifo.run();
+        check(fifo.info(x).active_voices == 1 && fifo.info(y).active_voices == 1, "channels play their own sounds");
+        check(fifo.info(x).selected_channels == 0xfffd && fifo.info(y).selected_channels == 0x2, "selected channels");
+        fifo.in.note(CLAP_EVENT_NOTE_OFF, 0, -1, -1, -1);
+        fifo.tail();
+        check(fifo.info(x).active_voices == 0 && fifo.info(y).active_voices == 0, "a wildcard release reaches every sound");
+    }
+    {
+        // channel parts equal independently rendered instances
+        Instrument parts, a, b;
+        parts.select(parts.prepare("A", soundA), 0);
+        parts.select(parts.prepare("B", soundB), 1);
+        a.select(a.prepare("A", soundA));
+        b.select(b.prepare("B", soundB));
+        parts.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        parts.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 1, 67);
+        a.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        b.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 1, 67);
+        for (int k = 0; k < 20; k++)
+            same(parts.run(), a.run(), b.run(), "channel parts equal independent instances");
+        check(audible(a.out) && audible(b.out), "both parts are heard");
+    }
+    {
+        Instrument bounded;
+        std::vector<uint32_t> ids;
+        for (int k = 0; k < 7; k++)
+            ids.push_back(bounded.prepare("Ready", {}));
+        for (auto id : ids)
+            check(id != CLAP_INVALID_ID, "seven sounds besides the default");
+        check(bounded.prepare("Too many", {}) == CLAP_INVALID_ID, "the context budget is enforced");
+        for (int k = 0; k < 32; k++)
+            check(bounded.select(ids[0]), "selection accepted");
+        check(!bounded.select(ids[0]) && !bounded.discard(ids[0]), "a full queue refuses, and queued selections pin");
+        bounded.run();
+        check(bounded.info(ids[0]).selected_channels == 0xffff, "the queued selection applied");
+        bounded.select(0);
+        bounded.run();
+        bounded.run();
+        check(bounded.discard(ids[0]), "the queue releases its pins");
+        check(!bounded.discard(0), "the default sound cannot be discarded");
+    }
+    {
+        // refused preparations
+        Instrument v;
+        check(v.prepare("x", { { 999, 1 } }) == CLAP_INVALID_ID, "unknown parameter refused");
+        check(v.prepare("x", { { 1, 33 } }) == CLAP_INVALID_ID, "out of range refused");
+        check(v.prepare("x", { { 2, 1.5 } }) == CLAP_INVALID_ID, "fraction on a stepped parameter refused");
+        check(v.prepare("x", { { 2, 1 }, { 2, 2 } }) == CLAP_INVALID_ID, "duplicate refused");
+        check(v.prepare("x", {}, "not a patch") == CLAP_INVALID_ID, "bad patch text refused");
+        check(v.prepare(std::string(64, 'n').c_str(), {}) == CLAP_INVALID_ID, "long name refused");
+        oscairn_asset_ref_t base {};
+        char message[64];
+        check(v.ctx->prepare(v.host.plugin, "x", nullptr, 0, nullptr, &base, message, sizeof message) == CLAP_INVALID_ID, "assets refused");
+        // patch text: an instance's state prepares the same sound
+        Instrument source, a, b;
+        EventList setB;
+        for (auto &p : soundB)
+            setB.param(0, p.id, p.value);
+        source.host.process(512, setB);
+        const std::string text = source.host.saveState();
+        a.select(a.prepare("from text", {}, text.c_str()));
+        b.select(b.prepare("B", soundB));
+        a.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 64);
+        b.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 64);
+        for (int k = 0; k < 4; k++)
+            same(a.run(), b.run(), silence, "patch text prepares the same sound");
+        check(audible(a.out), "the patch-text sound is heard");
+    }
+    {
+        // switching renders the same in 37- and 512-frame blocks
+        auto timeline = [&](uint32_t block) {
+            Instrument t;
+            const uint32_t first = t.prepare("A", soundA), next = t.prepare("B", soundB);
+            t.select(first);
+            std::vector<float> result;
+            for (uint32_t pos = 0; pos < 4096;) {
+                if (pos == 256)
+                    t.select(next);
+                const uint32_t n = std::min({ block, 4096 - pos, pos < 256 ? 256 - pos : 4096 - pos });
+                for (auto [at, on, id] : { std::tuple{ 64u, true, 1 }, std::tuple{ 300u, true, 2 }, std::tuple{ 700u, false, 1 }, std::tuple{ 900u, false, 2 } })
+                    if (at >= pos && at < pos + n)
+                        t.in.note(on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, at - pos, id, 0, 60);
+                const auto &o = t.run(n);
+                result.insert(result.end(), o.begin(), o.end());
+                pos += n;
+            }
+            return result;
+        };
+        const auto t37 = timeline(37);
+        check(t37 == timeline(512) && audible(t37), "context switching is the same in 37- and 512-frame blocks");
+    }
+    {
+        // the exclusive snapshot: save, load into a fresh instance, save again
+        Instrument a(false);
+        const uint32_t x = a.prepare("A", soundA), y = a.prepare("B", soundB);
+        a.select(x);
+        a.select(y, 3);
+        std::string saved;
+        clap_ostream_t os { &saved, [](const clap_ostream_t *st, const void *buf, uint64_t size) -> int64_t {
+                               static_cast<std::string *>(st->ctx)->append(static_cast<const char *>(buf), size);
+                               return (int64_t)size;
+                           } };
+        check(a.ctx->state->save(a.host.plugin, &os), "snapshot save");
+        Instrument b(false);
+        struct Reader { const std::string *d; size_t pos; } r { &saved, 0 };
+        clap_istream_t is { &r, [](const clap_istream_t *st, void *buf, uint64_t size) -> int64_t {
+                               auto *rr = static_cast<Reader *>(st->ctx);
+                               const size_t n = std::min<size_t>(size, rr->d->size() - rr->pos);
+                               std::memcpy(buf, rr->d->data() + rr->pos, n);
+                               rr->pos += n;
+                               return (int64_t)n;
+                           } };
+        check(b.ctx->state->load(b.host.plugin, &is), "snapshot load");
+        std::string again;
+        clap_ostream_t os2 { &again, os.write };
+        check(b.ctx->state->save(b.host.plugin, &os2) && again == saved, "snapshot round trip gives the same bytes");
+        std::string bad = saved;
+        bad.replace(0, 8, "XXXXXXXX");
+        r = { &bad, 0 };
+        check(!b.ctx->state->load(b.host.plugin, &is), "a bad snapshot is refused");
+    }
+    std::printf("held sounds, parts, note ownership, sustain, capacity, queue, reclamation, patch text, block sizes and snapshots\n");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -592,6 +869,8 @@ int main(int argc, char **argv) {
         return threadsTest();
     if (cmd == "topology")
         return topologyTest();
+    if (cmd == "contexts")
+        return contextsTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }
