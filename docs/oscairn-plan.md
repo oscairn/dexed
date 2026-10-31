@@ -1182,6 +1182,21 @@ fixed frequencies below 20 Hz.
     output goes to the mix in floating point (full scale unchanged, clipped at +-1). Classic
     voices keep the rounding, so Classic output is bit-identical. Reason and numbers: the
     filter gate below.
+33. Part values (M7) are Extended parameters 235-245 under Extended/Part (velocity sensitivity
+    depth and offset, the AEG, FEG depth, cutoff and resonance offsets, note shift, detune) and
+    the macros 246-252 under Extended/Macros, named Mod Depth, Ratio Shift, Attack, Decay,
+    Sustain, Release, Texture (section 9's generic names). A sound with any of them away from
+    its default does not convert to Classic.
+34. Ratio Shift and Texture are stored and not applied (their behaviour is not resolved);
+    detune is shown as signed steps (-128..+127) rather than Hz or cents.
+35. A note whose part velocity comes out at 0 or below plays nothing and gets its NOTE_END at
+    once; fractional part velocities are rounded.
+36. Mod Depth cannot raise a modulator past level 99 in Octet (the reference's modulation keeps
+    growing above it, unmeasured how far).
+37. Extended sounds bend by the part's signed ranges, Pitch Bend Upper and Lower (253, 254,
+    -48..+24 semitones, defaults +2 and -2, the documented values), not by the plugin's Pitch
+    Bend Up/Down settings; the plugin's bend step setting, when on, still quantises as in
+    Dexed. Implemented from the Data List only (the recorder cannot bend).
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1574,6 +1589,82 @@ pan, centred sounds identical in both channels, and the part LFO's rate, wave sh
 delay, user steps and slope, and all nine destinations through the plugin or, for LFO 2
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
+
+### M7 (in progress, fifth session, 2026-10-31: part values and four of the seven macros)
+
+Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
+`forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
+a modulator/carrier pair with slow envelopes, the same pair static with feedback 4, and the
+pair with operator waves; the part AEG offsets at +-32 and +-64 on a lone carrier and on the
+pair; the filter offsets through the filter EG probe; velocity depth and offset at 5
+velocities; note shift; detune at notes 36 and 72), `m7b` (the depth macro on four probes
+that separate feedback, EG levels and operator level; the ratio macro every 11 steps at
+modulator ratios 1 and 4; the texture macro every 11 steps; every macro on a lone carrier; the
+AEG offsets at +-4, 8, 16), `m7c` (detune every eighth value, the attack offset on the pair at
+6 values, 24 more velocity cases, the depth macro at feedback 1, 2 and 7 and on a stack of three
+modulators). The first `m7a` macro renders used the wrong raw values (the Data List's two-byte
+values are 7-bit byte pairs: 0 is raw 128, not 256) and were re-recorded. How each value acts
+was found by rendering Octet over every candidate value of one operator or filter parameter
+and taking the one closest to the reference render (`m7fit.py`, local), then checked by
+rendering the cases with the new parameters (`fm/compare_m7.py`).
+
+What the reference does (Octet does the same in Extended sounds, parameters 235-252, module
+Extended/Part and Extended/Macros):
+
+- **Velocity sensitivity depth and offset:** the velocity becomes velocity x depth / 64 + 2
+  (offset - 64), at most 127; at 0 or below no note sounds (Octet sends the note's NOTE_END at
+  once). The reference plays fractional results between the neighbouring velocities' levels;
+  Octet rounds them (1.9 dB at the extreme measured: 0.98 played as 1).
+- **AEG offsets** (attack, decay, sustain, release): 1.5 EG values per step added to every
+  operator's attack time, both decay times, decay 2 level and release time (each fits within
+  0.4 dB rms of the equivalent values on a lone carrier). A positive attack offset reaches
+  carriers only: with +4 to +32 the modulator's attack stays as set (within 0.8 dB); negative
+  attack offsets reach every operator. The sustain offset reaches decay 2 level only (adding
+  it to decay 1 level too is 1.3-7.9 dB worse).
+- **Filter offsets:** cutoff 8 cutoff values per step, resonance 2 values per step, FEG depth
+  2 values per step (clamped to the parameters' ranges; each equal to the reference within 0.3
+  dB at 6 offsets).
+- **Note shift:** whole semitones on the played key (with the voice transpose; held within
+  0-127).
+- **Detune:** documented as -12.8..+12.7 Hz, it plays cents: the same cents at notes 36 and 72,
+  -49.95 cents at the bottom, +49.63 at the top, nothing within 2 values of the centre, measured
+  every eighth value (table `extPartDetuneCents`, straight between).
+- **Macros act on modulators only** (operators the algorithm does not route to the output; a
+  lone carrier does not change with any macro except texture). **Mod depth** (the depth macro)
+  adds its value to every modulator's level, divided by 1 + the feedback level for the
+  operator that feeds back, rounded towards 0: at feedback 0 the level moves one step per step
+  (three probes, within 0.3 dB rms), at feedback 1, 2, 4 by 1/2, 1/3, 1/5 of a step (fits at
+  every measured value; feedback 7 does not fit any single level). **Attack, decay, sustain and
+  release** add their value to the modulators' attack time, both decay times, decay 2 level and
+  release time (one value per step; each found as the equivalent single value at +-25, +-50).
+- **Ratio shift and texture: not modelled.** The ratio macro moves the modulators' frequency
+  (at ratio 1: x0.5 at -99, x0.82 at -50, x0.92 at -22, x1.30 at +22, x3.0 at +44, x4.0 at
+  +55, x12.0 at +88, x17.95 at +99; at ratio 4 the factors differ: x0.46 at -99, x5.34 at
+  +99), neither a fixed factor nor a fixed offset in ratio; the texture macro changes the
+  carrier's spectrum as well (at -99 the fundamental vanishes and the energy sits near
+  Nyquist, at -50 a formant-like peak near harmonic 7-8). Both are kept as parameters with no
+  effect.
+
+| Gate (`fm/compare_m7.py`) | Result |
+| --- | --- |
+| Pitch, 1 cent | **Met:** note shift 4 of 4, detune 49 of 49 (the table comes from `m7c`'s own renders for 37 of them; the 12 `m7a` cases at notes 36 and 72 are independent) |
+| Filter offsets, level within 0.5 dB | **Met:** 18 of 18 |
+| AEG offsets, harmonics within 1 dB | 44 of 62: decay met at every offset tested, release at all but -8 (1.0 dB); attack misses at +16 (3.1 dB on the carrier, 3.6 on the pair), +24 (2.0, pair) and +32/+63 (1.9-5.6 dB, both probes); sustain misses at -64, -32, -16, +16, +32 and +63 (1.2-2.3 dB: the reference moves the level by 26 values at -16 where 1.5 per step gives 24, and stops at 98 at +16) |
+| Mod depth, harmonics within 1 dB | Without feedback (probes A, B): 12 of 12. Static EG at level 85 (C) and the pair with feedback 4 (D): 8 of 12 (+25 and +50 miss by 1.7-3.7 dB). Feedback 1, 2, 7 (`df`): 7 of 12 (+50 misses at feedback 1 and 2 by 1.9-2.6 dB; at feedback 7 the base case misses by 17.7 dB, so a modulator with feedback 7 is not reproduced, an M4 matter, and -50 and +50 miss too). Stack of three: 3 of 4 (+25: 8.8 dB). `m7a`: 8 of 18 (pair: -25 and +25 by 1.0-1.1 dB, +50 and +99 by 8.8 dB; static pair with feedback 4: +25 to +99 by 1.8-8.4 dB: the reference keeps raising the modulation past level 99, Octet stops at 99; the wave probe's base case already misses by 3.2 dB, an M5 matter) |
+| Envelope macros, harmonics within 1 dB | Pair and static probes: 44 of 48 (attack +25 1.0 dB on the pair, sustain +25, +50, +99 1.5 dB); wave probe 4 of 24 (its base case misses by 3.2 dB) |
+| Velocity, level within 0.5 dB | 29 of 64. Not an M7 result: Octet's level velocity curve (operator level velocity sensitivity +7, which M4 left on Dexed's curve, unmeasured) is up to 14 dB from the reference's (reference cases at velocities 1-127 with the part values at their defaults: 1 of 8 met). The part transform itself is checked against the reference's own equivalences (the levels above) and in Octet's test |
+| Ratio shift and texture | Not modelled (17 of 25 and 2 of 19 cases happen to meet) |
+
+**Not done in M7 (recorder limit and time).** Mono and poly with legato, key assign,
+portamento (switch, time, fingered and full-time modes, rate and time modes), and pitch bend
+cannot be measured: the recorder plays one note per job and sends no controllers, so
+nothing between two notes and no bend can be rendered. The controller-set and key-controller
+masks only matter with Performance-level controller assignments (not part of the engine
+renders). Pitch bend ranges are implemented from the Data List (decision 37) and checked only in
+Octet's own test. Not measured either: how the macros treat multi-operator feedback loops (Octet
+divides the depth on the loop's last operator only), the macros' rounding at odd values, the
+AEG offsets' rounding, detune on fixed-frequency operators (Octet applies it to every
+operator).
 
 ### How to run the tests
 
