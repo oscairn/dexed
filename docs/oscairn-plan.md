@@ -1066,7 +1066,7 @@ queued on the shared recorder when this was written):
 
 **Tests run locally:** Release CTest 36/36 (164 Classic cases bit-identical through engine,
 JUCE plugin and native CLAP; topology 32 + 88; Extended test; Oscairn scanner and renderer),
-ASan/UBSan 36/36, TSan 19/19. CI (`oscairn-tests`) for `c2ad09a`: green on Linux x86_64, Linux ARM64, macOS, ASan+UBSan and TSan.
+ASan/UBSan 19/19 and TSan 19/19 (those trees build without the Oscairn tools, so the scanner and renderer tests run only in Release), rerun on `7cb51af`. CI (`oscairn-tests`) for `c2ad09a`: green on Linux x86_64, Linux ARM64, macOS, ASan+UBSan and TSan.
 
 **Decisions taken while implementing (for Jacob to confirm)**
 
