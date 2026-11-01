@@ -1778,7 +1778,7 @@ int extendedTest() {
         }
     }
     // -- a modulator's EG level: in steps of two, adding to its operator level as values (EG 85 at
-    // level 70 plays as EG 99 at level 56); a carrier's EG keeps its own curve
+    // level 70 plays as EG 99 at level 56); a carrier's EG keeps its own curve, also in steps of two
     {
         auto harmonics = [&](const std::vector<float> &x) {
             std::vector<double> db;
@@ -1807,7 +1807,10 @@ int extendedTest() {
         std::printf("modulator level 70 at EG 85 against level 56: harmonics 1-6 within %.3f dB\n", worst);
         expect(worst < 0.1, "modulator level 70 at EG 85 against level 56 at EG 99: " + std::to_string(worst) + " dB");
         auto carrier = [&](int eg) { return renderExtended(P{ { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60, 1.0, 0.4, 0.4); };
-        expect(carrier(84) != carrier(85), "carrier EG levels 84 and 85 differ");
+        expect(carrier(84) == carrier(85) && carrier(85) != carrier(86),
+               "carrier EG level 84 plays as 85, 86 differs");
+        expect(extEgLevelDb(98) == 0.0 && std::fabs(extEgLevelDb(90) + 6.02) < 1e-9 && extEgLevelDb(19) < extEgLevelDb(20),
+               "carrier EG level table");
         // the ratio macro: a modulator's ratio by its table (ratio 1 at +44 plays ratio 3), not a
         // carrier's
         auto near = [](double a, double b) { return std::fabs(a / b - 1) < 1e-3; };

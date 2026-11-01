@@ -54,8 +54,16 @@ double extAttackOverDb() { return kAttackOverDb; }
 double extAttackStartDb() { return kAttackStartDb; }
 double extHoldMs(int t) { return kHoldMs[clampi(t, 0, 99)]; }
 
+// A carrier's EG levels from 20 up go in steps of two, as a modulator's do: 2k plays as 2k + 1,
+// 0.75 dB a value (`m9b`: a lone carrier at every EG level 60-99 and every fifth below, read at
+// the odd level each plays as); below 20 the earlier table
+static const double kCarrierEgX[13] = { 21, 25, 31, 35, 41, 45, 51, 55, 61, 71, 81, 91, 99 };
+static const double kCarrierEgDb[13] = { -60.17, -57.41, -51.77, -48.67, -43.95, -40.83, -36.23,
+                                         -33.20, -28.64, -21.09, -13.55, -6.02, 0 };
 double extEgLevelDb(int l) {
     l = clampi(l, 0, 99);
+    if (l >= 20)
+        return interpolate(kCarrierEgX, kCarrierEgDb, l | 1);
     return l < kLevelSilentBelow ? -200.0 : interpolate(kLevelX, kEgLevelDb, l);
 }
 double extModLevelDb(int l) {
