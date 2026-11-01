@@ -379,9 +379,9 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                 audiobuf.get()[j] = 0;
             }
             int32_t lfovalue[MAX_CONTEXTS], lfodelay[MAX_CONTEXTS];
-            int32_t lfosamples[MAX_CONTEXTS][N]; // Extended sounds: the LFO per sample
             float partlfo[MAX_CONTEXTS][N];      // Extended sounds: the part LFO per sample
             bool partActive[MAX_CONTEXTS] = {};
+            int lfoSteps[MAX_CONTEXTS] = {};     // Extended sounds: the part LFO's LFO 2 speed move
             for (int c = 0; c < MAX_CONTEXTS; c++) {
                 if ( !active[c] )
                     continue;
@@ -392,13 +392,14 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     partActive[c] = true;
                     // the LFO 2 speed destination: depth x 100 / 128 speed steps at the part
                     // LFO's top, rounded towards 0, once per block
-                    const int steps = contexts[c].partLfo.lfo2Steps(partlfo[c][N / 2]);
-                    contexts[c].lfo.setSpeedSteps(steps);
+                    lfoSteps[c] = contexts[c].partLfo.lfo2Steps(partlfo[c][N / 2]);
+                    contexts[c].lfo.setSpeedSteps(lfoSteps[c]);
                 }
                 if ( contexts[c].lfo.perSample() ) {
+                    // Extended voices run their own copies; the sound's runs on for the phase a
+                    // note without key-on reset takes
                     for (int j = 0; j < N; ++j)
-                        lfosamples[c][j] = contexts[c].lfo.getsample();
-                    lfovalue[c] = lfosamples[c][0];
+                        lfovalue[c] = contexts[c].lfo.getsample();
                 } else {
                     lfovalue[c] = contexts[c].lfo.getsample();
                 }
@@ -416,8 +417,7 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                         voices[note].dx7_note->updateBasePitches();
 
                     voices[note].dx7_note->compute(audiobuf.get(), lfovalue[c], lfodelay[c], &voiceCtrl(c, voices[note].channel),
-                                                   contexts[c].lfo.perSample() ? lfosamples[c] : nullptr,
-                                                   partActive[c] ? partlfo[c] : nullptr);
+                                                   partActive[c] ? partlfo[c] : nullptr, lfoSteps[c]);
 
                     ProcessorVoice &v = voices[note];
                     float gainLeft = 1, gainRight = 1;
@@ -679,6 +679,7 @@ ExtStart SynthEngine::nextExtStart(SynthContext &x, int64_t wait) {
     start.count = x.noteCount++;
     start.tempo = tempo;
     start.wait = wait;
+    start.lfoPhase = x.lfo.phase();
     return start;
 }
 

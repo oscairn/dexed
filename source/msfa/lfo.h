@@ -16,6 +16,10 @@
 
 // Low frequency oscillator, compatible with DX7
 
+#pragma once
+
+#include <cstdint>
+
 struct ExtendedVoice;
 
 class Lfo {
@@ -38,6 +42,13 @@ public:
     int32_t getdelay();
 
     void keydown();
+    // Extended voices each run their own copy of the sound's LFO (measured: the 2nd LFO is per
+    // voice); at its note-on a copy takes the sound's free-running phase, then keydown()
+    uint32_t phase() const { return phase_; }
+    void start(uint32_t phase) {
+        phase_ = phase;
+        keydown();
+    }
     // Extended sounds: the 2nd LFO's speed moved by this many steps (the part LFO's LFO 2 speed
     // destination); speed range Normal only
     void setSpeedSteps(int steps);

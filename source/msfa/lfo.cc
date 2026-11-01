@@ -94,9 +94,9 @@ void Lfo::reset(const ExtendedVoice &v) {
     perSample_ = true;
     extSpeed_ = v.common(ext::LfoSpeedRange) == 0 ? v.common(ext::LfoSpeed) : -1;
     speedSteps_ = 0;
-    // shortcut: phase 0 is taken as the start of the wave as Lfo draws it; the reference's
-    // start point is not measured yet
-    startPhase_ = (uint32_t)v.common(ext::LfoPhase) << 30;
+    // the reference's phase 0 is half a cycle into the wave as Lfo draws it (measured for every
+    // wave and phase: the triangle and saw down start at their top, saw up and the square low)
+    startPhase_ = ((uint32_t)v.common(ext::LfoPhase) << 30) + (1U << 31);
 }
 
 void Lfo::setSpeedSteps(int steps) {

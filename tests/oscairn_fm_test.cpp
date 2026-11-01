@@ -1375,6 +1375,34 @@ int extendedTest() {
                                                             std::to_string(speed) + ": " + std::to_string(measured) +
                                                             " Hz, table " + std::to_string(hz));
         }
+    // -- the 2nd LFO runs per voice: with key-on reset a note started while another is held
+    // plays as it would alone and leaves the held note's vibrato unchanged (with a delay too),
+    // so the two notes' output is the sum of each alone
+    for (int delay : { 0, 50 }) {
+        const std::vector<std::pair<uint32_t, double>> p = { { 49, 0 }, { 43, 20 }, { 47, 30 }, { 46, 1 },
+                                                             { 45, (double)delay }, { 1058, 7 } };
+        const auto a = renderMidiNotes(p, { { 0.0, 36, 100 } }, 1.5);
+        const auto c = renderMidiNotes(p, { { 0.53, 84, 100 } }, 1.5);
+        const auto b = renderMidiNotes(p, { { 0.0, 36, 100 }, { 0.53, 84, 100 } }, 1.5);
+        double worst = 0, peak = 0;
+        for (size_t i = 0; i < b.size(); i++) {
+            worst = std::max(worst, (double)std::fabs(b[i] - a[i] - c[i]));
+            peak = std::max(peak, (double)std::fabs(c[i]));
+        }
+        expect(peak > 0.01 && worst < 1e-4, "2nd LFO per voice (delay " + std::to_string(delay) +
+                                                "): two notes differ from each alone by " + std::to_string(worst));
+    }
+    // its start: phase 0 is half a cycle into Lfo's waves (a square starts low), through the plugin
+    {
+        const auto x = renderMidiNotes({ { 49, 0 }, { 43, 10 }, { 42, 3 }, { 46, 1 }, { 47, 30 }, { 1058, 7 } },
+                                       { { 0.0, 60, 100 } }, 0.7);
+        const double half = 0.5 / extLfoHz(10);
+        auto cents = [&](double a, double b) {
+            return 1200 * std::log2(zeroCrossingHz(x, (size_t)(a * half * rate), (size_t)(b * half * rate)) / noteHz(60));
+        };
+        const double lo = cents(0.1, 0.9), hi = cents(1.1, 1.9);
+        expect(lo < -300 && hi > 300, "2nd LFO square starts low: " + std::to_string(lo) + " then " + std::to_string(hi) + " cents");
+    }
     // -- the filter (milestone M6): each type's steady-state gain against the model its
     // fitted structure gives (Chamberlin sections and a one-pole, docs/oscairn-plan.md
     // section 11), within 0.1 dB where the model is above -60 dB

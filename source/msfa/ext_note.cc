@@ -605,10 +605,14 @@ void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const Syn
         delay_ = std::llround(seconds * rate->sampleRate) + st.wait;
         shift_ = 0;
     }
+    lfo_.init(rate->sampleRate);
+    lfo_.reset(v);
+    lfo_.start(st.lfoPhase);
     setup(v, midinote, velocity, rate, tuning, true);
 }
 
 void ExtNote::update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning) {
+    lfo_.reset(v); // (keeps its phase and delay)
     setup(v, midinote, velocity, rate, tuning, false);
 }
 
@@ -692,10 +696,10 @@ void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, d
     const FilterState &f = filt_;
     const double partValue = partLfo * f.partLfoValues;
     double oct = feg_.getblock(N) * f.fegOctaves;
-    // the LFO at the block's end, bipolar and inverted (the reference's triangle starts at the
-    // cutoff's highest point, Lfo's at its lowest), faded in by its delay
+    // the LFO at the block's end, bipolar (the reference's triangle starts at the cutoff's
+    // highest point, as at the pitch's), faded in by its delay
     if (f.lfoOctaves != 0)
-        oct += f.lfoOctaves * (1.0 - (double)lfo[N - 1] / (1 << 23)) * ((double)lfo_delay / (1 << 24));
+        oct += f.lfoOctaves * ((double)lfo[N - 1] / (1 << 23) - 1.0) * ((double)lfo_delay / (1 << 24));
     const double move = std::exp2(oct) * f.ratio;
     ExtFilter::Setting st;
     st.type = f.type;
@@ -721,8 +725,8 @@ void ExtNote::filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, d
         buf[i] = (int32_t)std::lrint(std::clamp(x[i], -7.99f, 7.99f) * kBack);
 }
 
-void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
-                      int32_t pitchBase, const Controllers *ctrls, const float *part_lfo) {
+void ExtNote::compute(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, const float *part_lfo,
+                      int lfoSpeedSteps) {
     if (!initialised_)
         return; // (released within its key-on delay)
     if (delay_ >= N) {
@@ -739,13 +743,14 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
         const int pos = (int)std::lround(std::clamp(panPos_ + part_lfo[N / 2] * partLfoPan_, -64.0, 63.0));
         extPanGains(pos, gainL_, gainR_);
     }
+    lfo_.setSpeedSteps(lfoSpeedSteps);
     if (shift_ == 0) {
-        render(buf, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls, part_lfo);
+        render(buf, pitchBase, ctrls, part_lfo);
         return;
     }
     // started within a block: every block runs shift_ samples late
     int32_t tmp[N] = {};
-    render(tmp, lfo_val, lfo_samples, lfo_delay, pitchBase, ctrls, part_lfo);
+    render(tmp, pitchBase, ctrls, part_lfo);
     for (int s = 0; s < shift_; s++)
         buf[s] += carry_[s];
     for (int s = shift_; s < N; s++)
@@ -753,13 +758,13 @@ void ExtNote::compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples,
     std::copy(tmp + N - shift_, tmp + N, carry_);
 }
 
-void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay,
-                     int32_t pitchBase, const Controllers *ctrls, const float *part_lfo) {
-    // LFO pitch and amplitude modulation as the DX7 voice computes them, per operator, but at
-    // every sample when the LFO runs per sample
+void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, const float *part_lfo) {
+    // the voice's own 2nd LFO, every sample; pitch and amplitude modulation as the DX7 voice
+    // computes them, per operator
     int32_t lfo[N];
     for (int s = 0; s < N; s++)
-        lfo[s] = lfo_samples ? lfo_samples[s] : lfo_val;
+        lfo[s] = lfo_.getsample();
+    const int32_t lfo_delay = lfo_.getdelay();
     const uint32_t pmd = (uint32_t)pitchDepth_ * (uint32_t)lfo_delay; // Q32
     const bool pitchMod = pmd != 0 || ctrls->pitch_mod != 0;
     const uint32_t amdDepth = (uint32_t)(((int64_t)ampDepth_ * (int64_t)lfo_delay) >> 8);
@@ -900,6 +905,7 @@ void ExtNote::oscSync() {
 }
 
 void ExtNote::transferState(const ExtNote &src) {
+    lfo_ = src.lfo_; // a legato note's 2nd LFO goes on (shortcut: unmeasured in mono legato)
     feg_.transfer(src.feg_);
     ppeg_ = src.ppeg_;
     filter_ = src.filter_;

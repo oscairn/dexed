@@ -17,6 +17,7 @@
 #include "ext_filter.h"
 #include "ext_voice.h"
 #include "fm_op_kernel.h"
+#include "lfo.h"
 #include "synth.h"
 #include "synth_rate.h"
 
@@ -129,6 +130,7 @@ struct ExtStart {
     double tempo = 120;                      // beats per minute (tempo-synced key-on delay)
     int64_t wait = 0;                        // samples before the note starts, added to its key-on delay
     double velocity = 0;                     // the velocity with its fraction (the part's sensitivity), or 0
+    uint32_t lfoPhase = 0;                   // the sound's free-running 2nd LFO phase (no key-on reset)
 };
 
 class ExtNote {
@@ -149,11 +151,11 @@ public:
     float gainRight() const { return gainR_; }
     // the voice's values changed while it plays (envelopes keep their state)
     void update(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning);
-    // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency); lfo_samples is
-    // the LFO at every sample of the block, or null to use lfo_val throughout
-    // part_lfo: the sound's part LFO at every sample of the block (-1..+1), or null
-    void compute(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
-                 const Controllers *ctrls, const float *part_lfo = nullptr);
+    // adds to buf; pitchBase is pitch bend and master tune (Q24 log frequency); part_lfo: the
+    // sound's part LFO at every sample of the block (-1..+1), or null; lfoSpeedSteps: the part
+    // LFO's move of the 2nd LFO's speed this block
+    void compute(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, const float *part_lfo = nullptr,
+                 int lfoSpeedSteps = 0);
     bool waiting() const { return delay_ > 0; } // in its key-on delay
     void keyup();
     bool isPlaying() const;
@@ -172,8 +174,7 @@ private:
     void setup(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning, bool start);
     void setFeedback(int feedback); // fbShift_ and fbGain_ for feedback 0-7
     void chooseWave(int i, int wave); // operator i's wave table for wave 0-6
-    void render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, int32_t lfo_delay, int32_t pitchBase,
-                const Controllers *ctrls, const float *part_lfo);
+    void render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, const float *part_lfo);
     void setupFilter(const ExtendedVoice &v, int midinote, int velocity, bool start);
     // partLfo: the part LFO this block (-1..+1)
     void filterBlock(int32_t *buf, const int32_t *lfo, int32_t lfo_delay, double partLfo);
@@ -214,6 +215,7 @@ private:
     double partLfoFeedback_ = 0; // part LFO to feedback: steps at +1
     int32_t ampSens_[8] = {};
     int32_t pitchDepth_ = 0, ampDepth_ = 0;
+    Lfo lfo_;                    // this voice's 2nd LFO (per voice in the reference)
     int32_t fbBuf_[2] = {};
     int32_t gains_[8][N];        // per operator, this block's gain per sample
     int32_t freqs_[8][N];        // per operator, this block's phase increment per sample

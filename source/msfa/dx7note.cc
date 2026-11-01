@@ -284,9 +284,9 @@ int32_t Dx7Note::bendAndTune(const Controllers *ctrls) {
 }
 
 void Dx7Note::compute(int32_t *buf, int32_t lfo_val, int32_t lfo_delay, const Controllers *ctrls,
-                      const int32_t *lfo_samples, const float *part_lfo) {
+                      const float *part_lfo, int lfoSpeedSteps) {
     if (extended_) {
-        ext_.compute(buf, lfo_val, lfo_samples, lfo_delay, bendAndTune(ctrls), ctrls, part_lfo);
+        ext_.compute(buf, bendAndTune(ctrls), ctrls, part_lfo, lfoSpeedSteps);
         return;
     }
     // ==== PITCH ====
