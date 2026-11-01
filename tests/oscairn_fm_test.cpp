@@ -1327,6 +1327,12 @@ int extendedTest() {
                                                 ": " + std::to_string(db) + " dB from its table");
             }
         }
+        // formant 2 at spread 5, formant 0: harmonic 15 is where the window's components below
+        // harmonic 1 fold back onto those above it; past the main lobe's null they are negative
+        // (the reference's `spec` render: -75.75 dB against a sine; -82.9 with them positive)
+        const auto f = renderExtended({ { 1060, 6 }, { 1061, 5 } }, 48, 1.0, 1.1, 1.1);
+        const double h15 = 20 * std::log10(harmonic(f, f0 * 15) / sine);
+        expect(std::fabs(h15 + 75.75) < 1.5, "formant 2 spread 5 harmonic 15: " + std::to_string(h15) + " dB, the reference's -75.75");
     }
     // -- where the waves sit in their cycle (it shows when they modulate): waves 1 and 2 run from 0
     // and peak half a cycle in, waves 3 and 4 peak a quarter cycle in, formant 2's window peaks
