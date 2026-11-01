@@ -566,6 +566,27 @@ double extPartVelocity(int depth, int offset, int velocity) {
 // rounding of odd offsets is not measured
 int extAegOffsetSteps(int offset) { return (int)std::lround(1.5 * clampi(offset, -64, 63)); }
 
+// the attack offset multiplies the attack time by 2^(offset / 4), held within attack times 0-99
+// (measured at every second offset from -32 to +32 on a lone carrier at attack 50: from -12 to +26
+// the equivalent attack value is within one value of this time's; below -12 the reference is
+// faster, at +28 and +30 it reaches attack 99 sooner)
+double extAegAttackScale(int offset) { return std::exp2(clampi(offset, -64, 63) / 4.0); }
+
+// the sustain offset: decay 2 level steps measured at every second offset from -22 to +32 (a lone
+// carrier at decay 2 level 50; the reference moves the level by even steps, 1.5 per offset step
+// on average), straight between; 1.5 per step beyond -22 (shortcut: unmeasured there)
+int extAegSustainSteps(int offset) {
+    static const double up[17] = { 0, 2, 6, 8, 12, 14, 18, 22, 24, 28, 30, 34, 36, 40, 44, 47, 49 };
+    static const double down[12] = { 0, 4, 6, 10, 12, 16, 18, 22, 26, 28, 31, 33 };
+    const int v = clampi(offset, -64, 63), a = std::abs(v);
+    auto at = [](const double *t, int n, int x) {
+        if (x >= 2 * (n - 1))
+            return t[n - 1] + 1.5 * (x - 2 * (n - 1));
+        return t[x / 2] + (x % 2 ? 0.5 * (t[x / 2 + 1] - t[x / 2]) : 0.0);
+    };
+    return (int)std::lround(v >= 0 ? at(up, 17, a) : -at(down, 12, a));
+}
+
 // Part detune: cents, not Hz (the same cents at notes 36 and 72); measured every eighth value,
 // nothing within 2 of the centre, straight between
 static const float kPartDetuneCents[33] = {

@@ -1736,10 +1736,29 @@ int extendedTest() {
         same(with(stack, { { 248, 20 }, { 249, -10 }, { 250, 10 }, { 251, 30 } }),
              with(stack, { { 1045, 60 }, { 1046, 40 }, { 1047, 45 }, { 1043, 85 }, { 1048, 80 } }),
              "envelope macros move the modulator's attack, decays, sustain level and release only");
-        same(with(stack, { { 237, 4 }, { 238, -8 }, { 239, 6 }, { 240, -2 } }),
-             with(stack, { { 2045, 56 }, { 1046, 38 }, { 1047, 43 }, { 2046, 43 }, { 2047, 48 }, { 1043, 84 }, { 2043, 89 },
-                           { 1048, 47 }, { 2048, 52 } }),
-             "amp EG offsets: 1.5 values per step on every operator, a positive attack offset on carriers only");
+        same(with(stack, { { 238, -8 }, { 239, 6 }, { 240, -2 } }),
+             with(stack, { { 1046, 38 }, { 1047, 43 }, { 2046, 43 }, { 2047, 48 }, { 1043, 83 }, { 2043, 88 }, { 1048, 47 },
+                           { 2048, 52 } }),
+             "amp EG offsets: decays and release 1.5 values per step, sustain by its table (+6: 8), on every operator");
+        expect(extAegSustainSteps(-16) == -26 && extAegSustainSteps(16) == 24 && extAegSustainSteps(3) == 4 &&
+                   extAegSustainSteps(-30) == -45,
+               "sustain offset table");
+        // the attack offset multiplies the attack time by 2^(offset / 4): +8 takes four times as long
+        // to come within 3 dB of the top, on a carrier
+        {
+            auto reach = [&](const std::vector<float> &x) {
+                const auto db = peakDb(x, 48);
+                const double top = *std::max_element(db.begin(), db.end());
+                for (size_t i = 0; i < db.size(); i++)
+                    if (db[i] > top - 3)
+                        return (double)i;
+                return -1.0;
+            };
+            const P slow = { { 1045, 40 }, { 1042, 99 }, { 1043, 99 } };
+            const double a0 = reach(renderExtended(slow, 60, 1.0, 1.5, 1.5)),
+                         a8 = reach(renderExtended(with(slow, { { 237, 8 } }), 60, 1.0, 1.5, 1.5));
+            expect(a0 > 3 && std::fabs(a8 / a0 - 4) < 0.25, "attack offset +8: " + std::to_string(a8 / a0) + " times as long");
+        }
         same({ { 1071, 1 }, { 242, -8 }, { 60, 7 }, { 61, 628 } }, { { 1071, 1 }, { 60, 7 }, { 61, 564 } },
              "cutoff offset: 8 values per step");
         same({ { 243, 8 }, { 60, 7 }, { 61, 628 }, { 63, 64 } }, { { 60, 7 }, { 61, 628 }, { 63, 80 } },

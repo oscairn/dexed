@@ -171,7 +171,7 @@ struct ExtKernels {
 // ---- envelope ----
 
 void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                       double sampleRate) {
+                       double sampleRate, double attackScale) {
     constexpr double q32 = 4294967296.0;
     full_ = (int64_t)outlevel << 8;
     for (int i = 0; i < 4; i++) {
@@ -179,7 +179,8 @@ void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, in
         const double db = extEgLevelDb(levels_[i]);
         targets_[i] = std::max<int64_t>(0, ((int64_t)outlevel << 8) + (int64_t)std::llround(db * kLog2PerDb * q32));
         // segment i (attack, decay 1, decay 2, release): dB per sample
-        const double msPerDb = (i == 0 ? extAttackMsPerDb(std::clamp(times[i], 0, 99))
+        const double msPerDb = (i == 0 ? std::clamp(extAttackMsPerDb(std::clamp(times[i], 0, 99)) * attackScale,
+                                                    extAttackMsPerDb(0), extAttackMsPerDb(99))
                                        : extEgMsPerDb(std::clamp(times[i], 0, 99))) * timeScale;
         const double dbPerSample = 1000.0 / (msPerDb * sampleRate);
         inc_[i] = std::max<int64_t>(1, std::llround(dbPerSample * kLog2PerDb * q32));
@@ -196,8 +197,8 @@ void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, in
 }
 
 void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                  double sampleRate) {
-    configure(levels, times, holdTime, outlevel, timeScale, sampleRate);
+                  double sampleRate, double attackScale) {
+    configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale);
     down_ = true;
     level_ = targets_[3]; // the hold level
     count_ = holdSamples_;
@@ -205,8 +206,8 @@ void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t
 }
 
 void ExtEnv::update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                    double sampleRate) {
-    configure(levels, times, holdTime, outlevel, timeScale, sampleRate);
+                    double sampleRate, double attackScale) {
+    configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale);
 }
 
 void ExtEnv::advance(int ix) { ix_ = ix; }
@@ -418,9 +419,9 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     const double partCents = extPartDetuneCents(v.common(ext::PartDetune)); // (shortcut: unmeasured on fixed operators)
     // the part's AEG offsets (every operator; a positive attack offset reaches carriers only) and
     // the macros (modulators only), added to the operators' values
-    const int aegAttack = extAegOffsetSteps(v.common(ext::AegAttackOffset)),
-              aegDecay = extAegOffsetSteps(v.common(ext::AegDecayOffset)),
-              aegSustain = extAegOffsetSteps(v.common(ext::AegSustainOffset)),
+    const double aegAttack = extAegAttackScale(v.common(ext::AegAttackOffset));
+    const int aegDecay = extAegOffsetSteps(v.common(ext::AegDecayOffset)),
+              aegSustain = extAegSustainSteps(v.common(ext::AegSustainOffset)),
               aegRelease = extAegOffsetSteps(v.common(ext::AegReleaseOffset));
     auto macro = [&](ext::Common k) { return std::clamp((int)v.common(k), -99, 99); };
     const int feedbackFrom = extCompiled(algorithm_).feedbackFrom; // (FmOpParams index)
@@ -475,7 +476,6 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         const int32_t outlevel = kFullScale + dbToLog(std::min(0.0, db) + velocityDb + algorithmGain);
         int levels[4] = { o(ext::AttackLevel), o(ext::Decay1Level), o(ext::Decay2Level), o(ext::ReleaseLevel) };
         int times[4] = { o(ext::AttackTime), o(ext::Decay1Time), o(ext::Decay2Time), o(ext::ReleaseTime) };
-        times[0] += modulator ? std::min(aegAttack, 0) : aegAttack;
         times[1] += aegDecay;
         times[2] += aegDecay;
         levels[2] += aegSustain;
@@ -493,10 +493,11 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             times[k] = std::clamp(times[k], 0, 99);
         }
         const double timeScale = extTimeKeyFollowScale(o(ext::TimeKeyFollow), midinote);
+        const double attackScale = modulator ? std::min(aegAttack, 1.0) : aegAttack;
         if (start)
-            env_[i].init(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate);
+            env_[i].init(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate, attackScale);
         else
-            env_[i].update(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate);
+            env_[i].update(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate, attackScale);
         if (start)
             peg_[i].init(o(ext::PegInitial), o(ext::PegAttack), o(ext::PegAttackTime), o(ext::PegDecayTime), sampleRate);
         pitchSens_[i] = extPitchDepthOffset(std::clamp(o(ext::PitchDepthOffset), 0, 7));
