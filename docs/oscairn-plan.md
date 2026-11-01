@@ -1318,6 +1318,21 @@ fixed frequencies below 20 Hz.
     measured, replaces the carrier half of decision 51): the m9b table at the odd level (98 plays as
     99). Below 20 the earlier carrier table (its 12-19 values were measured one by one and do not
     pair cleanly).
+60. The texture macro starts from an operator's own wave (tenth session, `m7a` wave probe and
+    `m10t`, measured): a wave on the macro's path has a place there (waves 3-4 at +-(2 + 2 spread),
+    waves 1-2 at +-(32 - 2 spread), the formant path's places for formant 2; the plus sign for
+    waves 1 and 3), the value moves it, and the place's sign picks the family; a sine sits at 0,
+    so sine operators play as before. Chosen where unmeasured: formant 1 and formant 2 off the path
+    are replaced as a sine's are, and formant 2's places on the path are taken from the table
+    without a check.
+61. The 2nd LFO's amplitude loss bends below about -45 dB as a carrier's EG levels do (tenth
+    session, `m7l`, measured at depth 99 offsets 3 and 4; the curve is `m9b`'s): the offset 7 table
+    stays the swing as played (its inverse gives the straight loss), offsets share the straight
+    loss in eighths, and the result goes through the bend. Unmeasured, chosen: the bend acts on the
+    LFO's loss alone (not on the sum with the EG level) and on modulators as on carriers.
+62. Detune on fixed-frequency operators (tenth session, `m10d2`, measured): the operator's own
+    detune moves them by the same cents as a ratio-mode operator at that key; the part's detune
+    (Hz) does not reach them.
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth)
 
@@ -1463,6 +1478,29 @@ Still open in M5: the spread 7 formant windows (as carriers at formants above 9,
 now modulated), formant 2 at formant 0 with spread 5, the reference's flat floor under formant 2 at
 spreads 5-7, and the all-harmonic waves at spread 7 under a strong modulator (level 75). Not looked
 at again this session. The wave choice still follows the note-on frequency only.
+
+**Tenth session (2026-11-01): the open M5 cases, analysis only (no engine change for them).** Local
+scripts in the scratchpad (`trunc.py`, `phfit.py`, `split.py`, `nk.py`, `modfit.py`), models
+simulated with the index read from `m9a`'s sine pair as before.
+
+- **Waves 1-2 at spread 7 under a strong modulator** (`m9a` level 75: 4.2 and 17.1 dB). Even the
+  simulation of the current model (table(t + half a cycle + m)) misses these renders (2.2 and 4.5 dB
+  rms over 16 harmonics) while it fits spreads 2 and 4 within 0.2 dB. Ruled out: the tables'
+  -45 dB floor of high harmonics (truncating the tables at 8-168 harmonics, or dropping everything
+  below -40 or -50 dB, changes nothing at level 75), a different start or index (a free phase and
+  index scale fit best at exactly half a cycle and 1.0), each harmonic k taking a k + b times the
+  modulation (best a = 1, b = 0), and splitting the wave into an even part at twice the rate and
+  an odd part E(2t) sin(t) as the odd waves are (worse in every case, by 2-30 dB). The renders' spectra are steady
+  over 0.05-0.4 s. Not resolved.
+- **Wave 2 spread 2 at level 75** (2.1 dB): the miss is harmonic 5 at -58 dB, next to the 60 dB
+  floor; the stored table has only 4 harmonics. Not changed.
+- **Texture +51 to +66 on the level 70 modulator** (formant 2 at spreads 1-7, formant 7): searching
+  Octet's modulator level 30-99 with the same wave finds no level that matches (best 2.7-5.0 dB rms
+  over 12 harmonics, at levels 70-81), so it is the window's shape as a modulator, not its depth.
+  Not resolved; like the spread 7 cases above, a wide window under strong modulation.
+- **Texture -50 and -25 on the wave probe** turned out to be the macro, not the waves: the
+  reference starts from the carrier's own wave (decision 60, below under M7). Formant 2 at spread 5
+  and the reference's flat floor were not looked at again.
 
 ### M6 (in progress, 2026-10-31: filter, filter EG, common pitch EG, pitch key follow, random pitch, key-on delay, stereo and pan are in the engine; the part LFO with all nine of its destinations)
 
@@ -1775,7 +1813,7 @@ delay, user steps and slope, and all nine destinations through the plugin or, fo
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
-### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31; rising segments and carrier EG levels in the ninth, 2026-11-01)
+### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31; rising segments and carrier EG levels in the ninth, 2026-11-01; texture from an operator's own wave, the 2nd LFO's deep amplitude, bend ranges and fixed-frequency detune in the tenth, 2026-11-01)
 
 Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
 `forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
@@ -2093,6 +2131,55 @@ Not done this session (time-boxed, no change): the 2nd LFO's amplitude depth 99 
 while offsets 1-2 fit 256; not resolved); portamento at fast times; feedback 7's straight 6.8 dB per
 harmonic (no model found).
 
+**Tenth session (2026-11-01): the count discrepancy, texture, the 2nd LFO's deep amplitude, bend
+ranges and fixed-frequency detune (decisions 60-62).** Campaigns in `forks/measurements/m4/`:
+`m10b` (8 sequences: pitch bend ranges, below), `m10d` (12 renders, wrong probe: the fixed carrier
+at coarse 3 is 0.84 Hz; not used), `m10d2` (12: a 220 Hz fixed-frequency carrier at notes 48 and 72
+with part detune 0, +-5, +12.7 Hz and operator detune +-15), `m10t` (28: texture on lone carriers with
+waves 1-4 and on the m7 pair's modulator with waves 1, 3 and 4 at level 50). No render came back
+empty; one `m10t` render had a 12 ms gap in its held part and was recorded again (`m10t2`); the
+others have no run of 16 or more near-zero samples in the held part (the formant window at spread 7
+excepted, whose silent stretches are its own). Local generators
+`m10gen.py`, `m10seq.py`; `octet_render.py` and `seq_octet.py` now take `OCTET_OUT` so a build's
+renders can go to their own directory.
+
+- **Why the eighth session's `m7a`/`m7b` counts (170, 71) differ from the ninth's re-render of
+  `b909855` (180, 85).** Neither the renders nor the comparison are nondeterministic: the eighth
+  session's own last renders (`m7a/octet_prev`, `m7b/octet_prev`, made at 22:44 with the ratio and
+  texture changes built) are bit-identical to the ninth session's re-render of `b909855`
+  (`octet_old`), and `fm/compare_m7.py` (unchanged since `d14c301`) gives 180 and 85 on both. Re-
+  rendering `c59a932` (the modulator EG commit) this session gives 170 and 71: the eighth session's
+  table quoted the counts measured after its first commit, before Ratio Shift and Texture (which
+  together added 10 met cases to `m7a` and 14 to `m7b`). No fix to the measurement was needed.
+- **Texture from the operator's own wave (decision 60, `ebe7c42`).** On the wave probe the reference
+  played a sine at -25 and all harmonics 2 at spread 4 at -50 (fits 0.22 and 2.48 dB rms over every
+  candidate wave), which is the carrier's own place (+26: all harmonics 1 at spread 3) moved by the
+  value. `fm/compare_m7.py` like for like: `m7a` 213 -> 215 of 242 (texture -25 and -50 on the wave
+  probe 12.0 and 53.5 -> 0.15 and 0.35 dB; -99 183.7 -> 21.9 dB, still not met); `m7b` 91, `m8c` 121
+  and `m8f` 48 unchanged (sine operators play as before, nothing else moved by more than 0.01 dB).
+  Independent check, `m10t`: 11 -> 27 of 28 (not met: all harmonics 2 at spread 3 at -40, 1.9 dB).
+- **The 2nd LFO's amplitude depth 99 at offsets 3 and 4 (decision 61, `73d3b18`).** The reference's
+  48.7 and 62.8 dB swings are half and five eighths of the straight 96 dB (48 and 60 dB) played
+  through the same bend as a carrier's EG levels that far down (`m9b`: 48.67 dB at level 35 against
+  48.16 straight; 63.02 at level 19 against 60.2). `fm/compare_lfo2.py`: `m7l` 54 -> 56 of 59
+  (offsets 3 and 4: 0.83 and 2.64 -> 0.33 and 0.13 dB), `m7l2` 47 of 48 either way (offset 7 at
+  depths 80-90 unchanged, 95 +0.08 -> +0.02 dB: the table goes through the bend's inverse first).
+- **Pitch bend ranges** (decision 37, now measured; no engine change): `m10b`, a sine at note 60
+  with ranges +2/-2, +12/-12, +24/-48, +7/-5, +1/-1, 0/0, -12/+24, -48/+24, bent to the top, the
+  bottom, a quarter up and down and back. New `fm/compare_bend.py` (tolerances `bend`, measurement
+  `92f1c44`, `75c6079`): 38 of 38 checked bend values within 1 cent of the reference (worst 0.55
+  cents); the two bends to -48 semitones (16 Hz) read about 50 cents high in both renders and are reported only.
+- **Detune on fixed-frequency operators (decision 62, `d766d55`).** `m10d2`: the part's detune left
+  the fixed carrier at 220.08 Hz in every case, and the operator's detune +-15 moved it by +31.8 /
+  -31.4 cents at note 48 and +20.1 / -20.0 at note 72, the ratio-mode table's values at those keys
+  within 0.4 cents. Octet did the opposite (up to 49.6 cents off); now within 0.4 cents in all 12
+  cases; ratio-mode operators unchanged (`m7a` bit-identical).
+
+Not done this session (time-boxed): portamento at fast times (the 25-100 ms glides need a finer
+pitch reading than the tracker gives; no new renders); feedback 7's straight spectrum (no model).
+M8 (the converter) is in `oscairn/performance-converter` and editor metadata in Oscairn, both outside
+this fork.
+
 ### Fifth session (2026-10-31): tests run
 
 Code commits `204249a` (no 16-bit rounding of Extended voices), `c5fbc05` (part values and
@@ -2173,6 +2260,18 @@ change undone (the modulated-wave rows with all three wave changes undone at onc
 messages were corrected before they were pushed (same trees); one of those corrections first
 went to the wrong, already pushed, commit locally, and the odd-wave commit was made again on top of
 the pushed one before anything was pushed. CI results are in the session report.
+
+### Tenth session (2026-11-01): tests run
+
+Code commits `ebe7c42` (texture from the operator's own wave), `73d3b18` (the 2nd LFO's amplitude
+bend), `d766d55` (fixed-frequency detune), `58a19f3` (a comment); measurement `92f1c44`, `75c6079`
+(`fm/compare_bend.py`). For each code commit, on its committed tree (the work tree held nothing else
+of the engine's), locally: Release CTest 36/36 (the 164 Classic cases bit-identical through engine,
+JUCE plugin and native CLAP on arm64; the Extended test now also checks texture -25 and -50 on a carrier
+with all harmonics 1 at spread 3, the amplitude swing at depth 99 offsets 3 and 4, and a fixed
+operator's own and the part's detune at keys 48 and 72), the x86_64 baseline under Rosetta (engine,
+plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta, ASan/UBSan 19/19, TSan 19/19.
+Each new test was checked to fail with its change undone. CI results are in the session report.
 
 ### How to run the tests
 
