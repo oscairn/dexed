@@ -1230,7 +1230,8 @@ fixed frequencies below 20 Hz.
 43. Unmeasured, chosen: returning to a held key in mono draws new random pitch and pan values and
     counts as a new note for alternate pan; portamento moves ratio-mode operators only, like the
     common pitch EG (fixed-frequency operators keep their frequency); the band-limited wave is not
-    chosen again during a glide (the existing shortcut).
+    chosen again during a glide (the existing shortcut). (Seventh session, `m7k`: a fixed-frequency
+    carrier keeps its frequency through a legato glide in the reference too.)
 44. Random pitch and random pan (replaces the distribution part of decision 26, from `m7f`, 32-128
     notes per depth): random pitch is a uniform value within depth / 4 steps of 18.75 cents either
     way, cut towards 0 (depth 4 never moves); random pan is uniform within depth / 2 positions
@@ -1265,6 +1266,12 @@ fixed frequencies below 20 Hz.
     table of measured moves at even offsets from -22 to +32 (odd offsets halfway between, 1.5 per
     step beyond -22, unmeasured); decay and release offsets keep 1.5 values per step (seventh
     session, `m7h`).
+50. Key-on delay in mono legato with portamento (seventh session, `m7k`, measured): the legato note
+    takes over the sounding note's key-on delay, so it sounds at once when that note has started and
+    when that note would have started while it still waits (Octet used to give the legato note a
+    delay of its own, with silence in between). The common pitch EG carries on through a legato
+    note in the reference as Octet already did. Mono without portamento, which starts the note
+    again, keeps a delay of its own (unmeasured).
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1814,12 +1821,12 @@ What the reference does (Octet does the same in Extended sounds, parameters 255-
 | Random pitch, random pan | Statistics (32-128 notes per depth): random pitch range and standard deviation within one step of the reference's at every depth (depth 127: reference -31..+30, sd 19.3 steps; Octet -31..+30, 19.2), depth 4 never moves in either; random pan range within 4 positions (depth 127: reference -58..+60, Octet -62..+62), standard deviation 28.2 against 38.0 at 127, 16.8 against 19.2 at 64 |
 
 Unmeasured or unresolved: the retrigger fade above attack time 60 and its shape (decision 41);
-portamento on fixed-frequency operators, from a held key returned to, and with key-on delay; the
+portamento from a held key returned to; the
 reference's lower rates for short glides at times 1-24; random pan's narrower spread and left
 lean, random pitch's extra step down; fractional velocities' effect on other velocity-dependent
-values; key-on delay
-and the common pitch EG in mono legato (Octet's legato note takes its envelopes from the sounding
-note, the pitch EG included).
+values; key-on delay when a mono note starts again without portamento. (Seventh session, `m7k`:
+portamento leaves fixed-frequency operators alone, the common pitch EG carries on through a legato
+note, and a legato note takes over the key-on delay; decision 50.)
 
 **Seventh session (2026-10-31): the 2nd LFO.** Campaigns in `forks/measurements/m4/`: `m7l` (61
 sequence renders: pitch depth at 17 depths with offset 7 and offsets 0-6 at depths 30 and 99,
@@ -1864,6 +1871,16 @@ Before these changes, like for like: the pitch depth was half the reference's at
 +-361 against +-722 cents at depth 30); the amplitude swing at depth 30 was 2.8 dB against 6.0; the
 fade in at delay 99 took 0.54 s against about 2.2 s; the start was half a cycle off for every wave.
 
+**Mono legato (`m7k`, 7 sequence renders, seventh session).** A fixed-frequency carrier under a
+legato glide (time 64) stays at its 440 Hz in both (within 0.01 semitone); the common pitch EG
+(attack from -50 at depth 1 octave, time 70) carries on through a legato note in both (the pitch
+after the note change continues the same ramp, within 0.3 semitone at each 0.1 s point, the rest
+being the recorder's event timing); key-on delay 20 (0.52 s) with portamento: a legato note
+during the sounding note takes over at once in the reference, where Octet left 0.5 s of silence and
+started again, and a legato note during the first note's delay sounds when the first would have,
+where Octet waited its own delay. After decision 50 Octet does the same in both cases (checked
+against these renders by eye in the level and pitch timelines, and in Octet's own test).
+
 Unmeasured or unresolved: the 2nd LFO in mono legato and on a returned-to mono key (decision 46);
 the reason for depth 99's smaller swings at offsets 3-4; the mod wheel's pitch and amplitude
 modulation in Extended sounds (the DX7 path); the speed range Normal's table was measured in M4 and
@@ -1904,17 +1921,18 @@ split into commits (the same files). CI results are in the session report.
 
 Code commits `036a7c0` (the 2nd LFO per voice, its start phase), `c7bd7ae` (its pitch depth),
 `99fb48b` (pitch depth conversion), `d7cf201` (its delay's fade in), `3624879` (its amplitude depth),
-`c3d4e65` (the part's attack and sustain offsets); measurement `113cf1f`, `815b67b`
+`c3d4e65` (the part's attack and sustain offsets), `7b4f3e9` (key-on delay in mono legato); measurement `113cf1f`, `815b67b`
 (`fm/compare_lfo2.py`, tolerances `lfo2`). For each code commit's tree, locally: Release CTest
 36/36 (the 164 Classic cases bit-identical through engine, JUCE plugin and native CLAP on arm64; the
 Extended test now also checks that two notes with the 2nd LFO's key-on reset, with and without a
 delay, play as the sum of each alone, the pitch depth at depths 30 and 99 and offsets 4 and 7 with
 the square starting low, the amplitude depth at depths 50 and 85 and offset 3, the delay's fade in
 as long as its hold at delays 40, 70 and 99, the pitch depth's conversion and round trip, the
-sustain offset table and the attack offset's factor), the x86_64 baseline under Rosetta (engine,
+sustain offset table and the attack offset's factor, and a legato note taking over the key-on
+delay, both while the first note sounds and while it waits), the x86_64 baseline under Rosetta (engine,
 plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta, ASan/UBSan 19/19, TSan
-19/19. The new per-voice, pitch depth, start and delay tests were each checked to fail with the
-change undone (the amplitude and AEG tests were not). Four commits had their messages corrected
+19/19. The new per-voice, pitch depth, start, delay and legato key-on delay tests were each checked to
+fail with the change undone (the amplitude and AEG tests were not). Four commits had their messages corrected
 after these runs and before they were pushed, two of them also comments (`c7bd7ae`, `c3d4e65`;
 Release CTest ran again on `c3d4e65`). CI results are in the session report.
 
