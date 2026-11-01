@@ -1022,9 +1022,23 @@ int extendedTest() {
             lo = std::min(lo, c);
             hi = std::max(hi, c);
         }
-        expect(ok && lo == -600 && hi == 600 && extRandomPitchCents(0, 12345) == 0 &&
+        // depth 4 always plays 0, depth 8 at most one step, depth 64 at most 15 (cut towards 0)
+        bool small = true;
+        for (int i = 0; i < 20000; i++) {
+            r = r * 1664525u + 1013904223u;
+            small = small && extRandomPitchCents(4, r) == 0 && std::fabs(extRandomPitchCents(8, r)) <= 18.75 &&
+                    std::fabs(extRandomPitchCents(64, r)) <= 15 * 18.75;
+        }
+        expect(ok && small && lo == -31 * 18.75 && hi == 31 * 18.75 && extRandomPitchCents(0, 12345) == 0 &&
                    std::fabs(extRandomPitchCents(16, 0xffffffffu)) <= 75,
                "random pitch steps and range");
+        int panLo = 0, panHi = 0;
+        for (int i = 0; i < 20000; i++) {
+            r = r * 1664525u + 1013904223u;
+            panLo = std::min(panLo, extRandomPanPosition(64, r));
+            panHi = std::max(panHi, extRandomPanPosition(64, r));
+        }
+        expect(panLo == -32 && panHi == 32 && extRandomPanPosition(0, 99) == 0, "random pan within depth / 2 positions");
         // the same note twice after activation plays the same random pitch (deterministic), on
         // the grid
         const auto a = renderExtended({ { 55, 127 } }, 60, 1.0, 0.6, 0.6);

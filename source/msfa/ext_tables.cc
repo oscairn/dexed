@@ -406,12 +406,13 @@ double extPitchKeyFollowCents(int value, int midinote, int centre) {
 }
 
 double extRandomPitchCents(int depth, uint32_t random) {
-    // whole steps of 18.75 cents up to depth / 4 steps either way (+-600 cents at 127); the
-    // reference's offsets lay on that grid within 1.4 cents
-    // shortcut: uniform over the steps; the reference's distribution was not measured (10
-    // notes per depth)
-    const int k = (clampi(depth, 0, 127) + 2) / 4;
-    return ((int)(random % (uint32_t)(2 * k + 1)) - k) * 18.75;
+    // whole steps of 18.75 cents (the reference's offsets lay on that grid within 1.4 cents): a
+    // uniform value within depth / 4 steps either way, cut towards 0 (`m7f`, 32-121 notes per
+    // depth: depth 4 always played 0, 8 reached one step, 16 three, 32 seven or eight, 64 about 16,
+    // 127 about 31; the reference reached one step further down than up at 32, 64 and 127, which
+    // this leaves out)
+    const double u = (random >> 8) * (2.0 / 16777216.0) - 1.0; // -1 <= u < 1
+    return (double)(int)(u * clampi(depth, 0, 127) / 4.0) * 18.75;
 }
 
 // ---- key-on delay ----
@@ -466,12 +467,12 @@ int extScalingPanPosition(int depth, int midinote) {
 }
 
 int extRandomPanPosition(int depth, uint32_t random) {
-    // shortcut: uniform within 64 (depth / 127)^2 positions either way: the reference's 16
-    // notes at 127 reached 50 and 8 notes at 64 reached 14; its distribution (13 of 16 to the
-    // left) was not resolved
-    const double d = clampi(depth, 0, 127) / 127.0;
-    const int range = (int)std::lround(64 * d * d);
-    return (int)(random % (uint32_t)(2 * range + 1)) - range;
+    // uniform within depth / 2 positions either way (`m7f`, 32-128 notes per depth: the
+    // reference reached about +-58 at 127, +-34 at 64, +-16 at 32, +-8 to 12 at 16); shortcut: its
+    // spread at 127 was narrower than uniform (standard deviation 28 positions against 36) and leaned
+    // left (mean -7.5), neither modelled
+    const double u = (random >> 8) * (2.0 / 16777216.0) - 1.0;
+    return (int)std::lround(u * clampi(depth, 0, 127) / 2.0);
 }
 
 // ---- the part LFO ----
