@@ -915,6 +915,11 @@ void ExtNote::oscSync() {
 
 void ExtNote::transferState(const ExtNote &src) {
     lfo_ = src.lfo_; // a legato note's 2nd LFO goes on (shortcut: unmeasured in mono legato)
+    // and it takes over the key-on delay: none once the sounding note has started, the rest of it
+    // while that note still waits (measured in mono legato with portamento)
+    delay_ = src.delay_;
+    shift_ = src.shift_;
+    std::copy(src.carry_, src.carry_ + N, carry_);
     feg_.transfer(src.feg_);
     ppeg_ = src.ppeg_;
     filter_ = src.filter_;

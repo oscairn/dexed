@@ -1913,6 +1913,19 @@ int extendedTest() {
         expect(std::fabs(extPortamentoRate(64, 1, 24) - 2 * 36.63) < 1e-9 && extPortamentoRate(0, 0, 12) == 0 &&
                    std::fabs(extPortamentoRate(64, 3, 24) - 36.63) < 1e-9 && std::fabs(extPortamentoRate(64, 3, 6) - 36.63 / 2) < 1e-9,
                "portamento time modes");
+        // key-on delay (20: 0.52 s) in mono legato with portamento: the legato note takes over at once
+        // when the first note sounds, and when the first note still waits it starts when that one would
+        {
+            const std::vector<std::pair<uint32_t, double>> kd = { { 255, 0 }, { 257, 1 }, { 258, 0 }, { 58, 20 } };
+            const auto on = renderMidiNotes(kd, { { 0.0, 60, 100 }, { 1.0, 67, 100 }, { 1.1, 60, 0 } }, 1.5);
+            expect(std::fabs(db(on, 1.05, 1.2) - db(on, 0.8, 0.95)) < 1 && std::fabs(semis(on, 1.1, 1.4) - 7) < 0.02,
+                   "key-on delay: a legato note takes over a sounding note at once");
+            const auto wait = renderMidiNotes(kd, { { 0.0, 60, 100 }, { 0.2, 67, 100 }, { 0.3, 60, 0 } }, 1.2);
+            const double start = extKeyOnDelayMs(20) / 1000;
+            expect(db(wait, start - 0.06, start - 0.01) < -100 && db(wait, start + 0.05, start + 0.15) > -40 &&
+                       std::fabs(semis(wait, start + 0.05, start + 0.3) - 7) < 0.02,
+                   "key-on delay: a legato note during the delay starts when the first would have");
+        }
         // a key pressed twice: the first note-off releases nothing, the second releases it
         for (int assign : { 0, 1 }) {
             const auto t = renderMidiNotes({ { 256, assign } }, { { 0.0, 60, 100 }, { 0.2, 60, 100 }, { 0.4, 60, 0 }, { 0.6, 60, 0 } }, 0.8);
