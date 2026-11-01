@@ -828,7 +828,9 @@ int extendedTest() {
         }
     };
     const double rate = 48000;
-    const double f69 = 440.0;
+    // the reference's tuning: each pitch class slightly sharp of A = 440 Hz (extNoteTuneCents), fixed
+    // frequencies 1.02 cents above extFixedHz below its top
+    const double f69 = 440.0 * std::pow(2.0, extNoteTuneCents(69) / 1200);
     // -- envelope: decay 1 slopes (ms per dB), fitted between 3 and 35 dB below the peak
     // (from time 20 up: faster decays cross 32 dB within four 64-sample blocks, too few points
     // for this fit; they are checked against the reference renders instead)
@@ -877,7 +879,8 @@ int extendedTest() {
         const double cents = 1200 * std::log2(hz / expectHz);
         expect(std::fabs(cents) < 1.0, what + ": " + std::to_string(cents) + " cents");
     };
-    auto noteHz = [&](int key) { return f69 * std::pow(2.0, (key - 69) / 12.0); };
+    auto noteHz = [&](int key) { return 440.0 * std::pow(2.0, (key - 69) / 12.0 + extNoteTuneCents(key) / 1200); };
+    auto fixedHz = [&](int coarse, int fine) { return extFixedHz(coarse, fine) * std::pow(2.0, extFixedTuneCents(coarse, fine) / 1200); };
     for (int c : { 0, 1, 2, 7, 15, 31 })
         for (int f : { 0, 37, 64, 127 })
             pitchCase({ { 1032, c }, { 1033, f } }, 57, 1.0, noteHz(57) * extRatio(c, f),
@@ -889,14 +892,14 @@ int extendedTest() {
     // a fixed-frequency operator takes its own detune (by the key, as a ratio one) but not the part's
     for (int key : { 48, 72 }) {
         pitchCase({ { 1031, 1 }, { 1032, 15 }, { 1034, 15 } }, key, 1.0,
-                  extFixedHz(15, 0) * std::pow(2.0, extDetuneCents(15, key) / 1200),
+                  fixedHz(15, 0) * std::pow(2.0, extDetuneCents(15, key) / 1200),
                   "fixed detune 15 key " + std::to_string(key));
-        pitchCase({ { 1031, 1 }, { 1032, 15 }, { 245, 127 } }, key, 1.0, extFixedHz(15, 0),
+        pitchCase({ { 1031, 1 }, { 1032, 15 }, { 245, 127 } }, key, 1.0, fixedHz(15, 0),
                   "part detune leaves a fixed operator alone, key " + std::to_string(key));
     }
     for (int c : { 0, 3, 9, 20 })
         for (int f : { 0, 64, 127 }) {
-            const double hz = extFixedHz(c, f);
+            const double hz = fixedHz(c, f);
             if (hz > 30 && hz < 12000)
                 pitchCase({ { 1031, 1 }, { 1032, c }, { 1033, f } }, 60, 1.0, hz,
                           "fixed coarse " + std::to_string(c) + " fine " + std::to_string(f));
@@ -904,7 +907,7 @@ int extendedTest() {
     for (int kf : { 25, 99 })
         for (int key : { 48, 72 })
             pitchCase({ { 1031, 1 }, { 1032, 14 }, { 1035, kf } }, key, 1.0,
-                      extFixedHz(14, 0) * std::pow(2.0, extKeyFollowCents(kf, key) / 1200),
+                      fixedHz(14, 0) * std::pow(2.0, extKeyFollowCents(kf, key) / 1200),
                       "key follow " + std::to_string(kf) + " key " + std::to_string(key));
     for (int depth : { -64, 32, 63 })
         for (int pv : { -7, 4, 7 })
@@ -912,12 +915,25 @@ int extendedTest() {
                 pitchCase({ { 51, depth }, { 1036, pv } }, 60, vel / 127.0,
                           noteHz(60) * std::pow(2.0, extPitchVelocityCents(depth, pv, vel) / 1200),
                           "pitch velocity " + std::to_string(depth) + "/" + std::to_string(pv) + " velocity " + std::to_string(vel));
+    // the reference's tuning, to a twentieth of a cent: every pitch class of an octave on a ratio-1
+    // carrier, and a fixed one at 440 Hz (0.775 cents above it), timed before the note-off
+    for (int key = 60; key < 72; key++) {
+        const auto x = renderExtended({}, key, 1.0, 1.0, 1.0);
+        const double c = 1200 * std::log2(zeroCrossingHz(x, 4800, 46000) / (440.0 * std::pow(2.0, (key - 69) / 12.0)));
+        expect(std::fabs(c - extNoteTuneCents(key)) < 0.05,
+               "tuning at key " + std::to_string(key) + ": " + std::to_string(c) + " cents, want " + std::to_string(extNoteTuneCents(key)));
+    }
+    {
+        const auto x = renderExtended({ { 1031, 1 }, { 1032, 16 } }, 60, 1.0, 1.0, 1.0);
+        const double c = 1200 * std::log2(zeroCrossingHz(x, 4800, 46000) / 440.0);
+        expect(std::fabs(c - 0.775) < 0.05, "tuning of a fixed 440 Hz: " + std::to_string(c) + " cents, want 0.775");
+    }
     // the operator's pitch velocity sensitivity moves fixed-frequency operators only, straight in
     // velocity from 64 (+7: 1504 cents at velocity 127)
     for (int pv : { -7, 3, 7 })
         for (int vel : { 1, 40, 64, 127 })
             pitchCase({ { 1031, 1 }, { 1032, 16 }, { 1036, pv } }, 60, vel / 127.0,
-                      extFixedHz(16, 0) * std::pow(2.0, extFixedPitchVelocityCents(pv, vel) / 1200),
+                      fixedHz(16, 0) * std::pow(2.0, extFixedPitchVelocityCents(pv, vel) / 1200),
                       "fixed pitch velocity " + std::to_string(pv) + " velocity " + std::to_string(vel));
     expect(std::fabs(extFixedPitchVelocityCents(7, 127) - 1504.05) < 1e-9 && std::fabs(extFixedPitchVelocityCents(-7, 96) + 1504.05 * 32 / 63) < 1e-9,
            "fixed pitch velocity table");
@@ -976,7 +992,7 @@ int extendedTest() {
                extPartPegCentsPerMs(0) == 0 && std::fabs(extPartPegCentsPerMs(99) - 0.05619077) < 1e-9,
            "common pitch EG tables: time key follow, velocity, rates");
     pitchCase({ { 28, 50 }, { 29, 50 }, { 30, 50 }, { 31, 50 }, { 32, 50 }, { 37, 2 }, { 1031, 1 }, { 1032, 16 } }, 60, 1.0,
-              extFixedHz(16, 0), "a fixed-frequency operator does not follow the common pitch EG");
+              fixedHz(16, 0), "a fixed-frequency operator does not follow the common pitch EG");
     for (const auto &pc : std::vector<std::array<int, 4>>{ { 1, 30, 0, 0 }, { 2, 50, 0, 0 }, { 1, 70, 40, 0 }, { 2, 80, 0, 5 } }) {
         // +50 to 0 by decay 1 at pc[1]; with pc[2], released at 0.1 s towards +50 at that time;
         // time key follow pc[3]
@@ -1024,7 +1040,7 @@ int extendedTest() {
                       "pitch key follow " + std::to_string(kf) + " key " + std::to_string(key));
     pitchCase({ { 56, 127 }, { 57, 48 } }, 41, 1.0, noteHz(41) * std::pow(2.0, -700 / 1200.0),
               "pitch key follow +200 % centre 48, key 41");
-    pitchCase({ { 56, 0 }, { 55, 127 }, { 1031, 1 }, { 1032, 16 } }, 84, 1.0, extFixedHz(16, 0),
+    pitchCase({ { 56, 0 }, { 55, 127 }, { 1031, 1 }, { 1032, 16 } }, 84, 1.0, fixedHz(16, 0),
               "a fixed-frequency operator follows neither pitch key follow nor random pitch");
     expect(extPitchKeyFollowPercent(64) == 0 && extPitchKeyFollowPercent(96) == 100 &&
                extPitchKeyFollowPercent(0) == -200 && extPitchKeyFollowPercent(127) == 200,
@@ -1232,7 +1248,7 @@ int extendedTest() {
             const auto z = renderExtended({ { 210, ext::PartLfoOpDetune }, { 211, 32 }, { 201, ExtPartLfo::Square },
                                             { 202, 24 } }, 60, 1.0, 2.5, 2.5);
             const double half = 0.5 / extPartLfoHz(24) * rate;
-            const double hz60 = f69 * std::pow(2.0, -9 / 12.0);
+            const double hz60 = noteHz(60);
             const double top = 1200 * std::log2(zeroCrossingHz(z, (size_t)(0.2 * half), (size_t)(0.9 * half)) / hz60);
             const double bottom = 1200 * std::log2(zeroCrossingHz(z, (size_t)(1.2 * half), (size_t)(1.9 * half)) / hz60);
             expect(std::fabs(top - extDetuneCents(8, 60)) < 0.3 && std::fabs(bottom - extDetuneCents(-8, 60)) < 0.3,
@@ -1865,7 +1881,7 @@ int extendedTest() {
             for (int k = 1; k <= 6; k++) {
                 double re = 0, im = 0;
                 for (size_t i = 0; i < n; i++) {
-                    const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), ph = 2 * M_PI * noteHz(60) * k * i / rate;
+                    const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), ph = 2 * M_PI * 440 * std::pow(2.0, -9 / 12.0) * k * i / rate;
                     re += w * x[a + i] * std::cos(ph);
                     im += w * x[a + i] * std::sin(ph);
                 }
@@ -1875,11 +1891,12 @@ int extendedTest() {
         };
         using P = std::vector<std::pair<uint32_t, double>>;
         // (the carrier at level 90 keeps the output about where this check was set up, 7 dB under
-        // a level 99 carrier since Extended voices play 6.99 dB louder: harmonic 6 lies about
-        // 129 dB under the fundamental, where the comparison moves by a tenth of a dB with
-        // rounding)
+        // a level 99 carrier since Extended voices play 6.99 dB louder, and master tune takes key 60
+        // back to equal temperament: harmonic 6 lies about 129 dB under the fundamental, where the
+        // comparison moves by a tenth of a dB with rounding and with the tuning's 0.9 cents)
         auto pair = [&](int level, int eg) {
-            return renderExtended(P{ { 40, 8 }, { 1051, level }, { 2051, 90 }, { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60,
+            return renderExtended(P{ { 40, 8 }, { 1051, level }, { 2051, 90 }, { 1041, eg }, { 1042, eg }, { 1043, eg },
+                                     { 130, -extNoteTuneCents(60) / 100 } }, 60,
                                   1.0, 0.4, 0.4);
         };
         expect(pair(70, 84) == pair(70, 85), "modulator EG level 84 plays as 85");

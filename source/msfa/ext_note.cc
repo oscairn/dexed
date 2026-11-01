@@ -452,11 +452,11 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         int32_t pitch;
         if (fixed_[i]) {
             cents += extKeyFollowCents(o(ext::KeyFollow), midinote) + extDetuneCents(o(ext::Detune), midinote) +
-                     extFixedPitchVelocityCents(o(ext::PitchVelocity), velocity);
+                     extFixedPitchVelocityCents(o(ext::PitchVelocity), velocity) + extFixedTuneCents(o(ext::Coarse), o(ext::Fine));
             pitch = (int32_t)std::lround(std::log2(extFixedHz(o(ext::Coarse), o(ext::Fine))) * kQ24);
         } else {
             cents += partCents;
-            cents += extDetuneCents(o(ext::Detune), midinote) + ratioCents;
+            cents += extDetuneCents(o(ext::Detune), midinote) + ratioCents + extNoteTuneCents(midinote);
             // the ratio macro: ratio-mode modulators (shortcut: unmeasured on fixed-frequency ones)
             double ratio = extRatio(o(ext::Coarse), o(ext::Fine));
             if (modulator)

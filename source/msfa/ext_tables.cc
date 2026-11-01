@@ -179,6 +179,24 @@ double extFixedHz(int coarse, int fine) {
     return std::min(kFixedMaxHz, kFixedBaseHz * std::pow(2.0, clampi(coarse, 0, 31) - 16 + clampi(fine, 0, 127) / 128.0));
 }
 
+// The reference plays every note slightly sharp of equal temperament (A = 440 Hz), by an amount
+// that depends on the pitch class and repeats in every octave (measured on ratio-1 carriers at
+// notes 60-83, 48 and every A from 21 to 117, `m13u`, `m13t`: the same within 0.001 cent an octave
+// apart, and at velocities 1-127). The ratio, fine and detune tables were measured relative to C,
+// so they add to the note's offset. Fixed frequencies sit 0.775 cents above the 440 Hz grid on
+// average over the 128 fine values (+0.59 to +0.97, the same in two octaves), 1.02 cents above the
+// fitted extFixedHz below its top. What remains between the measured points (about +-0.2 cent)
+// is not modelled.
+double extNoteTuneCents(int midinote) {
+    static const double c[12] = { 0.909, 1.671, 1.107, 0.763, 1.627, 1.317, 0.896, 1.380, 1.263, 0.665, 1.548, 1.300 };
+    return c[((midinote % 12) + 12) % 12];
+}
+
+double extFixedTuneCents(int coarse, int fine) {
+    // (up to the highest fixed frequency, which was measured as played)
+    return std::min(1.02, 1200 * std::log2(kFixedMaxHz / extFixedHz(coarse, fine)));
+}
+
 double extKeyFollowCents(int sensitivity, int midinote) {
     return interpolate(kKeyFollowX, kKeyFollowCentsPerKey, clampi(sensitivity, 0, 99)) * (midinote - kKeyFollowCentre);
 }

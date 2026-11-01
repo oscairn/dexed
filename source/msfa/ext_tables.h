@@ -38,6 +38,8 @@ double extLevelVelocityDb(int sensitivity, double velocity);
 double extRatio(int coarse, int fine);
 double extDetuneCents(int detune, int midinote);
 double extFixedHz(int coarse, int fine);
+double extNoteTuneCents(int midinote);   // ratio mode: the reference's offset from equal temperament by pitch class
+double extFixedTuneCents(int coarse, int fine); // fixed mode: its offset from extFixedHz
 double extKeyFollowCents(int sensitivity, int midinote);  // fixed mode
 double extPitchVelocityCents(int depth, int sensitivity, int velocity); // common depth (the sensitivity is unused)
 double extFixedPitchVelocityCents(int sensitivity, int velocity); // operator sensitivity -7..+7, fixed frequency only
