@@ -776,39 +776,29 @@ double extShiftedRatio(double ratio, int value) {
 
 // The texture macro (Texture) picks a wave for the operators it reaches: negative values the
 // carriers, positive ones the modulators (`m8c`, `m8f`: a lone carrier at every negative value; a
-// pair at every fifth value; each render matched to the closest wave, spread and formant). By the
-// value's size, in steps of two: odd harmonics with spread 0-7 (2-17), all harmonics with spread
-// 7-1 (18-31), a sine 6.2 dB down (32-33), the formant wave at spread 0 with formant 0-7 (34-49),
-// then its spread 1-7 (50-63), then its formant up from 7 at spread 7 (64-85, matched value by
-// value). Carriers take the second odd and all harmonics waves, modulators the first.
-// An operator whose own wave is on that path starts from its place there (carriers' places
-// negative, modulators' positive, a sine at 0) and the value moves it: on the `m7a` wave probe a
-// carrier with all harmonics 1 at spread 3 (place +26) plays a sine at -25 and all harmonics 2 at
-// spread 4 at -50, as places +1 and -24 do; the place's sign picks the family. Checked on lone
-// carriers with waves 1-4 and on modulators with waves 1, 3 and 4 (`m10t`: 27 of 28 cases).
-// shortcut: formant 2's places are not checked; a wave off the path (formant 1, formant 2 off it)
-// is replaced as a sine's is
-// shortcut: above 85 the formant rises by five per value, to silence at the top of the keyboard
-// (the reference's renders there match no wave of Octet's; at 97-99 they are nearly silent); the operator's own wave is replaced (unmeasured on operators whose
-// wave is not a sine)
-static const int8_t kTextureFormantHigh[22] = { 7, 8, 9, 11, 11, 11, 12, 15, 15, 16, 18, 18,
-                                                19, 21, 22, 23, 23, 25, 26, 27, 27, 28 }; // 64-85
-// the place of an operator's own wave on the texture's path (0 when it is not on it)
-static int texturePlace(int wave, int spread, int formant, bool modulator) {
-    const int side = modulator ? 1 : -1;
+// pair at every fifth value; each render matched to the closest wave, spread and formant). The
+// waves lie on one path of places -99..+99, plus side and minus side mirrored: a sine at 0, odd
+// harmonics with spread 0-7 (2-17), all harmonics with spread 7-0 (18-33), the formant wave at
+// spread 0 with formant 0-7 (34-49), its spread 1-7 at formant 7 (50-63), then its formant up at
+// spread 7, one per place to 30 (64-86) and 69 / 13 per place to 99 (87-99). The plus side has the
+// first wave of each kind (odd 1, all 1, formant 1), the minus side the second. Every wave has a
+// place, on the path or not: an all or odd wave by its spread, a formant wave by its spread and
+// formant (its formant counted back the path's way). An operator the macro reaches starts from its
+// own wave's place and the value moves it; past either end the place comes round from the other.
+// On the `m7a` wave probe a carrier with all harmonics 1 at spread 3 (place +26) plays a sine at
+// -25 and all harmonics 2 at spread 4 at -50 (`m10t`: lone carriers with waves 1-4 and modulators
+// with waves 1, 3 and 4). All harmonics at spread 0 (32-33) play as a sine 6.2 dB down.
+static int texturePlace(int wave, int spread, int formant) {
+    const int sign = wave % 2 == 1 ? 1 : -1; // the first of each kind on the plus side
     switch (wave) {
-    case 1: case 2: return spread == 0 ? 0 : (wave == 1 ? 1 : -1) * (32 - 2 * spread);
-    case 3: case 4: return (wave == 3 ? 1 : -1) * (2 + 2 * spread);
-    case 6:
-        if (spread == 0 && formant <= 7)
-            return side * (34 + 2 * formant);
-        if (formant == 7)
-            return side * (48 + 2 * spread);
-        if (spread == 7)
-            for (int a = 64; a <= 85; a++)
-                if (kTextureFormantHigh[a - 64] == formant)
-                    return side * a;
-        return 0;
+    case 1: case 2: return sign * (32 - 2 * spread);
+    case 3: case 4: return sign * (2 + 2 * spread);
+    case 5: case 6:
+        if (formant <= 7)
+            return sign * (34 + 2 * formant);
+        if (formant <= 29)
+            return sign * (42 + 2 * spread + formant);
+        return sign * (72 + 2 * spread + (int)std::lround((formant - 30) * 13 / 69.0));
     default: return 0;
     }
 }
@@ -817,8 +807,12 @@ bool extTextureWave(int value, bool modulator, int &wave, int &spread, int &form
     value = clampi(value, -99, 99);
     if (value == 0 || (value > 0) != modulator)
         return false;
-    const int place = clampi(texturePlace(wave, spread, formant, modulator) + value, -99, 99);
-    const bool up = place > 0; // the modulators' family
+    int place = texturePlace(wave, spread, formant) + value;
+    if (place > 99)
+        place -= 199;
+    else if (place < -99)
+        place += 199;
+    const bool up = place > 0; // the plus side's waves
     const int a = std::abs(place);
     db = 0;
     formant = 0;
@@ -831,11 +825,11 @@ bool extTextureWave(int value, bool modulator, int &wave, int &spread, int &form
     } else if (a < 34) {
         wave = 0, spread = 0, db = -6.17;
     } else if (a < 50) {
-        wave = 6, spread = 0, formant = (a - 34) / 2;
+        wave = up ? 5 : 6, spread = 0, formant = (a - 34) / 2;
     } else if (a < 64) {
-        wave = 6, spread = (a - 48) / 2, formant = 7;
+        wave = up ? 5 : 6, spread = (a - 48) / 2, formant = 7;
     } else {
-        wave = 6, spread = 7, formant = a <= 85 ? kTextureFormantHigh[a - 64] : 28 + 5 * (a - 85);
+        wave = up ? 5 : 6, spread = 7, formant = a <= 86 ? a - 56 : 30 + (int)std::lround((a - 86) * 69 / 13.0);
     }
     return true;
 }

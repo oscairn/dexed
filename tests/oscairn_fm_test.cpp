@@ -1861,7 +1861,8 @@ int extendedTest() {
                "texture -6 on the pair reaches the carrier only: odd harmonics 2 at spread 2");
         int tw = 0, ts = 0, tf = 0;
         double tdb = 0;
-        const bool high = extTextureWave(-99, false, tw, ts, tf, tdb) && tw == 6 && ts == 7 && tf == 98;
+        const bool high = extTextureWave(-99, false, tw, ts, tf, tdb) && tw == 6 && ts == 7 && tf == 99;
+        tw = ts = tf = 0;
         const bool dip = extTextureWave(-32, false, tw, ts, tf, tdb) && tw == 0 && tdb < -6;
         expect(high && dip && !extTextureWave(1, false, tw, ts, tf, tdb) && extTextureWave(1, true, tw, ts, tf, tdb) && tw == 0,
                "texture table");
@@ -1871,6 +1872,18 @@ int extendedTest() {
         pw = 1, ps = 3, pf = 0;
         const bool toAll2 = extTextureWave(-50, false, pw, ps, pf, tdb) && pw == 2 && ps == 4;
         expect(toSine && toAll2, "texture -25 and -50 on a carrier with all harmonics 1 at spread 3: a sine, all harmonics 2 at spread 4");
+        // the plus side's formant wave is formant 1; a formant 2 operator sits on the minus side
+        // whichever it is, and a place past an end comes round from the other
+        int qw = 0, qs = 0, qf = 0;
+        const bool plusFormant = extTextureWave(60, true, qw, qs, qf, tdb) && qw == 5 && qs == 6 && qf == 7;
+        qw = 6, qs = 0, qf = 3; // place -40
+        const bool fromMinus = extTextureWave(50, true, qw, qs, qf, tdb) && qw == 3 && qs == 4;
+        qw = 6, qs = 7, qf = 50; // place -90
+        const bool round = extTextureWave(-20, false, qw, qs, qf, tdb) && qw == 5 && qs == 7 && qf == 46;
+        qw = 6, qs = 0, qf = 0;
+        const bool down = extTextureWave(-40, false, qw, qs, qf, tdb) && qw == 6 && qs == 7 && qf == 18;
+        expect(plusFormant && fromMinus && round && down,
+               "texture places: +60 formant 1, formant 2 from -40 by +50, -90 by -20 round to +89, -34 by -40");
     }
     // -- part values and macros: each plays as the operator or filter values it stands for
     {
