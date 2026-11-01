@@ -96,4 +96,7 @@ double extFegDepth(int depth);          // -64-+63: the share of the FEG level (
 double extPartVelocity(int depth, int offset, int velocity); // the velocity the voice plays; <= 0: no note
 int extAegOffsetSteps(int offset);      // -64-+63: EG time or level steps added to every operator
 double extPartDetuneCents(int detune);  // -128-+127
+// portamento time 0-127 and time mode 0-3 (rate 1, time 1, rate 2, time 2): the glide's rate in
+// semitones per second over a distance of `semitones` (time 0: instant, returns 0)
+double extPortamentoRate(int time, int timeMode, double semitones);
 

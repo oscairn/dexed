@@ -98,6 +98,13 @@ enum Common {
     // the macros: offsets to the modulators' values (ExtNote::setup)
     MacroDepth, MacroRatio, MacroAttack, MacroDecay, MacroSustain, MacroRelease, MacroTexture, // -99-+99
     BendUpper, BendLower, // -48-+24 semitones: the pitch at full bend up and full bend down
+    // how the sound plays its notes (SynthEngine)
+    MonoPoly,           // 0 mono, 1 poly
+    KeyAssign,          // 0 single, 1 multi: a key played again while it sounds
+    Portamento,         // 0-1
+    PortamentoTime,     // 0-127
+    PortamentoMode,     // 0 fingered (legato notes only), 1 full-time
+    PortamentoTimeMode, // 0-3: rate 1, time 1, rate 2, time 2
     CommonCount
 };
 

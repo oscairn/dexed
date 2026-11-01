@@ -85,6 +85,10 @@ static ExtendedVoice buildExtDefaults() {
     e.v[VelocityOffset] = 64;
     e.v[BendUpper] = 2;
     e.v[BendLower] = -2;
+    e.v[MonoPoly] = 1;
+    e.v[KeyAssign] = 1;
+    e.v[PortamentoTime] = 64;
+    e.v[PortamentoMode] = 1;
     for (int n = 1; n <= Ops; n++) {
         int16_t *o = e.v + op(n, KeyOnReset);
         o[KeyOnReset] = 1;
@@ -278,6 +282,16 @@ static std::vector<Param> build() {
             extv(246 + i, m, macros[i], -99, 99, ext::MacroDepth + i, Text::Signed);
         extv(253, pt, "Pitch Bend Upper", -48, 24, ext::BendUpper, Text::Signed);
         extv(254, pt, "Pitch Bend Lower", -48, 24, ext::BendLower, Text::Signed);
+        static const char *const monoPoly[] = { "Mono", "Poly", nullptr };
+        static const char *const keyAssign[] = { "Single", "Multi", nullptr };
+        static const char *const portaModes[] = { "Fingered", "Full-time", nullptr };
+        static const char *const portaTimeModes[] = { "Rate 1", "Time 1", "Rate 2", "Time 2", nullptr };
+        extv(255, pt, "Mono/Poly", 0, 1, ext::MonoPoly, Text::Choice, monoPoly);
+        extv(256, pt, "Key Assign", 0, 1, ext::KeyAssign, Text::Choice, keyAssign);
+        extv(257, pt, "Portamento", 0, 1, ext::Portamento, Text::Switch, offOn);
+        extv(258, pt, "Portamento Time", 0, 127, ext::PortamentoTime);
+        extv(259, pt, "Portamento Mode", 0, 1, ext::PortamentoMode, Text::Choice, portaModes);
+        extv(260, pt, "Portamento Time Mode", 0, 3, ext::PortamentoTimeMode, Text::Choice, portaTimeModes);
     }
     for (int n = 1; n <= ext::Ops; n++) {
         const std::string op = "Operator " + std::to_string(n) + "/Extended";
@@ -553,6 +567,8 @@ bool convertToClassic(std::vector<double> &values) {
             return false; // the part's offsets, note shift, detune and the macros
     if (x.geti(253) != 2 || x.geti(254) != -2)
         return false; // signed pitch bend ranges (Classic's are plugin settings)
+    if (x.geti(255) != 1 || x.geti(256) != 1 || x.geti(257) != 0)
+        return false; // mono, key assign and portamento (Classic's are plugin settings)
     for (uint32_t id = 211; id <= 215; id += 2)
         if (x.geti(id - 1) != 0 && x.geti(id) != 0)
             return false; // the part LFO

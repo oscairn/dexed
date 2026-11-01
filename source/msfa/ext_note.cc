@@ -407,6 +407,9 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     pitchDepth_ = (std::clamp(v.common(ext::LfoPitchDepth), 0, 99) * 165) >> 6;
     ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
+    notePitch_ = notePitch;
+    if (start)
+        glide_ = glideStep_ = 0;
     // pitch key follow and random pitch: ratio-mode operators only (fixed ones keep their
     // frequency in the reference)
     const double ratioCents =
@@ -558,6 +561,22 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     setupFilter(v, midinote, velocity, start);
 }
 
+double ExtNote::retriggerFade(const ExtendedVoice &v) {
+    // the old note fades out before the new one starts, faster the faster the carriers' attack
+    // (`m7g`, one carrier: none at attack time 0, about 2, 5 and 13 ms at 20, 40 and 60, from
+    // the sustain level); shortcut: 13 ms from 60 up, unmeasured, and the fade's shape is taken as
+    // straight in amplitude
+    const CompiledAlgorithm &a = extCompiled(std::clamp(v.common(ext::Algorithm), 1, 88) - 1);
+    int attack = 0;
+    for (int n = 1; n <= ext::Ops; n++)
+        if (((a.outputs >> (ext::Ops - n)) & 1) && v.op(n, ext::Level) > 0)
+            attack = std::max(attack, std::clamp(v.op(n, ext::AttackTime), 0, 99));
+    static const double ms[4] = { 0.0, 2.0, 5.0, 13.0 };
+    const int i = std::min(attack / 20, 2);
+    const double t = std::min((attack - 20 * i) / 20.0, 1.0);
+    return (ms[i] + (ms[i + 1] - ms[i]) * t) / 1000.0;
+}
+
 void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
                    const ExtStart &st) {
     initialised_ = true;
@@ -582,7 +601,7 @@ void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const Syn
         const double tempo = st.tempo;
         const double seconds = v.common(KeyOnDelaySync) ? extKeyOnDelayBeats(v.common(KeyOnDelayNote)) * 60.0 / std::max(tempo, 1.0)
                                                         : extKeyOnDelayMs(v.common(KeyOnDelay)) / 1000.0;
-        delay_ = std::llround(seconds * rate->sampleRate);
+        delay_ = std::llround(seconds * rate->sampleRate) + st.wait;
         shift_ = 0;
     }
     setup(v, midinote, velocity, rate, tuning, true);
@@ -767,9 +786,14 @@ void ExtNote::render(int32_t *buf, int32_t lfo_val, const int32_t *lfo_samples, 
     // the common pitch EG, every sample of the block (fixed-frequency operators do not follow
     // it in the reference)
     int32_t ppeg[N];
-    const bool ppegMoving = ppeg_.active();
-    for (int s = 0; s < N; s++)
+    const bool ppegMoving = ppeg_.active() || glide_ != 0;
+    for (int s = 0; s < N; s++) {
         ppeg[s] = ppeg_.getsample();
+        if (glide_ != 0) { // portamento, straight in semitones
+            glide_ = glide_ > 0 ? std::max(0.0, glide_ - glideStep_) : std::min(0.0, glide_ + glideStep_);
+            ppeg[s] += (int32_t)std::lrint(glide_);
+        }
+    }
     uint32_t phase0[ext::Ops];
     for (int i = 0; i < ext::Ops; i++) {
         int32_t pitch = basepitch_[i] + pitchBase;
@@ -884,6 +908,13 @@ void ExtNote::transferState(const ExtNote &src) {
         params_[i].gain_out = src.params_[i].gain_out;
         params_[i].phase = src.params_[i].phase;
     }
+}
+
+void ExtNote::glideFrom(double from, double semitonesPerSecond) {
+    glide_ = from - notePitch_;
+    glideStep_ = semitonesPerSecond > 0 ? semitonesPerSecond * kQ24 / 12.0 / rate_->sampleRate : 0;
+    if (glideStep_ <= 0 || std::isinf(glideStep_))
+        glide_ = 0;
 }
 
 void ExtNote::transferSignal(const ExtNote &src) {

@@ -553,3 +553,28 @@ double extPartDetuneCents(int detune) {
     const double t = (raw - 8 * i) / (i == 31 ? 7.0 : 8.0);
     return kPartDetuneCents[i] + (kPartDetuneCents[i + 1] - kPartDetuneCents[i]) * t;
 }
+
+// Portamento: every glide moves straight in semitones. Rate 1 keeps the time value's rate
+// whatever the distance; time 1 takes as long for any distance as rate 1 takes for an octave;
+// rate 2 and time 2 start at most an octave away (the engine clamps the start), then as rate 1 and
+// time 1 (`m7f`, `m7g`: 5, 12, 19, 24 semitones). Rates measured every fourth value (legato
+// glides in mono: over 48 semitones up to time 32, 12 or 24 above), straight in log rate between.
+static const int kPortaTimes[] = { 1, 2, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64,
+                                   68, 72, 76, 80, 84, 88, 92, 96, 100, 104, 108, 112, 116, 120, 124, 127 };
+static const double kPortaRate[] = { 434.1, 381.0, 378.3, 336.1, 336.2, 274.2, 248.7, 207.3, 176.3, 151.2,
+                                     131.1, 116.3, 94.93, 85.03, 71.99, 58.98, 51.22, 43.10, 36.63, 30.40,
+                                     25.63, 21.26, 17.81, 14.66, 11.843, 9.354, 7.533, 5.943, 4.565, 3.402,
+                                     2.42, 1.770, 1.083, 0.5208, 0.1199 };
+double extPortamentoRate(int time, int timeMode, double semitones) {
+    time = clampi(time, 0, 127);
+    if (time == 0)
+        return 0.0;
+    int i = 0;
+    while (kPortaTimes[i + 1] < time)
+        i++;
+    const double t = (double)(time - kPortaTimes[i]) / (kPortaTimes[i + 1] - kPortaTimes[i]);
+    const double rate = std::exp(std::log(kPortaRate[i]) + (std::log(kPortaRate[i + 1]) - std::log(kPortaRate[i])) * t);
+    if (timeMode == 1 || timeMode == 3)
+        return rate * std::min(semitones, timeMode == 3 ? 12.0 : 1e9) / 12.0;
+    return rate;
+}

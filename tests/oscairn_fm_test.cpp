@@ -781,6 +781,42 @@ double zeroCrossingHz(const std::vector<float> &x, size_t from, size_t to, doubl
     return count > 0 ? count * rate / (last - first) : 0;
 }
 
+// An Extended sound (operator 1 a carrier, release 0) playing raw MIDI note events on channel 1
+// at 48 kHz: {seconds, key, velocity (0: note-off)}.
+std::vector<float> renderMidiNotes(const std::vector<std::pair<uint32_t, double>> &params,
+                                   const std::vector<std::array<double, 3>> &notes, double seconds) {
+    Host h(entry);
+    const double rate = 48000;
+    h.activate(rate, 512);
+    EventList in;
+    in.events.reserve(512);
+    in.param(0, 5, 1);
+    in.param(0, 40, 1);
+    for (int n = 1; n <= 8; n++) {
+        in.param(0, 1000 * n + 51, n == 1 ? 99 : 0);
+        in.param(0, 1000 * n + 48, 0);
+    }
+    for (const auto &p : params)
+        in.param(0, p.first, p.second);
+    h.process(512, in);
+    in.clear();
+    std::vector<float> out;
+    const size_t total = (size_t)(seconds * rate);
+    for (size_t done = 0; done < total; done += 512) {
+        for (const auto &n : notes) {
+            const size_t f = (size_t)(n[0] * rate);
+            if (f >= done && f < done + 512) {
+                const uint8_t b[3] = { (uint8_t)(n[2] > 0 ? 0x90 : 0x80), (uint8_t)n[1], (uint8_t)n[2] };
+                in.midi((uint32_t)(f - done), b, 3);
+            }
+        }
+        h.process(512, in);
+        in.clear();
+        out.insert(out.end(), h.left.begin(), h.left.begin() + 512);
+    }
+    return out;
+}
+
 int extendedTest() {
     int failures = 0;
     auto expect = [&](bool ok, const std::string &what) {
@@ -1706,6 +1742,67 @@ int extendedTest() {
         oscairn_fm::convertToExtended(v);
         v[(size_t)oscairn_fm::indexOf(250)] = 5;
         expect(!oscairn_fm::convertToClassic(v), "a sound with a macro offset stays Extended");
+    }
+    // -- mono, key assign and portamento (Extended part values 255-260)
+    {
+        auto semis = [&](const std::vector<float> &x, double t0, double t1) {
+            return 12 * std::log2(zeroCrossingHz(x, (size_t)(t0 * rate), (size_t)(t1 * rate)) / noteHz(60));
+        };
+        auto db = [&](const std::vector<float> &x, double t0, double t1) {
+            double e = 0;
+            for (size_t i = (size_t)(t0 * rate); i < (size_t)(t1 * rate); i++)
+                e += (double)x[i] * x[i];
+            return 10 * std::log10(e / ((t1 - t0) * rate) + 1e-30);
+        };
+        // mono: the last key sounds, and the last one still held when it is released
+        const auto m = renderMidiNotes({ { 255, 0 } }, { { 0.0, 60, 100 }, { 0.2, 64, 100 }, { 0.4, 67, 100 }, { 0.6, 67, 0 },
+                                                      { 0.8, 64, 0 }, { 1.0, 55, 100 }, { 1.2, 55, 0 } }, 1.4);
+        expect(std::fabs(semis(m, 0.25, 0.39) - 4) < 0.02 && std::fabs(semis(m, 0.45, 0.59) - 7) < 0.02 &&
+                   std::fabs(semis(m, 0.65, 0.79) - 4) < 0.02 && std::fabs(semis(m, 0.85, 0.99)) < 0.02 &&
+                   std::fabs(semis(m, 1.05, 1.19) + 5) < 0.02 && std::fabs(semis(m, 1.25, 1.39)) < 0.02,
+               "mono: the last key held sounds");
+        // a mono note without portamento starts again (attack 60: from silence); with
+        // portamento the envelope carries on
+        const std::vector<std::pair<uint32_t, double>> slow = { { 255, 0 }, { 1045, 60 } };
+        auto withPorta = slow;
+        withPorta.push_back({ 257, 1 });
+        withPorta.push_back({ 258, 0 });
+        const std::vector<std::array<double, 3>> legato = { { 0.0, 60, 100 }, { 1.0, 67, 100 } };
+        const auto re = renderMidiNotes(slow, legato, 1.2), le = renderMidiNotes(withPorta, legato, 1.2);
+        expect(db(re, 1.02, 1.04) < db(re, 0.95, 0.99) - 20 && std::fabs(db(le, 1.02, 1.04) - db(le, 0.95, 0.99)) < 1,
+               "mono: a new note starts again without portamento, carries on with it");
+        // portamento rate 1 at time 64 (36.63 semitones per second), fingered: legato only
+        const std::vector<std::pair<uint32_t, double>> porta = { { 255, 0 }, { 257, 1 }, { 258, 64 }, { 259, 0 } };
+        const auto g = renderMidiNotes(porta, { { 0.0, 48, 100 }, { 0.5, 60, 100 }, { 0.6, 48, 0 } }, 1.2);
+        const double mid = semis(g, 0.59, 0.61) + 12; // 0.1 s into the glide
+        expect(std::fabs(mid - 3.663) < 0.1 && std::fabs(semis(g, 0.9, 1.2)) < 0.02,
+               "portamento rate at time 64: " + std::to_string(mid) + " semitones after 0.1 s");
+        const auto f = renderMidiNotes(porta, { { 0.0, 48, 100 }, { 0.4, 48, 0 }, { 0.5, 60, 100 } }, 0.7);
+        expect(std::fabs(semis(f, 0.52, 0.6)) < 0.02, "fingered portamento: no glide on a detached note");
+        auto fullTime = porta;
+        fullTime.push_back({ 259, 1 });
+        const auto ft = renderMidiNotes(fullTime, { { 0.0, 48, 100 }, { 0.4, 48, 0 }, { 0.5, 60, 100 } }, 0.7);
+        expect(semis(ft, 0.55, 0.57) < -8, "full-time portamento glides from a released note");
+        // rate 2: a glide starts at most an octave away
+        auto rate2 = porta;
+        rate2.push_back({ 260, 2 });
+        const auto r2 = renderMidiNotes(rate2, { { 0.0, 36, 100 }, { 0.5, 72, 100 } }, 0.6);
+        expect(std::fabs(semis(r2, 0.501, 0.506) - 0) < 0.6, "rate 2: from an octave below, not three");
+        expect(std::fabs(extPortamentoRate(64, 1, 24) - 2 * 36.63) < 1e-9 && extPortamentoRate(0, 0, 12) == 0 &&
+                   std::fabs(extPortamentoRate(64, 3, 24) - 36.63) < 1e-9 && std::fabs(extPortamentoRate(64, 3, 6) - 36.63 / 2) < 1e-9,
+               "portamento time modes");
+        // a key pressed twice: the first note-off releases nothing, the second releases it
+        for (int assign : { 0, 1 }) {
+            const auto t = renderMidiNotes({ { 256, assign } }, { { 0.0, 60, 100 }, { 0.2, 60, 100 }, { 0.4, 60, 0 }, { 0.6, 60, 0 } }, 0.8);
+            expect(db(t, 0.45, 0.55) > -40 && db(t, 0.65, 0.75) < db(t, 0.45, 0.55) - 15,
+                   std::string(assign ? "multi" : "single") + ": a key pressed twice needs two note-offs");
+        }
+        // single: the key's sounding note fades out and starts again; multi: a second voice
+        const std::vector<std::array<double, 3>> twice = { { 0.0, 60, 100 }, { 0.5, 60, 100 } };
+        const auto sg = renderMidiNotes({ { 256, 0 }, { 1045, 60 } }, twice, 0.6);
+        const auto mu = renderMidiNotes({ { 256, 1 }, { 1045, 60 } }, twice, 0.6);
+        expect(db(sg, 0.515, 0.525) < db(sg, 0.45, 0.49) - 20 && db(mu, 0.515, 0.525) > db(mu, 0.45, 0.49) - 1,
+               "single: a key played again starts again; multi: it adds a voice");
     }
     std::printf("Extended profile: envelope, pitch and LFO rates against the tables, init sound, conversion %s\n",
                 failures ? "FAILED" : "pass");

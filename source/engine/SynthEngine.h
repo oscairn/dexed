@@ -64,6 +64,7 @@ struct ProcessorVoice {
     int context = 0;         // the sound (SynthContext) the voice plays
     int fadeLeft = 0;        // choked: samples left of the fade-out (of fadeTotal)
     int fadeTotal = 0;
+    int presses = 0;          // Extended: MIDI note-ons of this key still to be released (0: another voice counts them)
 };
 
 enum DexedEngineResolution {
@@ -268,6 +269,16 @@ private:
 
     NoteEndSink *noteEndSink = nullptr;
     void keyupVoice(int note);
+    // Extended sounds: values a new note takes from its sound; starting a voice (after `wait`
+    // samples), mono and key assign, and portamento
+    ExtStart nextExtStart(SynthContext &x, int64_t wait);
+    void startVoice(int note, int c, int64_t wait);
+    void fadeVoice(int note, double seconds);
+    int liveVoice(int c, int except) const;
+    void extGlide(int note, int c, int from, bool legato);
+    void extKeydown(int note, int c);
+    bool extKeyup(int note);
+    void extRelease(int note);
     // the first held voice keyup(chan, pitch) would release, among the given channels
     int findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels);
     void endNote(int note);

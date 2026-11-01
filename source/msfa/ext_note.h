@@ -127,6 +127,7 @@ struct ExtStart {
     uint32_t randomPitch = 0, randomPan = 0; // uniform 32-bit values drawn for this note
     uint32_t count = 0;                      // the sound's Extended notes before this one (alternate pan)
     double tempo = 120;                      // beats per minute (tempo-synced key-on delay)
+    int64_t wait = 0;                        // samples before the note starts, added to its key-on delay
 };
 
 class ExtNote {
@@ -139,6 +140,9 @@ public:
     };
     void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
               const ExtStart &start = ExtStart());
+    // how long a sounding note of this sound takes to fade out when a new note takes its place
+    // without portamento (seconds)
+    static double retriggerFade(const ExtendedVoice &v);
     // its pan gains (both 1 at the centre)
     float gainLeft() const { return gainL_; }
     float gainRight() const { return gainR_; }
@@ -156,6 +160,10 @@ public:
     void transferState(const ExtNote &src);
     void transferSignal(const ExtNote &src);
     void transferPhase(const ExtNote &src);
+    // portamento: glide from `from` (Q24 log frequency of the note's key, see pitch()) to this
+    // note's key at `semitonesPerSecond`; ratio-mode operators only
+    void glideFrom(double from, double semitonesPerSecond);
+    double pitch() const { return notePitch_ + glide_; } // the key's pitch now, Q24 log frequency
     void silence() { initialised_ = false; }
     const FmOpParams *params() const { return params_; }
 
@@ -185,6 +193,9 @@ private:
     // within the 64-sample grid (carry_ holds the samples that spill into the next block)
     int64_t delay_ = 0;
     int shift_ = 0;
+    double notePitch_ = 0;       // the key's log frequency (Q24)
+    double glide_ = 0;           // portamento: offset from it, Q24, moving to 0 by glideStep_ a sample
+    double glideStep_ = 0;
     int32_t carry_[N] = {};
     FmOpParams params_[8] = {};
     int32_t basepitch_[8] = {};

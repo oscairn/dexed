@@ -607,26 +607,15 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].keydown = true;
     voices[note].fadeLeft = voices[note].fadeTotal = 0; // a voice taken while fading
     voices[note].keydown_seq = nextKeydownSeq++;
+    if ( x.extended() ) {
+        extKeydown(note, c);
+        return;
+    }
     // to avoid click, don't sync oscillators when voice stealing
     bool voice_steal = voices[note].dx7_note->isPlaying();
     ExtStart start;
-    if ( x.extended() ) {
-        // deterministic: the same notes after prepare give the same values (xorshift32)
-        auto next = [&x] {
-            uint32_t &r = x.noteRandom;
-            r ^= r << 13;
-            r ^= r >> 17;
-            r ^= r << 5;
-            return r;
-        };
-        start.randomPitch = next();
-        start.randomPan = next();
-        start.count = x.noteCount++;
-        start.tempo = tempo;
-    }
     voices[note].dx7_note->init(patch, pitch, velo, channel, &ctrl, x.ext, start);
-    // (Extended sounds reset each operator by its own Key On Reset)
-    if ( (x.extended() || patch[OSC_KEY_SYNC]) && !voice_steal ) {
+    if ( patch[OSC_KEY_SYNC] && !voice_steal ) {
         voices[note].dx7_note->oscSync();
     }
     // (the last voice of this sound: another sound may have taken it since)
@@ -653,7 +642,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
             }
         }
     }
-    else if ( !x.extended() && !patch[OSC_KEY_SYNC] ) {
+    else if ( !patch[OSC_KEY_SYNC] ) {
         // if another note at the same pitch is playing, transfer phase
         // to avoid unpredictable destructive interference. this can cause
         // clicking when voice stealing, but we've tried to choose a voice
@@ -668,6 +657,165 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
 
     voices[note].live = true;
     x.lastActiveVoice = note;
+}
+
+// ---- Extended sounds: mono, key assign and portamento (measured, docs/oscairn-plan.md M7) ----
+
+ExtStart SynthEngine::nextExtStart(SynthContext &x, int64_t wait) {
+    // deterministic: the same notes after prepare give the same values (xorshift32)
+    auto next = [&x] {
+        uint32_t &r = x.noteRandom;
+        r ^= r << 13;
+        r ^= r >> 17;
+        r ^= r << 5;
+        return r;
+    };
+    ExtStart start;
+    start.randomPitch = next();
+    start.randomPan = next();
+    start.count = x.noteCount++;
+    start.tempo = tempo;
+    start.wait = wait;
+    return start;
+}
+
+void SynthEngine::startVoice(int note, int c, int64_t wait) {
+    ProcessorVoice &v = voices[note];
+    SynthContext &x = contexts[c];
+    // to avoid a click, a stolen voice keeps its phases (Extended sounds reset each operator by
+    // its own Key On Reset)
+    const bool steal = v.dx7_note->isPlaying();
+    v.dx7_note->init(x.patch, v.midi_note, v.velocity, v.channel, &voiceCtrl(c, v.channel), x.ext,
+                     nextExtStart(x, wait));
+    if ( !steal )
+        v.dx7_note->oscSync();
+    v.fadeLeft = v.fadeTotal = 0;
+}
+
+void SynthEngine::fadeVoice(int note, double seconds) {
+    ProcessorVoice &v = voices[note];
+    if ( v.live && v.fadeTotal == 0 )
+        v.fadeTotal = v.fadeLeft = (int)(seconds * sampleRate) + 1;
+}
+
+int SynthEngine::liveVoice(int c, int except) const {
+    int best = -1;
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        if ( i != except && voices[i].live && voices[i].context == c && voices[i].fadeTotal == 0 &&
+             (best < 0 || voices[i].keydown_seq > voices[best].keydown_seq) )
+            best = i;
+    return best;
+}
+
+void SynthEngine::extGlide(int note, int c, int from, bool legato) {
+    const ExtendedVoice &e = *contexts[c].ext;
+    if ( !e.common(ext::Portamento) || from < 0 || from == note || voices[from].context != c ||
+         voices[from].midi_note < 0 || !voices[from].dx7_note->extended() )
+        return;
+    if ( !legato && e.common(ext::PortamentoMode) == 0 )
+        return; // fingered: legato notes only
+    const double octave = 1 << 24, b = voices[note].dx7_note->extPitch();
+    double a = voices[from].dx7_note->extPitch();
+    if ( e.common(ext::PortamentoTimeMode) >= 2 ) // rate 2, time 2: from at most an octave away
+        a = std::clamp(a, b - octave, b + octave);
+    const double semitones = std::fabs(a - b) * 12.0 / octave;
+    voices[note].dx7_note->glideFrom(a, extPortamentoRate(e.common(ext::PortamentoTime),
+                                                          e.common(ext::PortamentoTimeMode), semitones));
+}
+
+void SynthEngine::extKeydown(int note, int c) {
+    SynthContext &x = contexts[c];
+    const ExtendedVoice &e = *x.ext;
+    const bool mono = e.common(ext::MonoPoly) == 0, porta = e.common(ext::Portamento) != 0;
+    bool held = false; // another key of this sound is down: a legato note
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        held |= i != note && voices[i].keydown && voices[i].context == c;
+    const int prev = liveVoice(c, note);
+    int64_t wait = 0;
+    int retrigger = -1;
+    if ( mono && prev >= 0 && !(porta && held) ) {
+        retrigger = prev; // mono without a portamento legato: the note starts again
+    } else if ( !mono && e.common(ext::KeyAssign) == 0 ) {
+        // single: a key played again silences its sounding note
+        for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+            if ( i != note && voices[i].live && voices[i].context == c && voices[i].fadeTotal == 0 &&
+                 voices[i].midi_note == voices[note].midi_note )
+                retrigger = i;
+    }
+    if ( retrigger >= 0 ) {
+        // a note that takes over without portamento starts when the old one has faded out
+        fadeVoice(retrigger, ExtNote::retriggerFade(e));
+        wait = voices[retrigger].fadeTotal;
+    }
+    // a key pressed again while held: one note-off releases nothing until every press is released
+    voices[note].presses = 1;
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        if ( i != note && voices[i].keydown && voices[i].context == c && voices[i].channel == voices[note].channel &&
+             voices[i].midi_note == voices[note].midi_note ) {
+            voices[note].presses += voices[i].presses;
+            voices[i].presses = 0;
+        }
+    startVoice(note, c, wait);
+    if ( mono && prev >= 0 && retrigger < 0 ) {
+        // a mono legato note (portamento on): the envelopes carry on
+        voices[note].dx7_note->transferState(*voices[prev].dx7_note);
+        voices[prev].live = false;
+    }
+    if ( porta )
+        extGlide(note, c, x.lastActiveVoice, held);
+    voices[note].live = true;
+    x.lastActiveVoice = note;
+}
+
+// A mono sound's sounding key released while others are held: the most recent of them sounds
+// again (legato with portamento, otherwise starting again). True when it took over.
+bool SynthEngine::extKeyup(int note) {
+    const int c = voices[note].context;
+    SynthContext &x = contexts[c];
+    if ( x.ext->common(ext::MonoPoly) != 0 || !voices[note].live || voices[note].fadeTotal != 0 )
+        return false;
+    int h = -1;
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        if ( i != note && voices[i].keydown && voices[i].context == c &&
+             (h < 0 || voices[i].keydown_seq > voices[h].keydown_seq) )
+            h = i;
+    if ( h < 0 )
+        return false;
+    const bool porta = x.ext->common(ext::Portamento) != 0;
+    int64_t wait = 0;
+    if ( !porta ) {
+        fadeVoice(note, ExtNote::retriggerFade(*x.ext));
+        wait = voices[note].fadeTotal;
+    }
+    startVoice(h, c, wait);
+    if ( porta ) {
+        voices[h].dx7_note->transferState(*voices[note].dx7_note);
+        extGlide(h, c, note, true);
+        voices[note].live = false;
+    }
+    voices[h].live = true;
+    x.lastActiveVoice = h;
+    return true;
+}
+
+// A MIDI note-off of an Extended sound: a key pressed n times is released by its n-th note-off,
+// then every voice it holds (measured with the same key twice, single and multi).
+void SynthEngine::extRelease(int note) {
+    const int c = voices[note].context, ch = voices[note].channel, key = voices[note].midi_note;
+    auto same = [&](int i) {
+        return voices[i].keydown && voices[i].context == c && voices[i].channel == ch && voices[i].midi_note == key;
+    };
+    int lead = note;
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        if ( same(i) && voices[i].presses > voices[lead].presses )
+            lead = i;
+    if ( --voices[lead].presses > 0 )
+        return;
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        if ( same(i) ) {
+            voices[i].keydown = false;
+            keyupVoice(i);
+        }
 }
 
 int SynthEngine::findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels) {
@@ -693,6 +841,10 @@ void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
     if ( note < 0 ) {
         return;
     }
+    if ( contexts[voices[note].context].extended() ) {
+        extRelease(note);
+        return;
+    }
 
     voices[note].keydown = false;
     keyupVoice(note);
@@ -700,7 +852,10 @@ void SynthEngine::keyup(uint8_t chan, uint8_t pitch, uint8_t velo) {
 
 void SynthEngine::keyupVoice(int note) {
     const int c = voices[note].context;
-    if ( contexts[c].monoMode ) {
+    if ( contexts[c].extended() ) {
+        if ( extKeyup(note) )
+            return; // the sound's next held key took over
+    } else if ( contexts[c].monoMode ) {
         int highNote = -1;
         int target = 0;
         for (int i=0; i<MAX_ACTIVE_NOTES;i++) {

@@ -48,6 +48,9 @@ public:
     void init(const uint8_t patch[156], int midinote, int velocity, int channel, const Controllers *ctrls,
               const ExtendedVoice *ext = nullptr, const ExtStart &start = ExtStart());
     void initPortamento(const Dx7Note &srcNote);
+    // Extended portamento (ExtNote::glideFrom, ExtNote::pitch)
+    void glideFrom(double from, double semitonesPerSecond) { ext_.glideFrom(from, semitonesPerSecond); }
+    double extPitch() const { return ext_.pitch(); }
 
     // Note: this _adds_ to the buffer. Interesting question whether it's
     // worth it...
