@@ -1846,6 +1846,12 @@ int extendedTest() {
         const bool dip = extTextureWave(-32, false, tw, ts, tf, tdb) && tw == 0 && tdb < -6;
         expect(high && dip && !extTextureWave(1, false, tw, ts, tf, tdb) && extTextureWave(1, true, tw, ts, tf, tdb) && tw == 0,
                "texture table");
+        // an operator's own wave is its starting place: all harmonics 1 at spread 3 sits at +26
+        int pw = 1, ps = 3, pf = 0;
+        const bool toSine = extTextureWave(-25, false, pw, ps, pf, tdb) && pw == 0;
+        pw = 1, ps = 3, pf = 0;
+        const bool toAll2 = extTextureWave(-50, false, pw, ps, pf, tdb) && pw == 2 && ps == 4;
+        expect(toSine && toAll2, "texture -25 and -50 on a carrier with all harmonics 1 at spread 3: a sine, all harmonics 2 at spread 4");
     }
     // -- part values and macros: each plays as the operator or filter values it stands for
     {

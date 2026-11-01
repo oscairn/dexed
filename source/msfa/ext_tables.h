@@ -105,7 +105,7 @@ int extAegSustainSteps(int offset);     // -64-+63: the sustain offset's decay 2
 double extPartDetuneCents(int detune);  // -128-+127
 double extShiftedRatio(double ratio, int value); // the ratio macro -99-+99 on a modulator's ratio
 // the texture macro -99-+99: whether it reaches this operator, and if so the wave it plays (wave,
-// spread, formant as the operator values) and a level change in dB
+// spread, formant: the operator's own values in, the ones it plays out) and a level change in dB
 bool extTextureWave(int value, bool modulator, int &wave, int &spread, int &formant, double &db);
 // portamento time 0-127 and time mode 0-3 (rate 1, time 1, rate 2, time 2): the glide's rate in
 // semitones per second over a distance of `semitones` (time 0: instant, returns 0)
