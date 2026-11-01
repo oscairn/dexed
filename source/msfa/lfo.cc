@@ -87,6 +87,9 @@ void Lfo::reset(const ExtendedVoice &v) {
     uint8_t p[6] = { 0, (uint8_t)v.common(ext::LfoDelay), 0, 0, (uint8_t)v.common(ext::LfoKeyReset),
                      (uint8_t)v.common(ext::LfoWave) };
     reset(p);
+    // the delay's fade in runs at its hold's rate (measured at delays 0-99 every tenth: the DX7's
+    // fade in is quantised, and at most about half a second long)
+    delayinc2_ = delayinc_;
     const double hz = v.common(ext::LfoSpeedRange) == 0 ? extLfoHz(v.common(ext::LfoSpeed))
                                                         : extLfoExtendedHz(v.common(ext::LfoExtSpeed));
     // per sample: the extended range goes to 1357 Hz, past half the block rate

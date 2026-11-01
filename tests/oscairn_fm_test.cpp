@@ -1375,6 +1375,25 @@ int extendedTest() {
                                                             std::to_string(speed) + ": " + std::to_string(measured) +
                                                             " Hz, table " + std::to_string(hz));
         }
+    // -- the 2nd LFO's delay: its fade in takes as long as its hold (at 99 several seconds)
+    for (int delay : { 40, 70, 99 }) {
+        ExtendedVoice v = oscairn_fm::extDefaults();
+        v.v[ext::LfoDelay] = (int16_t)delay;
+        Lfo lfo;
+        lfo.init(rate);
+        lfo.reset(v);
+        lfo.keydown();
+        long hold = -1, full = -1;
+        for (long b = 0; b < 100000 && full < 0; b++) {
+            const int32_t d = lfo.getdelay();
+            if (d > 0 && hold < 0)
+                hold = b;
+            if (d >= (1 << 24))
+                full = b;
+        }
+        expect(hold > 0 && std::labs(full - 2 * hold) <= 2, "2nd LFO delay " + std::to_string(delay) + ": hold " +
+                                                                 std::to_string(hold) + " blocks, full at " + std::to_string(full));
+    }
     // -- the 2nd LFO runs per voice: with key-on reset a note started while another is held
     // plays as it would alone and leaves the held note's vibrato unchanged (with a delay too),
     // so the two notes' output is the sum of each alone
