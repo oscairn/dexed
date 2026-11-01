@@ -349,7 +349,7 @@ double extFegDepth(int depth) {
 // the filter EG's times: a segment takes its time value's duration whatever its distance;
 // measured at every second value from 20 to 92 and at 100 and 108 (from 96 up all the same),
 // holds at every fourth value; between, straight
-double extFegSegmentMs(int time) { return interpolate(kFegSegmentX, kFegSegmentMs, std::clamp(time, 0, 127)); }
+double extFegSegmentMs(double time) { return interpolate(kFegSegmentX, kFegSegmentMs, std::clamp(time, 0.0, 127.0)); }
 double extFegHoldMs(int time) { return interpolate(kFegHoldX, kFegHoldMs, std::clamp(time, 0, 127)); }
 double extFilterResonanceVelocityQ(int sensitivity, int velocity) {
     // the Q's divisor grows by h(127 - velocity) times the sensitivity's share (measured at +63
@@ -381,6 +381,17 @@ double extFegDepthVelocity(int sensitivity, int curve, int velocity) {
     const int vel = s > 0 ? std::clamp(velocity, 1, 127) : 128 - std::clamp(velocity, 1, 127);
     const double share = (s > 0 ? s / 63.0 : -s / 64.0);
     return 1.0 + share * (interpolate(vx, g[std::clamp(curve, 0, 4)], vel) - 1.0);
+}
+
+double extFegTimeVelocityOffset(int sensitivity, int velocity) {
+    // the time value moves by sensitivity x (velocity - 1) / 127 (measured at +8..+63 and
+    // velocities 1-127 on a decay of time 64, `m13f`: within 7 % of the duration, 3 % on average);
+    // any negative sensitivity makes the segment instant above velocity 1 (measured at -64..-8 and
+    // velocities 16-127; velocities 2-15 unmeasured)
+    const int s = std::clamp(sensitivity, -64, 63), v = std::clamp(velocity, 1, 127);
+    if (v == 1 || s == 0)
+        return 0;
+    return s < 0 ? -1000.0 : -s * (v - 1) / 127.0;
 }
 
 double extFegTimeKeyFollowScale(int sensitivity, int midinote, int centre) {

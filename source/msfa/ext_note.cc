@@ -313,10 +313,10 @@ void ExtPartPitchEnv::keyup() { ix_ = 3; }
 
 // ---- filter EG ----
 
-void ExtFilterEnv::configure(const int levels[5], const int times[5], double timeScale, double sampleRate) {
+void ExtFilterEnv::configure(const int levels[5], const double times[5], double timeScale, double sampleRate) {
     for (int i = 0; i < 5; i++) {
         target_[i] = extFegLevelCents(levels[i]);
-        samples_[i] = (i == 0 ? extFegHoldMs(times[i]) : extFegSegmentMs(times[i])) * timeScale * sampleRate / 1000.0;
+        samples_[i] = (i == 0 ? extFegHoldMs((int)times[i]) : extFegSegmentMs(times[i])) * timeScale * sampleRate / 1000.0;
     }
 }
 
@@ -328,14 +328,14 @@ void ExtFilterEnv::enter(int ix) {
     step_ = ix_ == 0 ? 0 : (target_[ix_] - level_) / std::max(left_, 1.0);
 }
 
-void ExtFilterEnv::init(const int levels[5], const int times[5], double timeScale, double sampleRate) {
+void ExtFilterEnv::init(const int levels[5], const double times[5], double timeScale, double sampleRate) {
     configure(levels, times, timeScale, sampleRate);
     down_ = true;
     level_ = target_[0];
     enter(0);
 }
 
-void ExtFilterEnv::update(const int levels[5], const int times[5], double timeScale, double sampleRate) {
+void ExtFilterEnv::update(const int levels[5], const double times[5], double timeScale, double sampleRate) {
     configure(levels, times, timeScale, sampleRate);
 }
 
@@ -682,10 +682,19 @@ void ExtNote::setupFilter(const ExtendedVoice &v, int midinote, int velocity, bo
     f.active = f.type != extfilter::Thru || f.gain != 1.0;
     const int levels[5] = { v.common(FegHoldLevel), v.common(FegAttackLevel), v.common(FegDecay1Level),
                             v.common(FegDecay2Level), v.common(FegReleaseLevel) };
-    const int times[5] = { v.common(FegHoldTime), v.common(FegAttackTime), v.common(FegDecay1Time),
-                           v.common(FegDecay2Time), v.common(FegReleaseTime) };
-    // shortcut: FEG time velocity sensitivity is not applied (the reference shortened the
-    // segments at velocity 127 for both -64 and +63 and left them at velocity 1; unresolved)
+    double times[5] = { (double)v.common(FegHoldTime), (double)v.common(FegAttackTime), (double)v.common(FegDecay1Time),
+                        (double)v.common(FegDecay2Time), (double)v.common(FegReleaseTime) };
+    // time velocity sensitivity: the segments its segment value names (measured for the attack and
+    // decay 1; shortcut: decay 2 goes with decay 1 and the release with "Atk+Rls" and "All" by
+    // their names, unmeasured; the hold never moves)
+    const double tv = extFegTimeVelocityOffset(v.common(FegTimeVelocity), velocity);
+    if (tv != 0) {
+        static const uint8_t segments[5] = { 0x2, 0xe, 0xc, 0x12, 0x1e }; // bit i: times[i]
+        const uint8_t m = segments[std::clamp(v.common(FegTimeVelocitySegment), 0, 4)];
+        for (int i = 1; i < 5; i++)
+            if (m & (1 << i))
+                times[i] = std::max(0.0, times[i] + tv);
+    }
     const double timeScale = extFegTimeKeyFollowScale(v.common(FegTimeKeyFollow), midinote, v.common(FegTimeKeyCenter));
     if (start) {
         feg_.init(levels, times, timeScale, rate_->sampleRate);

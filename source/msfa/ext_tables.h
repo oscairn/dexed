@@ -94,10 +94,11 @@ double extFilterGain(int gain);         // 0-255 -> amplitude
 double extFilterLfoOctaves(int depth);  // 2nd LFO filter depth 0-99 -> octaves at the LFO's peak
 // filter EG
 double extFegLevelCents(int level);     // -128-+127
-double extFegSegmentMs(int time);       // 0-127: a segment's duration
+double extFegSegmentMs(double time);    // 0-127 (fractional between values): a segment's duration
 double extFegHoldMs(int time);          // 0-127
 double extFegDepthVelocity(int sensitivity, int curve, int velocity); // multiplies the FEG depth
 double extFegTimeKeyFollowScale(int sensitivity, int midinote, int centre); // multiplies FEG times
+double extFegTimeVelocityOffset(int sensitivity, int velocity); // added to the chosen segments' time values
 double extFegDepth(int depth);          // -64-+63: the share of the FEG level (cents) that moves the cutoff
 // part values
 double extPartVelocity(int depth, int offset, int velocity); // the velocity the voice plays; <= 0: no note

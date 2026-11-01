@@ -107,14 +107,14 @@ private:
 class ExtFilterEnv {
 public:
     // levels -128-+127 and times 0-127 as the panel shows them (hold, attack, decay 1, decay 2,
-    // release); timeScale stretches every segment
-    void init(const int levels[5], const int times[5], double timeScale, double sampleRate);
-    void update(const int levels[5], const int times[5], double timeScale, double sampleRate);
+    // release; fractional times play between values); timeScale stretches every segment
+    void init(const int levels[5], const double times[5], double timeScale, double sampleRate);
+    void update(const int levels[5], const double times[5], double timeScale, double sampleRate);
     double getblock(int n); // advances n samples; the level in cents at the block's end
     void keydown(bool down);
     void transfer(const ExtFilterEnv &src) { *this = src; }
 private:
-    void configure(const int levels[5], const int times[5], double timeScale, double sampleRate);
+    void configure(const int levels[5], const double times[5], double timeScale, double sampleRate);
     void enter(int ix);
     double target_[5] = {};  // cents: hold, attack, decay 1, decay 2, release
     double samples_[5] = {}; // each segment's duration (hold: its length)

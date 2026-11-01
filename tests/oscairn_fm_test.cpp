@@ -1608,7 +1608,8 @@ int extendedTest() {
         for (int t : { 48, 64, 80 }) {
             for (int lv : { 8, 16, 32 }) {
                 ExtFilterEnv env;
-                const int levels[5] = { 0, lv, 0, 0, 0 }, times[5] = { 0, 0, t, 0, 0 };
+                const int levels[5] = { 0, lv, 0, 0, 0 };
+                const double times[5] = { 0, 0, (double)t, 0, 0 };
                 env.init(levels, times, 1.0, fs);
                 const double want = extFegSegmentMs(t) * fs / 1000;
                 long n = 0;
@@ -1619,6 +1620,41 @@ int extendedTest() {
                                                        std::to_string(lv) + ": " + std::to_string(n) +
                                                        " samples, table " + std::to_string(want));
             }
+        }
+        // time velocity sensitivity moves the time value by sensitivity x (velocity - 1) / 127 on the
+        // segments its segment value names; any negative sensitivity makes them instant above
+        // velocity 1. Through the plugin: HPF12 at cutoff 512 on a sine at note 36, the FEG's decay 1
+        // from +1200 cents (time 64), timed to where the level settles within 0.5 dB
+        {
+            auto settle = [&](const std::vector<std::pair<uint32_t, double>> &extra, double velocity) {
+                std::vector<std::pair<uint32_t, double>> p = { { 1048, 0 }, { 60, Hpf12 }, { 61, 512 }, { 63, 0 }, { 85, 0 },
+                                                              { 78, 63 }, { 74, 16 }, { 70, 64 } };
+                p.insert(p.end(), extra.begin(), extra.end());
+                const auto x = renderExtended(p, 36, velocity, 1.5, 1.5);
+                std::vector<double> db;
+                for (size_t i = 0; i + 960 <= x.size(); i += 240) {
+                    double e = 0;
+                    for (size_t j = i; j < i + 960; j++)
+                        e += (double)x[j] * x[j];
+                    db.push_back(10 * std::log10(e / 960 + 1e-30));
+                }
+                size_t k = 0;
+                while (k < db.size() && std::fabs(db[k] - db.back()) > 0.5)
+                    k++;
+                return std::make_pair(x, k * 240 / 48.0); // (ms)
+            };
+            const auto plain = settle({}, 96 / 127.0);
+            const auto v96 = settle({ { 80, 32 } }, 96 / 127.0), t40 = settle({ { 70, 40 } }, 96 / 127.0);
+            expect(plain.second > 600 && std::fabs(v96.second - t40.second) <= 5,
+                   "FEG time velocity +32 at velocity 96 plays decay 1 as time 40 (" + std::to_string(v96.second) +
+                       " ms, time 40 " + std::to_string(t40.second) + " ms, time 64 " + std::to_string(plain.second) + " ms)");
+            const auto neg = settle({ { 80, -8 } }, 64 / 127.0), t0 = settle({ { 70, 0 } }, 64 / 127.0);
+            expect(std::fabs(neg.second - t0.second) <= 5, "FEG time velocity -8 at velocity 64 makes decay 1 instant (" +
+                                                                std::to_string(neg.second) + " ms)");
+            expect(settle({ { 80, 63 } }, 1 / 127.0).first == settle({}, 1 / 127.0).first,
+                   "FEG time velocity leaves velocity 1 alone");
+            expect(settle({ { 80, 32 }, { 79, 0 } }, 96 / 127.0).first == plain.first,
+                   "FEG time velocity on the attack only leaves decay 1 alone");
         }
         // through the plugin: HPF12 at cutoff 512 on a sine at note 36 (65.4 Hz) at 48 kHz, its
         // gain against the same sound through Thru
