@@ -111,6 +111,7 @@ SynthEngine::SynthEngine() {
         x.ctrl.masterTune = 0;
     }
     contexts[0].selectedChannels = 0xffff;
+    resetControllers();
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
         voices[note].dx7_note = NULL;
@@ -160,6 +161,25 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
 
     currentNote = 0;
     nextKeydownSeq = 0;
+    resetControllers();
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        contexts[c].rendering = false;
+        contexts[c].tail = false;
+    }
+
+    for (int ch = 0; ch < 16; ch++)
+        sustain[ch] = false;
+    extra_buf_size = 0;
+
+    for (int c = 0; c < MAX_CONTEXTS; c++)
+        if ( contexts[c].patch != nullptr )
+            resetLfo(c);
+}
+
+// The sounds' and channels' controller values as a new engine has them (Controllers' constructor
+// leaves them unset): from the constructor, so that parameter changes before the first prepare copy
+// set values, and from prepare.
+void SynthEngine::resetControllers() {
     for (int c = 0; c < MAX_CONTEXTS; c++) {
         Controllers &ctrl = contexts[c].ctrl;
         ctrl.pitch_cc = 0x2000;
@@ -170,21 +190,9 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
         ctrl.portamento_enable_cc = false;
         ctrl.portamento_cc = 0;
         ctrl.refresh();
-        contexts[c].rendering = false;
-        contexts[c].tail = false;
-    }
-
-    for (int ch = 0; ch < 16; ch++)
-        sustain[ch] = false;
-    extra_buf_size = 0;
-    for (int c = 0; c < MAX_CONTEXTS; c++) {
         for (int ch = 0; ch < 16; ch++)
-            channelCtrl[c][ch] = contexts[c].ctrl;
+            channelCtrl[c][ch] = ctrl;
     }
-
-    for (int c = 0; c < MAX_CONTEXTS; c++)
-        if ( contexts[c].patch != nullptr )
-            resetLfo(c);
 }
 
 void SynthEngine::release() {
