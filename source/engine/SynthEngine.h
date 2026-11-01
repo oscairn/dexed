@@ -64,6 +64,7 @@ struct ProcessorVoice {
     int context = 0;         // the sound (SynthContext) the voice plays
     int fadeLeft = 0;        // choked: samples left of the fade-out (of fadeTotal)
     int fadeTotal = 0;
+    double velocityExact = 0; // Extended: the velocity with its fraction (part velocity sensitivity)
     int presses = 0;          // Extended: MIDI note-ons of this key still to be released (0: another voice counts them)
 };
 

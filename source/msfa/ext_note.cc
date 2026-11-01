@@ -467,7 +467,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
                               : extOpLevelDb(std::clamp(level, 0, 99));
         db += extLevelScalingDb(midinote, o(ext::BreakPoint), o(ext::LowDepth), o(ext::HighDepth), o(ext::LowCurve),
                                 o(ext::HighCurve));
-        const double velocityDb = extLevelVelocityDb(o(ext::LevelVelocity), velocity); // (may raise the level)
+        const double velocityDb = extLevelVelocityDb(o(ext::LevelVelocity), velocity_ > 0 ? velocity_ : velocity); // (may raise the level)
         // carriers: the reference's output level for this algorithm (up to 13.6 dB above
         // algorithm 1), and its overall level: its probes play a full-level sine 6.57 dB below
         // Octet's Classic-scale carrier, which keeps the loudest algorithms from clipping
@@ -581,6 +581,7 @@ void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const Syn
                    const ExtStart &st) {
     initialised_ = true;
     random_ = st.randomPitch;
+    velocity_ = st.velocity;
     {
         // pan: alternate (this side on the sound's first note, the other on the next, ...),
         // scaling and random positions added

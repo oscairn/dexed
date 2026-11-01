@@ -107,15 +107,29 @@ static const float kLevelVelocityDb[15][17] = {
     { -59.11f, -43.88f, -35.09f, -28.64f, -23.73f, -19.96f, -16.19f, -13.18f, -10.54f, -7.53f, -4.89f, -2.63f, -0.38f, 1.51f, 2.63f, 4.52f, 5.27f }, // +7
 };
 static const uint8_t kLevelVelocities[17] = { 1, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 127 };
-double extLevelVelocityDb(int sensitivity, int velocity) {
+// Between velocities 1 and 8, and below 1 (the part's velocity sensitivity can leave a fraction),
+// positive sensitivities follow +7's finer curve in proportion (`m7f`: part velocities in steps of
+// 1/64 to 1/8 at +7, the levels against velocity 1; at 1/4 and below +7 is silent).
+static const float kLowVelocities[] = { 0.25f, 0.375f, 0.5f, 0.625f, 0.75f, 0.875f, 1, 2, 3, 4, 5, 6, 8 };
+static const float kLowVelocityDb[] = { -60.0f, -16.26f, -12.25f, -10.96f, -6.08f, -2.88f, 0, 2.98f, 5.85f, 8.62f, 10.96f, 12.13f, 15.23f };
+double extLevelVelocityDb(int sensitivity, double velocity) {
     const float *row = kLevelVelocityDb[clampi(sensitivity, -7, 7) + 7];
-    const int v = clampi(velocity, 1, 127);
+    if (sensitivity > 0 && velocity < 8) {
+        const double v = std::max(velocity, 0.25);
+        int i = 0;
+        while (kLowVelocities[i + 1] < v)
+            i++;
+        const double t = (v - kLowVelocities[i]) / (kLowVelocities[i + 1] - kLowVelocities[i]);
+        const double db = kLowVelocityDb[i] + (kLowVelocityDb[i + 1] - kLowVelocityDb[i]) * t;
+        return row[0] + db * std::min(sensitivity, 7) / 7.0;
+    }
+    const double v = std::clamp(velocity, 1.0, 127.0); // (shortcut: below 1 unmeasured for sensitivities up to 0)
     int i = 0;
     while (i < 15 && kLevelVelocities[i + 1] <= v)
         i++;
     if (v >= 127)
         return row[16];
-    const double t = (double)(v - kLevelVelocities[i]) / (kLevelVelocities[i + 1] - kLevelVelocities[i]);
+    const double t = (v - kLevelVelocities[i]) / (kLevelVelocities[i + 1] - kLevelVelocities[i]);
     return row[i] + (row[i + 1] - row[i]) * t;
 }
 

@@ -128,6 +128,7 @@ struct ExtStart {
     uint32_t count = 0;                      // the sound's Extended notes before this one (alternate pan)
     double tempo = 120;                      // beats per minute (tempo-synced key-on delay)
     int64_t wait = 0;                        // samples before the note starts, added to its key-on delay
+    double velocity = 0;                     // the velocity with its fraction (the part's sensitivity), or 0
 };
 
 class ExtNote {
@@ -193,6 +194,7 @@ private:
     // within the 64-sample grid (carry_ holds the samples that spill into the next block)
     int64_t delay_ = 0;
     int shift_ = 0;
+    double velocity_ = 0;        // ExtStart::velocity (operator level velocity)
     double notePitch_ = 0;       // the key's log frequency (Q24)
     double glide_ = 0;           // portamento: offset from it, Q24, moving to 0 by glideStep_ a sample
     double glideStep_ = 0;

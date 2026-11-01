@@ -1663,9 +1663,23 @@ int extendedTest() {
                    renderExtended({ { 1057, 7 } }, 60, 63 / 127.0, 0.6, 0.8) &&
                renderExtended({ { 1057, 7 } }, 60, 1.0, 0.6, 0.8) != renderExtended({ { 1057, 7 } }, 60, 63 / 127.0, 0.6, 0.8),
                "velocity offset 32: velocity 127 plays as 63");
-        expect(renderExtended({ { 1057, 7 }, { 235, 96 } }, 60, 43 / 127.0, 0.6, 0.8) ==
-                   renderExtended({ { 1057, 7 } }, 60, 65 / 127.0, 0.6, 0.8),
-               "velocity depth 96: velocity 43 plays as 65 (64.5 rounded)");
+        {
+            // fractional part velocities play between their neighbours' levels (64.5 here), and
+            // below 1 by +7's measured curve (0.5: 12.25 dB below velocity 1)
+            auto level = [&](const std::vector<std::pair<uint32_t, double>> &p, int vel) {
+                const auto x = renderExtended(p, 60, vel / 127.0, 0.6, 0.6);
+                double e = 0;
+                for (size_t i = 4800; i < 24000; i++)
+                    e += (double)x[i] * x[i];
+                return 10 * std::log10(e / 19200 + 1e-30);
+            };
+            const double l64 = level({ { 1057, 7 } }, 64), l65 = level({ { 1057, 7 } }, 65),
+                         lh = level({ { 1057, 7 }, { 235, 96 } }, 43);
+            expect(lh > std::min(l64, l65) + 0.01 && lh < std::max(l64, l65) - 0.01,
+                   "velocity depth 96: velocity 43 plays between 64 and 65");
+            const double one = level({ { 1057, 7 } }, 1), half = level({ { 1057, 7 }, { 235, 1 } }, 32);
+            expect(std::fabs(half - one + 12.25) < 0.1, "part velocity 0.5 at +7: " + std::to_string(half - one) + " dB");
+        }
         expect(!audible(renderExtended({ { 235, 0 } }, 60, 1.0, 0.6, 0.8)), "velocity depth 0: no note");
         // operator level velocity sensitivity: the measured table, against sensitivity 0
         {

@@ -31,7 +31,7 @@ double extTimeKeyFollowScale(int sensitivity, int midinote); // multiplies every
 
 // level scaling and velocity, dB
 double extLevelScalingDb(int midinote, int breakPoint, int lowDepth, int highDepth, int lowCurve, int highCurve);
-double extLevelVelocityDb(int sensitivity, int velocity);
+double extLevelVelocityDb(int sensitivity, double velocity);
 
 // pitch
 double extRatio(int coarse, int fine);

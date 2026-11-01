@@ -557,6 +557,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     if ( normalizeDxVelocity ) {
         velo = ((float)velo) * 0.7874015; // 100/127
     }
+    double extVelocity = 0;
     if ( x.extended() ) {
         // the part's velocity sensitivity; at 0 or below the note does not sound
         const double v = extPartVelocity(x.ext->common(ext::VelocityDepth), x.ext->common(ext::VelocityOffset), velo);
@@ -566,6 +567,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
             return;
         }
         velo = (uint8_t)std::clamp((int)std::lround(v), 1, 127);
+        extVelocity = v;
     }
 
     // triggerLfo (any key held in this sound?) + MPE same-channel-keydown detection
@@ -608,6 +610,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].fadeLeft = voices[note].fadeTotal = 0; // a voice taken while fading
     voices[note].keydown_seq = nextKeydownSeq++;
     if ( x.extended() ) {
+        voices[note].velocityExact = extVelocity;
         extKeydown(note, c);
         return;
     }
@@ -685,8 +688,9 @@ void SynthEngine::startVoice(int note, int c, int64_t wait) {
     // to avoid a click, a stolen voice keeps its phases (Extended sounds reset each operator by
     // its own Key On Reset)
     const bool steal = v.dx7_note->isPlaying();
-    v.dx7_note->init(x.patch, v.midi_note, v.velocity, v.channel, &voiceCtrl(c, v.channel), x.ext,
-                     nextExtStart(x, wait));
+    ExtStart start = nextExtStart(x, wait);
+    start.velocity = v.velocityExact;
+    v.dx7_note->init(x.patch, v.midi_note, v.velocity, v.channel, &voiceCtrl(c, v.channel), x.ext, start);
     if ( !steal )
         v.dx7_note->oscSync();
     v.fadeLeft = v.fadeTotal = 0;
