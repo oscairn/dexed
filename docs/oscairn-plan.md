@@ -745,6 +745,48 @@ requests are reserved for targeted fixes whose scope and behaviour are fully und
 Keeping the branch rebased on upstream `master` is part of each milestone, while the diff is
 still small enough.
 
+**Upstream merge test (twelfth session, 2026-11-01).** Upstream's default branch is `master` at
+`https://github.com/asb2m10/dexed`; it was fetched into the local ref `refs/remotes/upstream/master`
+only (no remote added, nothing pushed, the fork's `master` untouched). Results:
+
+- `oscairn` is **0 commits behind**: upstream `master` is still `fea2f0f`, the fork's base, so
+  merging it changes nothing. Upstream's `master` is a single squashed commit (its history has one
+  commit; the older branches `refactor_events`, `feature/adsr-mode` and the operator-toggle branch
+  share no history with it, `refactor_events`' tree differs from it by one line). If upstream
+  squashes again, a merge will report unrelated histories and need `--allow-unrelated-histories`
+  or a rebase by hand.
+- The next upstream change in sight is `monoMode_lastNote` (`58af0cf`, also the `Nightly` tag),
+  one commit on top of `fea2f0f`: true last-note priority in mono (the newest key always takes
+  over, and a released key falls back to the most recently pressed one, with portamento). A test
+  merge into `oscairn` (in a scratch worktree, never committed) **conflicts in one file,
+  `source/PluginProcessor.cpp`**: the fork moved `keydown`/`keyup` out of it into
+  `source/engine/SynthEngine.cpp` (the headless split, M1), so upstream's edit to those functions
+  meets a deletion. Resolving it means keeping the deletion and porting the change into
+  `SynthEngine::keydown`/`keyupVoice`. It would also change Classic mono behaviour, so the Classic
+  baseline would have to be re-recorded from upstream at that commit (it is upstream's behaviour,
+  so "Classic sounds like stock Dexed" still holds after the port).
+- Size of the fork's diff against upstream `master`: 42 new files, +15,411 lines (Octet's
+  engine, plugin, tests, tables, plan), and 31 upstream files changed, +634 / -859 lines. Most of
+  the upstream-file change is the headless split (`PluginProcessor.cpp` -339, `PluginMidi.cpp`
+  -110, `PluginProcessor.h` -48, moved into `SynthEngine`); the rest is real-time fixes in MSFA
+  (per-instance rate tables, initialised state), the compiled operator graph in `fm_core.*` (M2,
+  which Classic voices use too), Extended hooks in `dx7note.*` and `lfo.*` (an early return to
+  `ExtNote` at the top of each `Dx7Note` method, the 2nd LFO's Extended reset), plus build lines in
+  two `CMakeLists.txt`.
+- Where upstream changes most (its history from 2024 on, in the older branches): the editor and
+  parameter code (not touched by the fork), `PluginProcessor.cpp/.h` (20 and 16 commits),
+  `source/CMakeLists.txt` (13), `PluginMidi.cpp` (9); MSFA rarely (`controllers.h` 6, `dx7note.*`
+  4 since 2022). So the conflicts to expect are the ones the test merge shows: voice and MIDI
+  changes in `PluginProcessor.cpp`/`PluginMidi.cpp`, which have to be ported into `SynthEngine` by
+  hand, and occasionally the source lists in `source/CMakeLists.txt`.
+- **Not refactored** (decision 68): moving the Extended hooks out of `dx7note.*` into a voice
+  wrapper would shrink that file's diff, but `dx7note.*` changes upstream about once a year and its
+  hooks are early returns that merge cleanly unless upstream edits the same lines; it would not
+  touch the conflict that actually occurs (the headless split). What helps instead: keep
+  `SynthEngine::keydown`/`keyupVoice`/`processMidiMessage` text close to upstream's `PluginProcessor`
+  versions so a port is a copy, merge upstream soon after each upstream change, and re-record the
+  Classic baseline from upstream whenever upstream changes Classic behaviour.
+
 ---
 
 ## 9. Licences and naming
@@ -1376,8 +1418,29 @@ ARM64 hardware is still not measured.
     times 1-8 are 0.5-0.9 % above the step readings; within the 2 % tolerance).
 65. The CPU benchmark (`oscairn-fm-test bench`) is informational: the plan sets no CPU budget, so it
     is not a gate. CI prints it on the three Release jobs.
+66. Portamento's step clock runs freely (twelfth session, `m7f`, measured with `fm/glide_grid.py`;
+    replaces decision 64's unmeasured choice): one clock for every sound in the engine, counted from
+    prepare, ticking at the start of each 64-sample block in which another 440 samples at 44.1 kHz
+    end, so steps come 6 or 7 blocks apart; every gliding note moves one step in a ticking block. At
+    other sample rates the period stays 9.977 ms on Octet's own 64-sample blocks (the reference was
+    only measured at 44.1 kHz). The reference's clock phase against a note is not known for a render,
+    so glide comparisons of few steps depend on where the ticks fall.
+67. The texture macro's path (twelfth session; replaces decision 53's choice of formant 2 on both
+    sides, decision 53's value-by-value formants above 63 and the shortcut above 85, and decision 60's
+    "formant waves off the path are replaced as a sine's"): the plus side (modulators' values from a
+    sine) has formant 1, the minus side formant 2, as for the other kinds; above place 63 the formant
+    rises one per place to 30 at place 86, then by 69 / 13 per place to 99; every wave has a place,
+    a formant wave by its spread and formant also off the path (formant 1 positive, formant 2
+    negative, whether the operator is a carrier or a modulator); a place moved past +99 or -99 comes
+    round from the other end. Checked on renders: `m8c` +51 to +66 on the level 70 modulator met
+    (1.2-7.6 dB before), and in the 33 lone-carrier renders from -64 to -96 (`m8c`, `m8f`; the centre
+    below Nyquist) the reference's strongest harmonic is the new formant's centre in 32 (one harmonic
+    above it at -64), the earlier formants' in 11; Octet's own strongest harmonic now agrees in 32
+    (was 14). Unmeasured: the wrap, and places of off-path formant waves.
+68. No refactor for upstream merges (twelfth session, section 8): the Extended hooks stay in
+    `dx7note.*` and `lfo.*`; the conflict that occurs is the headless split's, ported by hand.
 
-### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh)
+### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
 - **Operator waves** (the spectral forms, section 3.7; neutral names: Wave, Spread, Formant;
   parameters 1000 n + 60..62; Classic conversion refused unless every operator in the DX7
@@ -1568,6 +1631,13 @@ unchanged). Like for like, Octet renders before and after (`ceb5d82` and the new
 The renders were not re-recorded: the reference renders are those of earlier sessions. Not looked at
 again (time-boxed): texture +51 to +66 on the level 70 modulator (improved, see `m8c`'s tp70 rows, not
 met), texture -99 on the wave probe, waves 1-2 at spread 7 under level 75 (no new idea).
+
+**Twelfth session (2026-11-01): no engine change for the open M5 cases.** Feedback 7's straight
+spectrum was looked at again without a model that could be checked against the renders. Waves 1-2
+at spread 7 under the level 75 modulator (4.2, 17.1 dB), formant 2 at formant 0 spread 5 (1.98 dB)
+and the cases that got worse with formant 2's sign (`spec5` m6s7r27l75 37.8 dB) were not looked
+into (time-boxed). The texture path change (M7, decision 67) moved several spread 7 formant 2
+cases, see there; `m8f` tc10 (-89) is now 95.5 dB (was 113.2).
 
 ### M6 (in progress, 2026-10-31: filter, filter EG, common pitch EG, pitch key follow, random pitch, key-on delay, stereo and pan are in the engine; the part LFO with all nine of its destinations)
 
@@ -1880,7 +1950,7 @@ delay, user steps and slope, and all nine destinations through the plugin or, fo
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
-### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31; rising segments and carrier EG levels in the ninth, 2026-11-01; texture from an operator's own wave, the 2nd LFO's deep amplitude, bend ranges and fixed-frequency detune in the tenth, 2026-11-01; portamento in steps in the eleventh)
+### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31; rising segments and carrier EG levels in the ninth, 2026-11-01; texture from an operator's own wave, the 2nd LFO's deep amplitude, bend ranges and fixed-frequency detune in the tenth, 2026-11-01; portamento in steps in the eleventh; a free-running glide clock and the texture path in the twelfth)
 
 Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
 `forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
@@ -2261,6 +2331,35 @@ pt1, pt8, pt16 (2-6 % on the slope; step sizes within 1.7 % of the reference's: 
 (pm1t32, pm2t32, pm3t32: 1.7-8 % on the slope, not looked into). Feedback 7's straight spectrum: no
 model, not looked at again.
 
+**Twelfth session (2026-11-01): the glide clock and the texture path (decisions 66, 67).** No new
+renders.
+
+- **Portamento's clock runs freely.** Read edge by edge (new `fm/glide_grid.py`, measurement
+  `f105288`, with a self-test), the steps in `m7f`'s renders at times 32-64 fall on 64-sample block
+  boundaries, 6 or 7 blocks apart (pt64: seven of 448 samples, then one of 384: 440 on average, which
+  is why `fm/glide_steps.py` read 440.0), and both glides of each render, 2-4 s apart, sit on one such
+  grid: 100 % of the second glide's edges within 8 samples of the grid fitted to the first (94-100 %
+  for the first itself), against 6-33 % for a 440-sample grid restarted at each glide's first edge.
+  Octet now keeps one clock per engine, from prepare (`174b8fd`); its renders show the same structure
+  (the second glide 94-98 % on the first's grid; before, 0 % on it and 100 % on its own restarted
+  grid). `fm/compare_seq.py` like for like: `m7f` glides 23 -> 24 of 29 (pt16 met), `m7g` 28 of 28
+  either way. Still not met: pt1 (glide 0 -5.6 -> -7.6 %), pt8 (glide 1 -3.5 -> -5.3 %), pm1t32
+  (-6.5 -> -5.6 %), pm2t32 (+8.3 -> +6.0 %), pm3t32 (+6.2 -> +3.9 %): glides of 3-10 steps whose
+  tracker slope depends on where the ticks fall against the note, and the reference's clock phase is
+  not known for a render (it would have to be fitted per render, as `fm/glide_grid.py` does, before
+  such a comparison means much).
+- **The texture path** (`998251d`): formant 1 on the plus side, the formant above place 63 by rule,
+  places for every wave and the wrap (decision 67). `fm/compare_m7.py` like for like: `m8c` 122 ->
+  126 of 149 (+51 to +66 on the level 70 modulator met: 1.22-7.57 -> 0.10-0.31 dB), `m8f` 49 of 66
+  either way, `m7a` 215 -> 219 of 242 (texture -99 on the wave probe 22.65 -> 7.44 dB, still not met;
+  +50 on it and on the other probes met), `m7b` 91 -> 94 of 101, `m10t` 27 of 28 either way. Worse,
+  all already failing: formant 2 at spread 7 with formants 9-62 (`m8c` tc12, -87, 6.67 -> 56.49 dB;
+  tp70v15 23.71 -> 35.66; `m8f` tc7 104.4 -> 119.7; `m7b` t11 29.1 -> 44.0; others 0.1-3.9 dB) and
+  +99 on the wave probe (1.85 -> 5.11, a formant centred above Nyquist either way). In those renders
+  the formant numbers now put Octet's strongest harmonic where the reference's is (32 of 33, was 14),
+  so what is left there is the spread 7 window's shape (M5).
+- **Not looked into again, time-boxed:** the fast glides above; the 2nd LFO and other M7 open items.
+
 ### Fifth session (2026-10-31): tests run
 
 Code commits `204249a` (no 16-bit rounding of Extended voices), `c5fbc05` (part values and
@@ -2365,6 +2464,23 @@ rate between whole steps, and harmonic 15 of formant 2 at spread 5, formant 0), 
 under Rosetta (engine, plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta,
 ASan/UBSan 19/19, TSan 19/19. The step test and the formant test were each checked to fail with their
 change undone (the glide rate check passes either way). CI results are in the session report.
+
+### Twelfth session (2026-11-01): tests run
+
+Code commits `21d8453` and `842ee57` (the engine's controllers set before the first prepare),
+`174b8fd` (the free-running glide clock), `998251d` (the texture path); measurement `f105288`
+(`fm/glide_grid.py`, its self-test passes). For each code commit, on its committed tree (checked out
+alone, the plan's edits stashed), locally: Release CTest 36/36 (the 164 Classic cases bit-identical
+through engine, JUCE plugin and native CLAP on arm64; the Extended test now also checks one glide step
+at each predicted tick of two glides 0.8 s apart and the pitch held between ticks, and four texture
+places), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of 164 identical) and the
+Extended test under Rosetta, ASan/UBSan 19/19, TSan 19/19. The glide step test and the texture test
+were each checked to fail with their change undone. The first gate runs of the glide clock commit
+failed under UBSan (oscairn-fm-topology and oscairn-fm-extended: a bool loaded as 102 in
+`SynthEngine::syncChannelControllers`, from controllers never set before the first prepare, exposed
+when the engine's members moved). `21d8453` was meant to fix that and did not (Controllers has its own
+constructor, so value-initialising it zeroes nothing); it was already pushed, and `842ee57` is the fix
+that works. Every gate was run again on the three later trees. CI results are in the session report.
 
 ### How to run the tests
 
