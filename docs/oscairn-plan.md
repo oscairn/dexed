@@ -1083,6 +1083,37 @@ this matters before any voice-count claim. Unmeasured values: LFO speed 0 (about
 pitch EG attack at time 90-99 (the decay at those times, sharing the table, passes),
 fixed frequencies below 20 Hz.
 
+**CPU benchmark (eleventh session; desktop and CI numbers, not the target hardware).**
+`oscairn-fm-test bench [seconds]` (`f0198b4`) holds notes at 48 kHz in 64-sample blocks on one thread:
+a Classic voice with all six operators sounding (algorithm 1, feedback 6, LFO pitch modulation), an
+Extended voice with eight sine operators (algorithm 1, feedback 5, the per-voice 2nd LFO on pitch and
+amplitude), and the same with operator waves (formant 2 at spreads 5 and 7, odd and all harmonics,
+formant 1), texture +20 and a 24 dB lowpass moved by its EG. An instance plays 16 voices (the engine's
+polyphony); more voices take more instances, each with its own tables, so the large counts include
+that memory traffic. RTF is render time over audio time; "fits" is the most voices, in steps of 16,
+measured under 100 % and 50 % of one core (the scan stops at the first count over one core). It is not
+a gate (decision 65).
+
+| Where | Sound | RTF at 16 voices | RTF at 64 voices | Per voice per block | Fits in one core / half |
+| --- | --- | --- | --- | --- | --- |
+| macOS arm64 (this Mac, 1 s per measurement, machine loaded: load average 35 from other jobs) | Classic | 0.0119 | 0.0470 | 0.98 us | 1344 / 704 |
+| | Extended, sines | 0.0545 | 0.2369 | 4.94 us | 288 / 144 |
+| | Extended, waves, filter | 0.0705 | 0.2733 | 5.69 us | 224 / 112 |
+| CI Linux ARM64 (`ubuntu-24.04-arm`, run 41291604861, 0.5 s) | Classic | 0.0179 | 0.0712 | 1.48 us | 880 / 432 |
+| | Extended, sines | 0.0958 | 0.3881 | 8.08 us | 160 / 80 |
+| | Extended, waves, filter | 0.1099 | 0.4463 | 9.30 us | 128 / 64 |
+| CI Linux x86_64 (`ubuntu-24.04`, same run) | Classic | 0.0218 | 0.0824 | 1.72 us | 816 / 384 |
+| | Extended, sines | 0.1111 | 0.4362 | 9.09 us | 144 / 64 |
+| | Extended, waves, filter | 0.1319 | 0.5177 | 10.79 us | 112 / 48 |
+| CI macOS (`macos-15`, same run) | Classic | 0.0220 | 0.0965 | 2.01 us | 736 / 400 |
+| | Extended, sines | 0.1104 | 0.4305 | 8.97 us | 160 / 64 |
+| | Extended, waves, filter | 0.1282 | 0.4436 | 9.24 us | 144 / 64 |
+
+An Extended voice costs about 5-6.5 times a Classic one here (per-sample envelopes, LFOs and pitch, and
+floating point; the NEON path stays off). A first run on this Mac with 0.5 s measurements gave 6.0-8.0
+us per Extended voice per block; shared CI runners vary by more than that between runs. The target
+ARM64 hardware is still not measured.
+
 **Decisions taken while implementing (for Jacob to confirm)**
 
 1. Extended values are separate parameters (IDs above), not shared with Classic ones even where
@@ -1333,8 +1364,20 @@ fixed frequencies below 20 Hz.
 62. Detune on fixed-frequency operators (tenth session, `m10d2`, measured): the operator's own
     detune moves them by the same cents as a ratio-mode operator at that key; the part's detune
     (Hz) does not reach them.
+63. Formant 2's window components past the main lobe's null are negative (eleventh session, from
+    the phases of the `spec2` and `spec4` renders, which agree on where the sign turns within one
+    component; checked on `spec`, `spec5`, `m9a`, `m8c`, `m8f`, `m7a`). The tables keep each
+    component's real part, so components near the null, whose phase lies between, are scaled down.
+64. Portamento moves in steps (eleventh session, `m7f`, `m7g`, measured with
+    `fm/glide_steps.py`): one every 440 samples at 44.1 kHz (9.977 ms), each the time value's rate
+    times that period, the first at the glide's start. Unmeasured, chosen: the step clock starts with
+    each glide (the sequence recorder's timing cannot show whether the reference's runs freely), and
+    the period is the same time at every sample rate. The rate table is unchanged (its values at
+    times 1-8 are 0.5-0.9 % above the step readings; within the 2 % tolerance).
+65. The CPU benchmark (`oscairn-fm-test bench`) is informational: the plan sets no CPU budget, so it
+    is not a gate. CI prints it on the three Release jobs.
 
-### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth)
+### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh)
 
 - **Operator waves** (the spectral forms, section 3.7; neutral names: Wave, Spread, Formant;
   parameters 1000 n + 60..62; Classic conversion refused unless every operator in the DX7
@@ -1501,6 +1544,30 @@ simulated with the index read from `m9a`'s sine pair as before.
 - **Texture -50 and -25 on the wave probe** turned out to be the macro, not the waves: the
   reference starts from the carrier's own wave (decision 60, below under M7). Formant 2 at spread 5
   and the reference's flat floor were not looked at again.
+
+**Eleventh session (2026-11-01): formant 2's sign (decision 63).** Each sideband's phase against the
+centre's, with the time shift (the main lobe's slope) taken out, turns by half a cycle just past formant
+2's main-lobe null at spreads 3-7 (components 8, 12, 16, 20, 26 in `spec4`'s centre-100 renders; 12, 16,
+21, 27 at spreads 4-7 in `spec2`'s centre-46 renders) and stays there: the flat floor 52-60 dB down is
+made of negative components, a narrow dip at the window's peak. Octet already played the floor's levels
+where the window does not fold (`spec4`, centre 100: within about 3 dB at spreads 5-7); the tables had every
+component positive, which matters where the window folds below harmonic 1 and under modulation.
+`fm/make_waves.py` now keeps each component's real part (measurement `f3861d9`; formant 1 is
+unchanged). Like for like, Octet renders before and after (`ceb5d82` and the new tables):
+
+| Campaign | Before | After |
+| --- | --- | --- |
+| `spec` (`fm/compare_waves.py`) | 146 of 161 | 146 of 161; formant 2 at formant 0 spread 5 7.16 -> 1.98 dB (still not met), spread 7 sweep misses move both ways (f6s7r36 55.1 -> 59.6, f6s7r99 111.1 -> 102.5) |
+| `spec5` (`fm/compare_mod.py`) | 100 of 111 | 100 of 111; m6s7r27l75 8.7 -> 37.8 dB (a harmonic 57 dB down, 10, falls into a null; both fail), m6s3r9l85 2.76 -> 2.97 |
+| `m9a` | 69 of 75 | 69 of 75; formant 2 spread 7 at formants 0 and 20 16.9 -> 3.7 and 18.8 -> 13.8 dB |
+| `m8c` (`fm/compare_m7.py`) | 121 of 149 | 122 of 149 (tp40v20 11.8 -> 0.7 met; tp70v15-35 22-35 -> 16-25, tc18 28.9 -> 1.2 dB) |
+| `m8f` | 48 of 66 | 49 of 66 (tc20 2.1 -> 0.3 met; tc14, tc16 13.6, 17.5 -> 3.0, 5.1 dB; tc10 102.9 -> 113.2) |
+| `m7a` | 215 of 242 | 215 of 242 (texture -99 on the wave probe 21.9 -> 22.6 dB) |
+| `m10t` | 27 of 28 | 27 of 28 |
+
+The renders were not re-recorded: the reference renders are those of earlier sessions. Not looked at
+again (time-boxed): texture +51 to +66 on the level 70 modulator (improved, see `m8c`'s tp70 rows, not
+met), texture -99 on the wave probe, waves 1-2 at spread 7 under level 75 (no new idea).
 
 ### M6 (in progress, 2026-10-31: filter, filter EG, common pitch EG, pitch key follow, random pitch, key-on delay, stereo and pan are in the engine; the part LFO with all nine of its destinations)
 
@@ -1813,7 +1880,7 @@ delay, user steps and slope, and all nine destinations through the plugin or, fo
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
-### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31; rising segments and carrier EG levels in the ninth, 2026-11-01; texture from an operator's own wave, the 2nd LFO's deep amplitude, bend ranges and fixed-frequency detune in the tenth, 2026-11-01)
+### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31; rising segments and carrier EG levels in the ninth, 2026-11-01; texture from an operator's own wave, the 2nd LFO's deep amplitude, bend ranges and fixed-frequency detune in the tenth, 2026-11-01; portamento in steps in the eleventh)
 
 Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
 `forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
@@ -2180,6 +2247,20 @@ pitch reading than the tracker gives; no new renders); feedback 7's straight spe
 M8 (the converter) is in `oscairn/performance-converter` and editor metadata in Oscairn, both outside
 this fork.
 
+**Eleventh session (2026-11-01): portamento in steps (decision 64).** No new renders. Read with 1 ms
+smoothing (new `fm/glide_steps.py`, measurement `63558f7`, with a self-test on synthetic stepped glides),
+every glide in `m7f` and `m7g` moves in steps: the period is 9.977 ms (440.0 samples at 44.1 kHz,
+read from glides of 0.3-1.7 s at times 32-100: 9.970-9.979 ms), the same at every time value, and
+the step is the time value's rate times the period whatever the distance (time 1: 4.29 semitones on
+12-, 24- and 48-semitone glides; time 8: 3.38-3.42; time 16: 2.48). So the fast 12- and 24-semitone
+glides were not slower than the 48-semitone ones: the tracker's 20-80 % slope on a staircase of 3-9
+steps depends on where the steps fall. Octet now moves its glides the same way (`bd83f35`).
+`fm/compare_seq.py` like for like: `m7f` glides 22 -> 23 of 29, `m7g` 27 -> 28 of 28. Still not met:
+pt1, pt8, pt16 (2-6 % on the slope; step sizes within 1.7 % of the reference's: time 1 4.33 against
+4.29, time 8 3.36 against 3.42, time 16 2.47 against 2.48) and the time-mode glides at time 32
+(pm1t32, pm2t32, pm3t32: 1.7-8 % on the slope, not looked into). Feedback 7's straight spectrum: no
+model, not looked at again.
+
 ### Fifth session (2026-10-31): tests run
 
 Code commits `204249a` (no 16-bit rounding of Extended voices), `c5fbc05` (part values and
@@ -2272,6 +2353,18 @@ with all harmonics 1 at spread 3, the amplitude swing at depth 99 offsets 3 and 
 operator's own and the part's detune at keys 48 and 72), the x86_64 baseline under Rosetta (engine,
 plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta, ASan/UBSan 19/19, TSan 19/19.
 Each new test was checked to fail with its change undone. CI results are in the session report.
+
+### Eleventh session (2026-11-01): tests run
+
+Code commits `f0198b4` (the CPU benchmark and its CI step), `bd83f35` (portamento in steps), `08ee53b`
+(formant 2's sign); measurement `f3861d9` (`fm/make_waves.py`), `63558f7` (`fm/glide_steps.py`, its
+self-test passes). For each code commit, on its committed tree (the work tree held nothing else of the
+engine's), locally: Release CTest 36/36 (the 164 Classic cases bit-identical through engine, JUCE plugin
+and native CLAP on arm64; the Extended test now also checks three glide steps at time 64 and the glide
+rate between whole steps, and harmonic 15 of formant 2 at spread 5, formant 0), the x86_64 baseline
+under Rosetta (engine, plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta,
+ASan/UBSan 19/19, TSan 19/19. The step test and the formant test were each checked to fail with their
+change undone (the glide rate check passes either way). CI results are in the session report.
 
 ### How to run the tests
 
