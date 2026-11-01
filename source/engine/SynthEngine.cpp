@@ -160,6 +160,8 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
     }
 
     currentNote = 0;
+    glideClock = 0;
+    glideTick = false;
     nextKeydownSeq = 0;
     resetControllers();
     for (int c = 0; c < MAX_CONTEXTS; c++) {
@@ -382,6 +384,13 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             float sumbufRight[MAX_CONTEXTS][N]; // (stereo rendering)
 
             events.dispatchUntil(i);
+
+            // Extended portamento: one clock for every sound, running freely (ExtNote::kGlideTickSeconds)
+            // (counted in samples at 44.1 kHz, exact there)
+            glideClock += N * 44100.0 / sampleRate;
+            glideTick = glideClock >= ExtNote::kGlideTickSeconds * 44100.0;
+            if ( glideTick )
+                glideClock -= ExtNote::kGlideTickSeconds * 44100.0;
 
             for (int j = 0; j < N; ++j) {
                 audiobuf.get()[j] = 0;
@@ -736,7 +745,8 @@ void SynthEngine::extGlide(int note, int c, int from, bool legato) {
         a = std::clamp(a, b - octave, b + octave);
     const double semitones = std::fabs(a - b) * 12.0 / octave;
     voices[note].dx7_note->glideFrom(a, extPortamentoRate(e.common(ext::PortamentoTime),
-                                                          e.common(ext::PortamentoTimeMode), semitones));
+                                                          e.common(ext::PortamentoTimeMode), semitones),
+                                         &glideTick);
 }
 
 void SynthEngine::extKeydown(int note, int c) {

@@ -268,6 +268,10 @@ private:
     MTSClient *mtsClient = nullptr;
 
     int32_t nextKeydownSeq;
+    // Extended portamento's clock (render): time since its last tick, in samples at 44.1 kHz, and
+    // whether it ticks in the block being rendered
+    double glideClock = 0;
+    bool glideTick = false;
 
     NoteEndSink *noteEndSink = nullptr;
     void keyupVoice(int note);

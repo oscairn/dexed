@@ -49,7 +49,7 @@ public:
               const ExtendedVoice *ext = nullptr, const ExtStart &start = ExtStart());
     void initPortamento(const Dx7Note &srcNote);
     // Extended portamento (ExtNote::glideFrom, ExtNote::pitch)
-    void glideFrom(double from, double semitonesPerSecond) { ext_.glideFrom(from, semitonesPerSecond); }
+    void glideFrom(double from, double semitonesPerSecond, const bool *clock) { ext_.glideFrom(from, semitonesPerSecond, clock); }
     double extPitch() const { return ext_.pitch(); }
 
     // Note: this _adds_ to the buffer. Interesting question whether it's

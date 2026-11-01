@@ -2073,24 +2073,43 @@ int extendedTest() {
         const std::vector<std::pair<uint32_t, double>> porta = { { 255, 0 }, { 257, 1 }, { 258, 64 }, { 259, 0 } };
         const auto g = renderMidiNotes(porta, { { 0.0, 48, 100 }, { 0.5, 60, 100 }, { 0.6, 48, 0 } }, 1.2);
         const double mid = semis(g, 0.59, 0.61) + 12; // 0.1 s into the glide
-        // (the glide moves in steps every 9.977 ms, the first at once: 0.1 s in it is a step ahead
-        // of a straight glide; 0.2 s is 20.05 steps, so the rate is read between the two)
+        // (the glide moves in steps about every 9.977 ms, on the engine's clock: 0.2 s holds 20 or 21
+        // steps, read between two points 0.2 s apart)
         const double later = semis(g, 0.79, 0.81) + 12;
         expect(std::fabs((later - mid) / 0.2 - 36.63) < 0.5 && std::fabs(semis(g, 0.9, 1.2)) < 0.02,
                "portamento rate at time 64: " + std::to_string((later - mid) / 0.2) + " semitones per second");
-        // the steps: the pitch holds within each 9.977 ms and moves by the rate times that
+        // the steps: one clock for every glide, from the start (prepare), ticking at the start of each
+        // 64-sample block in which another 440 samples (at 44.1 kHz) end; the pitch moves by the rate
+        // times 9.977 ms at a tick and holds between ticks, in a glide at 0.5 s and one at 1.3 s alike
         {
-            const auto st = renderMidiNotes(porta, { { 0.0, 84, 100 }, { 0.5, 96, 100 }, { 0.6, 84, 0 } }, 1.0);
-            const double T = 440.0 / 44100;
-            double a[4], b[4];
-            for (int k = 0; k < 4; k++) {
-                a[k] = semis(st, 0.5 + k * T + 0.002, 0.5 + k * T + 0.0045);
-                b[k] = semis(st, 0.5 + k * T + 0.0055, 0.5 + k * T + 0.008);
+            const auto st = renderMidiNotes(porta, { { 0.0, 84, 100 }, { 0.5, 96, 100 }, { 0.6, 84, 0 },
+                                                     { 1.3, 84, 100 }, { 1.4, 96, 0 } }, 1.6);
+            const double scale = rate / 44100.0, T = 440.0 / 44100;
+            int checked = 0;
+            for (double start : { 0.5, 1.3 }) {
+                // the clock's ticks in this glide's first 60 ms, in seconds of the output (which starts
+                // after renderMidiNotes' first 512 samples)
+                std::vector<double> ticks;
+                double clock = 0;
+                for (long b = 0; (64.0 * b - 512) / rate < start + 0.06; b++) {
+                    clock += 64 / scale;
+                    if (clock >= 440) {
+                        clock -= 440;
+                        if ((64.0 * b - 512) / rate > start + 0.005)
+                            ticks.push_back((64.0 * b - 512) / rate);
+                    }
+                }
+                for (double t : ticks) {
+                    const double before = semis(st, t - 0.0045, t - 0.0002), after = semis(st, t + 0.0002, t + 0.0041),
+                                 later = semis(st, t + 0.0045, t + 0.0085);
+                    const double want = start == 0.5 ? 36.63 * T : -36.63 * T;
+                    expect(std::fabs(after - before - want) < 0.03 && std::fabs(later - after) < 0.03,
+                           "portamento step at " + std::to_string(t) + " s: " + std::to_string(after - before) +
+                               " semitones, " + std::to_string(later - after) + " after it");
+                    checked++;
+                }
             }
-            for (int k = 1; k < 4; k++)
-                expect(std::fabs(a[k] - b[k]) < 0.03 && std::fabs(a[k] - a[k - 1] - 36.63 * T) < 0.03,
-                       "portamento step " + std::to_string(k) + ": " + std::to_string(a[k] - a[k - 1]) +
-                           " semitones, " + std::to_string(b[k] - a[k]) + " within it");
+            expect(checked >= 8, "portamento steps checked: " + std::to_string(checked));
         }
         const auto f = renderMidiNotes(porta, { { 0.0, 48, 100 }, { 0.4, 48, 0 }, { 0.5, 60, 100 } }, 0.7);
         expect(std::fabs(semis(f, 0.52, 0.6)) < 0.02, "fingered portamento: no glide on a detached note");

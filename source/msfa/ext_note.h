@@ -167,8 +167,14 @@ public:
     void transferSignal(const ExtNote &src);
     void transferPhase(const ExtNote &src);
     // portamento: glide from `from` (Q24 log frequency of the note's key, see pitch()) to this
-    // note's key at `semitonesPerSecond`; ratio-mode operators only
-    void glideFrom(double from, double semitonesPerSecond);
+    // note's key at `semitonesPerSecond`; ratio-mode operators only. The glide moves one step of
+    // kGlideTickSeconds' worth in each block in which *clock (the engine's glide clock) is true.
+    void glideFrom(double from, double semitonesPerSecond, const bool *clock);
+    // The reference moves every glide on one free-running clock: every 440 samples at 44.1 kHz
+    // (9.977 ms), at the start of the 64-sample block in which that period ends, so steps come 6 or
+    // 7 blocks apart (`m7f`, `m7g`: the same period at every time value and distance, on one grid
+    // across glides seconds apart; steps of the time value's rate times the period)
+    static constexpr double kGlideTickSeconds = 440.0 / 44100.0;
     double pitch() const { return notePitch_ + glide_; } // the key's pitch now, Q24 log frequency
     void silence() { initialised_ = false; }
     const FmOpParams *params() const { return params_; }
@@ -200,12 +206,10 @@ private:
     int shift_ = 0;
     double velocity_ = 0;        // ExtStart::velocity (operator level velocity)
     double notePitch_ = 0;       // the key's log frequency (Q24)
-    // portamento: offset from it, Q24, moving to 0 by glideStep_ once every glideTick_ samples
-    // (glideWait_ to the next move)
+    // portamento: offset from it, Q24, moving to 0 by glideStep_ in each block *glideClock_ is true
     double glide_ = 0;
     double glideStep_ = 0;
-    double glideTick_ = 0;
-    double glideWait_ = 0;
+    const bool *glideClock_ = nullptr;
     int32_t carry_[N] = {};
     FmOpParams params_[8] = {};
     int32_t basepitch_[8] = {};
