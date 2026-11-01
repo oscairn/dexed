@@ -2531,7 +2531,7 @@ Rosetta (engine, plugin, CLAP: 164 of 164 identical) and the Extended test under
 ASan/UBSan 19/19 (20/20), TSan 19/19 (20/20); `oscairn-fm-test rates` also passes under Rosetta.
 Each new check was confirmed to fail with its change undone (the level, FEG time velocity, pitch
 velocity and tuning checks; the rate check fails when the key-on delay is counted in 44.1 kHz
-samples). The level commit was amended twice before it was pushed (the voice clip and the topology
+samples). The level commit was amended three times before it was pushed (the voice clip and the topology
 failure it caused, the gain moved out of the voice after the filter resonance cases clipped, the
 modulator check's carrier level after an x86_64 failure). CI: the macOS job of `oscairn-tests` was
 not picked up by GitHub's hosted runners on some heads ("not acquired ... after multiple
