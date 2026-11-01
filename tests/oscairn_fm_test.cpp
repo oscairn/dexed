@@ -1427,6 +1427,20 @@ int extendedTest() {
                "2nd LFO pitch depth " + std::to_string(d[0]) + " offset " + std::to_string(d[1]) + ": " +
                    std::to_string(lo) + " then " + std::to_string(hi) + " cents, want -+" + std::to_string(want));
     }
+    // its amplitude depth: straight in dB from the LFO's top, 0.375 dB steps by depth (50: 32 steps
+    // at offset 7) and eighths by offset (3: half), through the plugin with a square wave (low first)
+    for (const auto &d : { std::array<double, 3> { 50, 7, 12.0 }, std::array<double, 3> { 50, 3, 6.0 },
+                           std::array<double, 3> { 85, 7, 33.375 } }) {
+        const auto x = renderMidiNotes({ { 49, 0 }, { 43, 10 }, { 42, 3 }, { 46, 1 }, { 48, d[0] }, { 1059, d[1] } },
+                                       { { 0.0, 60, 100 } }, 0.7);
+        const double half = 0.5 / extLfoHz(10);
+        const auto db = peakDb(x, 960);
+        auto at = [&](double t) { return db[(size_t)(t * half * rate / 960)]; };
+        const double swing = at(1.5) - at(0.5);
+        expect(std::fabs(swing - d[2]) < 0.1, "2nd LFO amplitude depth " + std::to_string((int)d[0]) + " offset " +
+                                                  std::to_string((int)d[1]) + ": " + std::to_string(swing) + " dB, want " +
+                                                  std::to_string(d[2]));
+    }
     // -- the filter (milestone M6): each type's steady-state gain against the model its
     // fitted structure gives (Chamberlin sections and a one-pole, docs/oscairn-plan.md
     // section 11), within 0.1 dB where the model is above -60 dB

@@ -195,8 +195,18 @@ double extLfoPitchCents(int depth, int offset) {
     // twice the DX7's depth: 256 x 256 steps swing 2400 cents
     return extLfoPitchDepthSteps(depth) * extPitchDepthOffset(offset) * 1200.0 / 32768;
 }
+// the 2nd LFO's amplitude depth: steps of 0.375 dB lost at the LFO's bottom with offset 7, straight
+// in dB from its top (measured at 26 depths; straight between them)
+static const double kLfoAmpX[] = { 0, 2, 3, 4, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 99 };
+static const double kLfoAmpSteps[] = { 0, 0, 1, 1, 2, 3, 4, 5, 8, 10, 13, 16, 20, 24, 28, 32, 37, 42, 49, 56, 65, 75, 89, 111, 149, 256 };
+double extLfoAmpDb(int depth) { return 0.375 * interpolate(kLfoAmpX, kLfoAmpSteps, clampi(depth, 0, 99)); }
+double extAmpDepthShare(int o) {
+    // measured at depths 16, 30, 70 and 99: eighths
+    static const double t[] = { 0, 1, 2, 4, 5, 6, 7, 8 };
+    return t[clampi(o, 0, 7)] / 8;
+}
 int32_t extAmpDepthOffset(int o) {
-    // shortcut: DX7's four amplitude sensitivities spread over 0-7 (unmeasured)
+    // shortcut: DX7's four amplitude sensitivities spread over 0-7 (unmeasured; the mod wheel only)
     static const int32_t t[] = { 0, 2171169, 4342338, 5756888, 7171437, 10373363, 13575290, 16777216 };
     return t[clampi(o, 0, 7)];
 }

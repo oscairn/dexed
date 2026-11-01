@@ -213,8 +213,10 @@ private:
     int wave_[8] = {}, waveNow_[8] = {}, spread_[8] = {}, formant_[8] = {}, below_[8] = {};
     double partLfoWave_[8] = {}; // part LFO to this operator's wave: wave steps at +1
     double partLfoFeedback_ = 0; // part LFO to feedback: steps at +1
-    int32_t ampSens_[8] = {};
-    int32_t pitchDepth_ = 0, ampDepth_ = 0;
+    int32_t ampSens_[8] = {};    // the mod wheel's amplitude sensitivity (DX7's)
+    float ampShare_[8] = {};     // the 2nd LFO's amplitude depth offset: share of offset 7's loss
+    int32_t pitchDepth_ = 0;
+    float ampLfo_ = 0;           // the 2nd LFO's amplitude depth: log level lost at its bottom (offset 7)
     Lfo lfo_;                    // this voice's 2nd LFO (per voice in the reference)
     int32_t fbBuf_[2] = {};
     int32_t gains_[8][N];        // per operator, this block's gain per sample

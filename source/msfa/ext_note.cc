@@ -405,7 +405,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             partLfoFeedback_ += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) / 16.0;
     detuneNote_ = midinote;
     pitchDepth_ = extLfoPitchDepthSteps(v.common(ext::LfoPitchDepth));
-    ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
+    ampLfo_ = (float)(extLfoAmpDb(v.common(ext::LfoAmpDepth)) * kLog2PerDb * kQ24);
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
     notePitch_ = notePitch;
     if (start)
@@ -543,6 +543,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
                 partLfoLevel_[i] += (float)(extPartLfoLevelDb(depth) * kLog2PerDb * kQ24);
             }
         ampSens_[i] = extAmpDepthOffset(std::clamp(o(ext::AmpDepthOffset), 0, 7));
+        ampShare_[i] = (float)extAmpDepthShare(o(ext::AmpDepthOffset));
     }
     if (start) {
         // the common pitch EG: levels by depth; velocity scales levels and rates alike (the
@@ -767,14 +768,16 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
     const int32_t lfo_delay = lfo_.getdelay();
     const int64_t pmd = (int64_t)pitchDepth_ * lfo_delay; // Q32 (depth 99 plays as 256: up to 2^32)
     const bool pitchMod = pmd != 0 || ctrls->pitch_mod != 0;
-    const uint32_t amdDepth = (uint32_t)(((int64_t)ampDepth_ * (int64_t)lfo_delay) >> 8);
+    // the 2nd LFO lowers each operator's level straight in dB, none at its top (measured); the mod
+    // wheel's amplitude modulation as the DX7 voice computes it (unmeasured)
+    const float ampLfo = ampLfo_ * (float)lfo_delay / (float)(1 << 24);
+    float lfoLoss[N]; // log level lost at offset 7
     uint32_t amd[N];
     bool ampMod = false;
     for (int s = 0; s < N; s++) {
         const int32_t lfoInv = (1 << 24) - lfo[s];
-        const uint32_t a = (uint32_t)(((int64_t)amdDepth * (int64_t)lfoInv) >> 24);
-        const uint32_t w = (uint32_t)(((int64_t)ctrls->amp_mod * (int64_t)lfoInv) >> 7);
-        amd[s] = std::max(a, w);
+        lfoLoss[s] = ampLfo * (float)lfoInv / (float)(1 << 24);
+        amd[s] = (uint32_t)(((int64_t)ctrls->amp_mod * (int64_t)lfoInv) >> 7);
         ampMod |= amd[s] != 0;
     }
     // the part LFO's feedback and operator wave moves, once per block
@@ -840,9 +843,12 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
                 // without modulation, which would slow every Extended envelope by as much)
                 pt = (uint32_t)(std::exp(((float)sensamp) / 262144 * 0.07 + 12.2) - std::exp(12.2f));
             }
-            level = env_[i].getsample();
+            const int32_t env = env_[i].getsample();
+            level = env;
             if (pt != 0)
-                level -= (int32_t)(((uint64_t)level * ((uint64_t)pt << 4)) >> 28);
+                level -= (int32_t)(((uint64_t)env * ((uint64_t)pt << 4)) >> 28);
+            if (ampLfo != 0 && ampShare_[i] != 0) // (the larger of the LFO's and the wheel's loss)
+                level = std::max(0, std::min(level, env - (int32_t)std::lrint(lfoLoss[s] * ampShare_[i])));
             if (partLevel) // the part LFO only lowers the level: none at its top, all at its bottom
                 level = std::max(0, level - (int32_t)std::lrint((1.0f - part_lfo[s]) * 0.5f * partLfoLevel_[i]));
             gains_[i][s] = Exp2::lookup(level - (14 * (1 << 24)));
