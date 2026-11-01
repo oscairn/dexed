@@ -187,6 +187,14 @@ int32_t extPitchDepthOffset(int o) {
     static const int32_t t[] = { 0, 10, 20, 33, 56, 96, 160, 256 };
     return t[clampi(o, 0, 7)];
 }
+int32_t extLfoPitchDepthSteps(int depth) {
+    // the DX7's depth steps, but 99 plays as 256 (measured at 17 depths)
+    return depth >= 99 ? 256 : (std::max(depth, 0) * 165) >> 6;
+}
+double extLfoPitchCents(int depth, int offset) {
+    // twice the DX7's depth: 256 x 256 steps swing 2400 cents
+    return extLfoPitchDepthSteps(depth) * extPitchDepthOffset(offset) * 1200.0 / 32768;
+}
 int32_t extAmpDepthOffset(int o) {
     // shortcut: DX7's four amplitude sensitivities spread over 0-7 (unmeasured)
     static const int32_t t[] = { 0, 2171169, 4342338, 5756888, 7171437, 10373363, 13575290, 16777216 };

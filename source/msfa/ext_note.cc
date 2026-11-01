@@ -404,8 +404,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         if (v.common((ext::Common)(ext::PartLfoDest1 + 2 * d)) == ext::PartLfoFeedback)
             partLfoFeedback_ += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) / 16.0;
     detuneNote_ = midinote;
-    // the DX7's depth steps, but 99 plays as 256 (measured at 17 depths)
-    pitchDepth_ = v.common(ext::LfoPitchDepth) >= 99 ? 256 : (std::max(v.common(ext::LfoPitchDepth), 0) * 165) >> 6;
+    pitchDepth_ = extLfoPitchDepthSteps(v.common(ext::LfoPitchDepth));
     ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
     notePitch_ = notePitch;

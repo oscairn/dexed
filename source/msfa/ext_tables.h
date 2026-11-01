@@ -70,6 +70,8 @@ double extPartLfoPanPositions(int depth); // pan destination: pan positions at t
 double extLfoHz(int speed);         // speed range Normal, 0-99
 double extLfoExtendedHz(int speed); // speed range Extended, 0-415
 int32_t extPitchDepthOffset(int offset); // as DX7 pitch modulation sensitivity
+int32_t extLfoPitchDepthSteps(int depth); // pitch depth 0-99 in the DX7's steps (0-256)
+double extLfoPitchCents(int depth, int offset); // the 2nd LFO's pitch swing at its peak, in cents
 int32_t extAmpDepthOffset(int offset);   // as DX7 amplitude modulation sensitivity (Q24)
 
 // filter

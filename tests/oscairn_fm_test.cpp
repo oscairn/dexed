@@ -1641,6 +1641,15 @@ int extendedTest() {
         expect(oscairn_fm::convertToClassic(v) && at(5) == 0 && at(1) == 5 && at(1017) == 99,
                "a converted sound converts back to Classic");
         expect(std::fabs(at(1003) - 70) <= 2, "rates survive the round trip within 2 (" + std::to_string(at(1003)) + ")");
+        // the 2nd LFO's pitch depth converts by its swing (the Extended depth is twice as deep)
+        at(12) = 50;
+        at(16) = 6;
+        oscairn_fm::convertToExtended(v);
+        const double classicCents = 128 * 153 * 1200.0 / 65536, extCents = extLfoPitchCents((int)at(47), (int)at(8058));
+        expect(std::fabs(extCents / classicCents - 1) < 0.01, "LFO pitch depth 50 converts to " + std::to_string(at(47)) +
+                                                                  ": " + std::to_string(extCents) + " cents, Classic " +
+                                                                  std::to_string(classicCents));
+        expect(oscairn_fm::convertToClassic(v) && at(12) == 50 && at(16) == 6, "LFO pitch depth survives the round trip");
         oscairn_fm::convertToExtended(v);
         at(8049) = 10; // a hold segment: not in Classic
         std::vector<double> before = v;

@@ -458,6 +458,12 @@ template <class F> int closest(int lo, int hi, F error) {
 
 double logError(double a, double b) { return std::fabs(std::log(a / b)); }
 
+// the DX7 LFO's pitch swing at its peak (Dx7Note), cents
+double classicLfoPitchCents(int depth, int sensitivity) {
+    static const int sens[8] = { 0, 10, 20, 33, 55, 92, 153, 255 };
+    return ((std::clamp(depth, 0, 99) * 165) >> 6) * sens[std::clamp(sensitivity, 0, 7)] * 1200.0 / 65536;
+}
+
 struct Values {
     std::vector<double> &v;
     double get(uint32_t id) const { return v[(size_t)indexOf(id)]; }
@@ -482,7 +488,12 @@ void convertToExtended(std::vector<double> &values) {
     x.set(42, x.geti(15));
     x.set(45, x.geti(11));
     x.set(46, x.geti(14));
-    x.set(47, x.geti(12));
+    // the pitch depth that swings as far with the same offset (the Extended depth is about twice
+    // as deep per step); with offset 0 the depth stays as it is
+    const double lfoCents = classicLfoPitchCents(x.geti(12), x.geti(16));
+    x.set(47, x.geti(16) == 0 ? x.geti(12) : closest(0, 99, [&](int d) {
+        return std::fabs(extLfoPitchCents(d, x.geti(16)) - lfoCents);
+    }));
     x.set(48, x.geti(13));
     const double hz = Lfo::classicHz(x.geti(10));
     x.set(49, 0);
@@ -589,7 +600,10 @@ bool convertToClassic(std::vector<double> &values) {
     y.set(15, x.geti(42));
     y.set(11, x.geti(45));
     y.set(14, x.geti(46));
-    y.set(12, x.geti(47));
+    const double lfoCents = extLfoPitchCents(x.geti(47), pitchSens);
+    y.set(12, pitchSens == 0 ? x.geti(47) : closest(0, 99, [&](int d) {
+        return std::fabs(classicLfoPitchCents(d, pitchSens) - lfoCents);
+    }));
     y.set(13, x.geti(48));
     const double hz = extLfoHz(x.geti(43));
     y.set(10, closest(0, 99, [&](int s) { return logError(Lfo::classicHz(s), hz); }));
