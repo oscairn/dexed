@@ -438,7 +438,8 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                             if( f < -1 ) f = -1;
                         }
                         if ( v.fadeTotal > 0 ) { // choked: fading out
-                            f *= (float)v.fadeLeft / (float)v.fadeTotal;
+                            const float g = (float)v.fadeLeft / (float)v.fadeTotal;
+                            f *= v.fadeSquared ? g * g : g;
                             if ( v.fadeLeft > 0 )
                                 v.fadeLeft--;
                         }
@@ -697,10 +698,12 @@ void SynthEngine::startVoice(int note, int c, int64_t wait) {
     v.fadeLeft = v.fadeTotal = 0;
 }
 
-void SynthEngine::fadeVoice(int note, double seconds) {
+void SynthEngine::fadeVoice(int note, double seconds, bool squared) {
     ProcessorVoice &v = voices[note];
-    if ( v.live && v.fadeTotal == 0 )
+    if ( v.live && v.fadeTotal == 0 ) {
         v.fadeTotal = v.fadeLeft = (int)(seconds * sampleRate) + 1;
+        v.fadeSquared = squared;
+    }
 }
 
 int SynthEngine::liveVoice(int c, int except) const {
@@ -736,7 +739,6 @@ void SynthEngine::extKeydown(int note, int c) {
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
         held |= i != note && voices[i].keydown && voices[i].context == c;
     const int prev = liveVoice(c, note);
-    int64_t wait = 0;
     int retrigger = -1;
     if ( mono && prev >= 0 && !(porta && held) ) {
         retrigger = prev; // mono without a portamento legato: the note starts again
@@ -747,11 +749,8 @@ void SynthEngine::extKeydown(int note, int c) {
                  voices[i].midi_note == voices[note].midi_note )
                 retrigger = i;
     }
-    if ( retrigger >= 0 ) {
-        // a note that takes over without portamento starts when the old one has faded out
-        fadeVoice(retrigger, ExtNote::retriggerFade(e));
-        wait = voices[retrigger].fadeTotal;
-    }
+    if ( retrigger >= 0 ) // a note that takes over without portamento: the old one fades out as it starts
+        fadeVoice(retrigger, ExtNote::kRetriggerFade, true);
     // a key pressed again while held: one note-off releases nothing until every press is released
     voices[note].presses = 1;
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
@@ -760,7 +759,7 @@ void SynthEngine::extKeydown(int note, int c) {
             voices[note].presses += voices[i].presses;
             voices[i].presses = 0;
         }
-    startVoice(note, c, wait);
+    startVoice(note, c, 0);
     if ( mono && prev >= 0 && retrigger < 0 ) {
         // a mono legato note (portamento on): the envelopes carry on
         voices[note].dx7_note->transferState(*voices[prev].dx7_note);
@@ -787,12 +786,9 @@ bool SynthEngine::extKeyup(int note) {
     if ( h < 0 )
         return false;
     const bool porta = x.ext->common(ext::Portamento) != 0;
-    int64_t wait = 0;
-    if ( !porta ) {
-        fadeVoice(note, ExtNote::retriggerFade(*x.ext));
-        wait = voices[note].fadeTotal;
-    }
-    startVoice(h, c, wait);
+    if ( !porta )
+        fadeVoice(note, ExtNote::kRetriggerFade, true);
+    startVoice(h, c, 0);
     if ( porta ) {
         voices[h].dx7_note->transferState(*voices[note].dx7_note);
         extGlide(h, c, note, true);
@@ -911,6 +907,7 @@ void SynthEngine::chokeNotes(const NoteRef &match) {
                 // a short fade-out instead of a click; the voice is freed (and its NOTE_END
                 // sent by collectEndedNotes) when it ends
                 v.fadeTotal = v.fadeLeft = (int)(0.003 * sampleRate) + 1;
+                v.fadeSquared = false;
             } else if ( !v.live ) {
                 endNote(note);
             }

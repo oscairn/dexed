@@ -570,22 +570,6 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     setupFilter(v, midinote, velocity, start);
 }
 
-double ExtNote::retriggerFade(const ExtendedVoice &v) {
-    // the old note fades out before the new one starts, faster the faster the carriers' attack
-    // (`m7g`, one carrier: none at attack time 0, about 2, 5 and 13 ms at 20, 40 and 60, from
-    // the sustain level); shortcut: 13 ms from 60 up, unmeasured, and the fade's shape is taken as
-    // straight in amplitude
-    const CompiledAlgorithm &a = extCompiled(std::clamp(v.common(ext::Algorithm), 1, 88) - 1);
-    int attack = 0;
-    for (int n = 1; n <= ext::Ops; n++)
-        if (((a.outputs >> (ext::Ops - n)) & 1) && v.op(n, ext::Level) > 0)
-            attack = std::max(attack, std::clamp(v.op(n, ext::AttackTime), 0, 99));
-    static const double ms[4] = { 0.0, 2.0, 5.0, 13.0 };
-    const int i = std::min(attack / 20, 2);
-    const double t = std::min((attack - 20 * i) / 20.0, 1.0);
-    return (ms[i] + (ms[i + 1] - ms[i]) * t) / 1000.0;
-}
-
 void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
                    const ExtStart &st) {
     initialised_ = true;

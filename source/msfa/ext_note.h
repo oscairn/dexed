@@ -145,9 +145,10 @@ public:
     };
     void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,
               const ExtStart &start = ExtStart());
-    // how long a sounding note of this sound takes to fade out when a new note takes its place
-    // without portamento (seconds)
-    static double retriggerFade(const ExtendedVoice &v);
+    // a sounding note that a new note takes the place of without portamento fades out over this
+    // long (seconds; its gain the square of the time left's share) while the new note starts
+    // (`m8e`: the same fade at attack times 0-60, the new note attacking from silence at once)
+    static constexpr double kRetriggerFade = 0.0133;
     // its pan gains (both 1 at the centre)
     float gainLeft() const { return gainL_; }
     float gainRight() const { return gainR_; }

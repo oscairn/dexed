@@ -1960,6 +1960,19 @@ int extendedTest() {
         const auto re = renderMidiNotes(slow, legato, 1.2), le = renderMidiNotes(withPorta, legato, 1.2);
         expect(db(re, 1.02, 1.04) < db(re, 0.95, 0.99) - 20 && std::fabs(db(le, 1.02, 1.04) - db(le, 0.95, 0.99)) < 1,
                "mono: a new note starts again without portamento, carries on with it");
+        // the old note fades out over 13.3 ms, its gain the square of the time left's share, while
+        // the new one starts (attack 60: still near silent): one period of note 60, 2.7-6.5 ms in
+        {
+            const double a = 0.0027, b = 0.0065, T = ExtNote::kRetriggerFade;
+            double want = 0;
+            for (int i = 0; i < 1000; i++) {
+                const double t = a + (b - a) * (i + 0.5) / 1000;
+                want += std::pow(1 - t / T, 4) / 1000;
+            }
+            const double got = db(re, 1.0 + a, 1.0 + b) - db(re, 1.0 - 0.0038, 1.0), wantDb = 10 * std::log10(want);
+            expect(std::fabs(got - wantDb) < 1 && db(re, 1.0 + T + 0.001, 1.0 + T + 0.005) < db(re, 0.95, 0.99) - 40,
+                   "mono retrigger fade: " + std::to_string(got) + " dB 2.7-6.5 ms in, want " + std::to_string(wantDb));
+        }
         // portamento rate 1 at time 64 (36.63 semitones per second), fingered: legato only
         const std::vector<std::pair<uint32_t, double>> porta = { { 255, 0 }, { 257, 1 }, { 258, 64 }, { 259, 0 } };
         const auto g = renderMidiNotes(porta, { { 0.0, 48, 100 }, { 0.5, 60, 100 }, { 0.6, 48, 0 } }, 1.2);
