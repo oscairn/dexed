@@ -740,6 +740,43 @@ double extShiftedRatio(double ratio, int value) {
     return std::max(0.5, ratio + d);
 }
 
+// The texture macro (Texture) picks a wave for the operators it reaches: negative values the
+// carriers, positive ones the modulators (`m8c`, `m8f`: a lone carrier at every negative value; a
+// pair at every fifth value; each render matched to the closest wave, spread and formant). By the
+// value's size, in steps of two: odd harmonics with spread 0-7 (2-17), all harmonics with spread
+// 7-1 (18-31), a sine 6.2 dB down (32-33), the formant wave at spread 0 with formant 0-7 (34-49),
+// then its spread 1-7 (50-63), then its formant up from 7 at spread 7 (64-85, matched value by
+// value). Carriers take the second odd and all harmonics waves, modulators the first.
+// shortcut: above 85 the formant rises by five per value, to silence at the top of the keyboard
+// (the reference's renders there match no wave of Octet's; at 97-99 they are nearly silent); the operator's own wave is replaced (unmeasured on operators whose
+// wave is not a sine)
+static const int8_t kTextureFormantHigh[22] = { 7, 8, 9, 11, 11, 11, 12, 15, 15, 16, 18, 18,
+                                                19, 21, 22, 23, 23, 25, 26, 27, 27, 28 }; // 64-85
+bool extTextureWave(int value, bool modulator, int &wave, int &spread, int &formant, double &db) {
+    value = clampi(value, -99, 99);
+    if (value == 0 || (value > 0) != modulator)
+        return false;
+    const int a = std::abs(value);
+    db = 0;
+    formant = 0;
+    if (a < 2) {
+        wave = 0, spread = 0;
+    } else if (a < 18) {
+        wave = modulator ? 3 : 4, spread = (a - 2) / 2;
+    } else if (a < 32) {
+        wave = modulator ? 1 : 2, spread = 7 - (a - 18) / 2;
+    } else if (a < 34) {
+        wave = 0, spread = 0, db = -6.17;
+    } else if (a < 50) {
+        wave = 6, spread = 0, formant = (a - 34) / 2;
+    } else if (a < 64) {
+        wave = 6, spread = (a - 48) / 2, formant = 7;
+    } else {
+        wave = 6, spread = 7, formant = a <= 85 ? kTextureFormantHigh[a - 64] : 28 + 5 * (a - 85);
+    }
+    return true;
+}
+
 // Portamento: every glide moves straight in semitones. Rate 1 keeps the time value's rate
 // whatever the distance; time 1 takes as long for any distance as rate 1 takes for an octave;
 // rate 2 and time 2 start at most an octave away (the engine clamps the start), then as rate 1 and

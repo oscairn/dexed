@@ -432,6 +432,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         if (o(ext::KeyOnReset))
             reset_ |= (uint8_t)(1u << i);
         const bool modulator = !((extCompiled(algorithm_).outputs >> i) & 1);
+        double textureDb = 0; // the texture macro's level change
         // frequency
         fixed_[i] = o(ext::Mode) != 0;
         double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity) + partCents;
@@ -457,6 +458,8 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             wave_[i] = std::clamp(o(ext::Wave), 0, 6);
             spread_[i] = std::clamp(o(ext::WaveSpread), 0, 7);
             formant_[i] = std::clamp(o(ext::WaveFormant), 0, 99);
+            textureDb = 0;
+            extTextureWave(macro(ext::MacroTexture), modulator, wave_[i], spread_[i], formant_[i], textureDb);
             chooseWave(i, wave_[i]);
             waveNow_[i] = wave_[i];
         }
@@ -468,8 +471,8 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         // 4 and 7, and on a stack of three modulators)
         if (modulator)
             level += macro(ext::MacroDepth) / (1 + (i == feedbackFrom ? feedback_ : 0));
-        double db = modulator ? extModLevelDb(std::clamp(level, 0, 99))
-                              : extOpLevelDb(std::clamp(level, 0, 99));
+        double db = (modulator ? extModLevelDb(std::clamp(level, 0, 99)) : extOpLevelDb(std::clamp(level, 0, 99))) +
+                    textureDb;
         db += extLevelScalingDb(midinote, o(ext::BreakPoint), o(ext::LowDepth), o(ext::HighDepth), o(ext::LowCurve),
                                 o(ext::HighCurve));
         const double velocityDb = extLevelVelocityDb(o(ext::LevelVelocity), velocity_ > 0 ? velocity_ : velocity); // (may raise the level)

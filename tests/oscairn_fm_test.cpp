@@ -1759,6 +1759,22 @@ int extendedTest() {
                 off = std::max(off, std::fabs(shifted[k] - three[k]));
         expect(off < 0.05, "ratio macro +44 on a modulator at ratio 1 plays ratio 3: " + std::to_string(off) + " dB");
         expect(withRatio({}, { { 247, 99 } }) == withRatio({}, {}), "the ratio macro leaves a carrier alone");
+        // the texture macro: negative values give carriers a wave, positive ones modulators
+        expect(withRatio({}, { { 252, -40 } }) == withRatio({}, { { 1060, 6 }, { 1062, 3 } }),
+               "texture -40 on a carrier: the formant wave at formant 3");
+        expect(withRatio({}, { { 252, -20 } }) == withRatio({}, { { 1060, 2 }, { 1061, 6 } }),
+               "texture -20 on a carrier: all harmonics 2 at spread 6");
+        expect(withRatio({}, { { 252, 40 } }) == withRatio({}, {}), "positive texture leaves a carrier alone");
+        expect(withRatio(tone, { { 252, 6 } }) == withRatio(tone, { { 1060, 3 }, { 1061, 2 } }),
+               "texture +6 on a modulator: odd harmonics 1 at spread 2");
+        expect(withRatio(tone, { { 252, -6 } }) == withRatio(tone, { { 2060, 4 }, { 2061, 2 } }),
+               "texture -6 on the pair reaches the carrier only: odd harmonics 2 at spread 2");
+        int tw = 0, ts = 0, tf = 0;
+        double tdb = 0;
+        const bool high = extTextureWave(-99, false, tw, ts, tf, tdb) && tw == 6 && ts == 7 && tf == 98;
+        const bool dip = extTextureWave(-32, false, tw, ts, tf, tdb) && tw == 0 && tdb < -6;
+        expect(high && dip && !extTextureWave(1, false, tw, ts, tf, tdb) && extTextureWave(1, true, tw, ts, tf, tdb) && tw == 0,
+               "texture table");
     }
     // -- part values and macros: each plays as the operator or filter values it stands for
     {
