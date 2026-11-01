@@ -722,11 +722,11 @@ int topologyTest() {
 // ---- the Extended profile against its measured tables ----
 
 // One note of an Extended sound: operator 1 alone (algorithm 1, every other operator silent,
-// instant envelope, release time 0) unless params say otherwise. Mono output at 48 kHz.
+// instant envelope, release time 0) unless params say otherwise. Mono output at 48 kHz unless
+// rate says otherwise.
 std::vector<float> renderExtended(const std::vector<std::pair<uint32_t, double>> &params, int key, double velocity,
-                                  double hold, double seconds, std::vector<float> *right = nullptr) {
+                                  double hold, double seconds, std::vector<float> *right = nullptr, double rate = 48000) {
     Host h(entry);
-    const double rate = 48000;
     h.activate(rate, 512);
     EventList in;
     in.events.reserve(512);
@@ -786,9 +786,9 @@ double zeroCrossingHz(const std::vector<float> &x, size_t from, size_t to, doubl
 // An Extended sound (operator 1 a carrier, release 0) playing raw MIDI note events on channel 1
 // at 48 kHz: {seconds, key, velocity (0: note-off)}.
 std::vector<float> renderMidiNotes(const std::vector<std::pair<uint32_t, double>> &params,
-                                   const std::vector<std::array<double, 3>> &notes, double seconds) {
+                                   const std::vector<std::array<double, 3>> &notes, double seconds,
+                                   double rate = 48000) {
     Host h(entry);
-    const double rate = 48000;
     h.activate(rate, 512);
     EventList in;
     in.events.reserve(512);
@@ -2250,6 +2250,171 @@ int extendedTest() {
     return failures == 0 ? 0 : 1;
 }
 
+// ---- the Extended profile at other sample rates ----
+
+// The reference was measured at 44.1 kHz; Octet runs at any rate. The same Extended cases at 44.1,
+// 48 and 96 kHz must agree on times (2 %), LFO rates (1 %), pitch (1 cent; 0.05 cent for the
+// tuning) and levels (0.5 dB; the filter 0.2 dB), the tolerances the reference comparisons use.
+int crossRateTest() {
+    int failures = 0;
+    using P = std::vector<std::pair<uint32_t, double>>;
+    struct Measure {
+        const char *what;
+        double tolerance;
+        bool relative; // a share of the 44.1 kHz value, else an absolute difference
+        std::function<double(double)> at;
+    };
+    // windowed peak level in dB, 1 ms windows, and the first window (in s) meeting a condition
+    auto peaks = [](const std::vector<float> &x, double rate) {
+        const size_t w = (size_t)(rate / 1000);
+        std::vector<double> db;
+        for (size_t i = 0; i + w <= x.size(); i += w) {
+            float m = 0;
+            for (size_t j = i; j < i + w; j++)
+                m = std::max(m, std::fabs(x[j]));
+            db.push_back(20 * std::log10(std::max(m, 1e-9f)));
+        }
+        return db;
+    };
+    auto rmsDb = [](const std::vector<float> &x, double rate, double t0, double t1) {
+        double e = 0;
+        const size_t a = (size_t)(t0 * rate), b = (size_t)(t1 * rate);
+        for (size_t i = a; i < b; i++)
+            e += (double)x[i] * x[i];
+        return 10 * std::log10(e / (double)(b - a) + 1e-30);
+    };
+    // the rate of a periodic level change: rising crossings of the level's mean, in Hz
+    auto modulationHz = [&](const std::vector<float> &x, double rate, double t0, double t1) {
+        const auto db = peaks(x, rate);
+        const size_t a = (size_t)(t0 * 1000), b = std::min(db.size(), (size_t)(t1 * 1000));
+        double mean = 0;
+        for (size_t i = a; i < b; i++)
+            mean += db[i];
+        mean /= (double)(b - a);
+        double first = -1, last = -1;
+        int n = 0;
+        for (size_t i = a + 1; i < b; i++)
+            if (db[i - 1] < mean && db[i] >= mean) {
+                const double t = (double)(i - 1) + (mean - db[i - 1]) / (db[i] - db[i - 1]);
+                if (first < 0)
+                    first = t;
+                else
+                    n++;
+                last = t;
+            }
+        return n > 0 ? n * 1000.0 / (last - first) : 0.0;
+    };
+    auto cents = [](double hz, double ref) { return 1200 * std::log2(hz / ref); };
+    const P hpf = { { 60, 7 }, { 61, 512 }, { 63, 0 }, { 85, 0 } };
+    // the filter EG's probe: a sine at note 84 through HPF12 at cutoff 628, near its frequency
+    const P feg = { { 60, 7 }, { 61, 628 }, { 63, 0 }, { 85, 0 } };
+    std::vector<Measure> m = {
+        { "level of a full carrier (dB)", 0.5, false,
+          [&](double r) { return rmsDb(renderExtended({}, 69, 1.0, 1.0, 1.0, nullptr, r), r, 0.2, 0.9); } },
+        { "pitch at key 64 (cents)", 0.05, false,
+          [&](double r) { return cents(zeroCrossingHz(renderExtended({}, 64, 1.0, 1.0, 1.0, nullptr, r), (size_t)(0.1 * r), (size_t)(0.95 * r), r), 329.6276); } },
+        { "pitch of fixed coarse 16 (cents)", 0.05, false,
+          [&](double r) { return cents(zeroCrossingHz(renderExtended({ { 1031, 1 }, { 1032, 16 } }, 60, 1.0, 1.0, 1.0, nullptr, r), (size_t)(0.1 * r), (size_t)(0.95 * r), r), 440.0); } },
+        { "decay 1 at time 60 to -20 dB (s)", 0.02, true,
+          [&](double r) {
+              const auto db = peaks(renderExtended({ { 1046, 60 }, { 1042, 0 }, { 1043, 0 } }, 69, 1.0, 3.0, 3.0, nullptr, r), r);
+              size_t i = 5;
+              while (i < db.size() && db[i] > db[5] - 20)
+                  i++;
+              return i / 1000.0;
+          } },
+        { "attack at time 50 to -1 dB (s)", 0.02, true,
+          [&](double r) {
+              const auto db = peaks(renderExtended({ { 1045, 50 } }, 69, 1.0, 2.0, 2.0, nullptr, r), r);
+              const double top = db[1900];
+              size_t i = 0;
+              while (i < db.size() && db[i] < top - 1)
+                  i++;
+              return i / 1000.0;
+          } },
+        { "hold at time 50 (s)", 0.02, true,
+          [&](double r) {
+              const auto db = peaks(renderExtended({ { 1049, 50 }, { 1044, 50 } }, 69, 1.0, 1.0, 1.0, nullptr, r), r);
+              const double top = db[900];
+              size_t i = 0;
+              while (i < db.size() && db[i] < top - 6)
+                  i++;
+              return i / 1000.0;
+          } },
+        { "2nd LFO amplitude rate at speed 30 (Hz)", 0.01, true,
+          [&](double r) {
+              return modulationHz(renderExtended({ { 42, 1 }, { 43, 30 }, { 46, 1 }, { 48, 99 }, { 1059, 7 } }, 69, 1.0, 6.0, 6.0, nullptr, r), r, 0.5, 5.9);
+          } },
+        { "2nd LFO delay 60: first dip of 3 dB (s)", 0.02, true,
+          [&](double r) {
+              const auto db = peaks(renderExtended({ { 42, 1 }, { 43, 40 }, { 45, 60 }, { 46, 1 }, { 48, 99 }, { 1059, 7 } }, 69, 1.0, 4.0, 4.0, nullptr, r), r);
+              const double top = db[20];
+              size_t i = 20;
+              while (i < db.size() && db[i] > top - 3)
+                  i++;
+              return i / 1000.0;
+          } },
+        { "part LFO rate at speed 24 (Hz)", 0.01, true,
+          [&](double r) {
+              P p = feg;
+              p.insert(p.end(), { { 210, ext::PartLfoCutoff }, { 211, 8 }, { 201, 6 }, { 202, 24 } });
+              return modulationHz(renderExtended(p, 84, 1.0, 6.0, 6.0, nullptr, r), r, 0.5, 5.9);
+          } },
+        { "key-on delay 20 (s)", 0.02, true,
+          [&](double r) {
+              const auto x = renderExtended({ { 58, 20 } }, 69, 1.0, 1.5, 1.0, nullptr, r);
+              size_t i = 0;
+              while (i < x.size() && x[i] == 0.0f)
+                  i++;
+              return i / r;
+          } },
+        { "HPF12 at cutoff 512 on note 36 against thru (dB)", 0.2, false,
+          [&](double r) {
+              return rmsDb(renderExtended(hpf, 36, 1.0, 1.0, 1.0, nullptr, r), r, 0.3, 0.9) -
+                     rmsDb(renderExtended({}, 36, 1.0, 1.0, 1.0, nullptr, r), r, 0.3, 0.9);
+          } },
+        { "LPF24D at cutoff 300 resonance 60 on the feedback tone against thru (dB)", 0.2, false,
+          [&](double r) {
+              return rmsDb(renderExtended({ { 41, 7 }, { 60, 0 }, { 61, 300 }, { 63, 60 }, { 85, 0 } }, 36, 1.0, 1.0, 1.0, nullptr, r), r, 0.3, 0.9) -
+                     rmsDb(renderExtended({ { 41, 7 } }, 36, 1.0, 1.0, 1.0, nullptr, r), r, 0.3, 0.9);
+          } },
+        { "FEG decay 1 at time 64 from +1200 cents, settled within 0.5 dB (s)", 0.02, true,
+          [&](double r) {
+              P p = feg;
+              p.insert(p.end(), { { 78, 63 }, { 74, 16 }, { 70, 64 } });
+              const auto x = renderExtended(p, 84, 1.0, 1.5, 1.5, nullptr, r);
+              // (the settled level read before the note-off)
+              const double settled = rmsDb(x, r, 1.2, 1.4);
+              double t = 0;
+              while (t < 1.4 && std::fabs(rmsDb(x, r, t, t + 0.02) - settled) > 0.5)
+                  t += 0.005;
+              return t;
+          } },
+        { "portamento at time 64 (semitones per second)", 0.02, true,
+          [&](double r) {
+              const auto g = renderMidiNotes({ { 255, 0 }, { 257, 1 }, { 258, 64 }, { 259, 0 } },
+                                             { { 0.0, 48, 100 }, { 0.5, 60, 100 }, { 0.6, 48, 0 } }, 1.2, r);
+              auto semis = [&](double t0, double t1) {
+                  return 12 * std::log2(zeroCrossingHz(g, (size_t)(t0 * r), (size_t)(t1 * r), r) / 261.6256);
+              };
+              return (semis(0.79, 0.81) - semis(0.59, 0.61)) / 0.2;
+          } },
+    };
+    for (const auto &c : m) {
+        const double base = c.at(44100);
+        for (double r : { 48000.0, 96000.0 }) {
+            const double v = c.at(r);
+            const double diff = c.relative ? v / base - 1 : v - base;
+            const bool ok = std::isfinite(v) && std::fabs(diff) <= c.tolerance;
+            std::printf("%-70s 44.1 kHz %10.4f  %3.0f kHz %10.4f  %s\n", c.what, base, r / 1000, v, ok ? "ok" : "NOT MET");
+            if (!ok)
+                failures++;
+        }
+    }
+    std::printf("Extended profile at 44.1, 48 and 96 kHz %s\n", failures ? "FAILED" : "pass");
+    return failures ? 1 : 0;
+}
+
 // ---- renders for comparing with reference recordings ----
 
 // render <out.wav> <rate> <note> <velocity 1-127> <hold s> <tail s> [id=value ...]: one note
@@ -2951,6 +3116,8 @@ int main(int argc, char **argv) {
         return threadsTest();
     if (cmd == "extended")
         return extendedTest();
+    if (cmd == "rates")
+        return crossRateTest();
     if (cmd == "render" || cmd == "render-stereo")
         return renderToWav(args, cmd == "render-stereo");
     if (cmd == "render-seq")

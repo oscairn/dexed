@@ -67,6 +67,7 @@ add_test(NAME oscairn-fm-notes COMMAND oscairn-fm-test notes ${fm_module})
 add_test(NAME oscairn-fm-state COMMAND oscairn-fm-test state ${fm_module})
 add_test(NAME oscairn-fm-topology COMMAND oscairn-fm-test topology ${fm_module})
 add_test(NAME oscairn-fm-extended COMMAND oscairn-fm-test extended ${fm_module})
+add_test(NAME oscairn-fm-rates COMMAND oscairn-fm-test rates ${fm_module})
 # the module exports nothing but its entry point
 add_test(NAME oscairn-fm-exports COMMAND ${CMAKE_COMMAND} -DNM=${CMAKE_NM} -DMODULE=$<TARGET_FILE:oscairn_fm>
     -DAPPLE=${APPLE} -P ${CMAKE_CURRENT_SOURCE_DIR}/check_exports.cmake)
