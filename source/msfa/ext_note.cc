@@ -426,7 +426,9 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     const double ratioCents =
         extPitchKeyFollowCents(v.common(ext::PitchKeyFollow), midinote, v.common(ext::PitchKeyCentre)) +
         extRandomPitchCents(v.common(ext::RandomPitch), random_);
-    const double partCents = extPartDetuneCents(v.common(ext::PartDetune)); // (shortcut: unmeasured on fixed operators)
+    // the part's detune (Hz) reaches ratio-mode operators only; an operator's own detune reaches
+    // fixed ones too, by the same table (`m10d2`: a 220 Hz fixed carrier at notes 48 and 72)
+    const double partCents = extPartDetuneCents(v.common(ext::PartDetune));
     // the part's AEG offsets (every operator; a positive attack offset reaches carriers only) and
     // the macros (modulators only), added to the operators' values
     const double aegAttack = extAegAttackScale(v.common(ext::AegAttackOffset));
@@ -445,14 +447,15 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         double textureDb = 0; // the texture macro's level change
         // frequency
         fixed_[i] = o(ext::Mode) != 0;
-        double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity) + partCents;
+        double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity);
+        detune_[i] = std::clamp(o(ext::Detune), -15, 15);
         int32_t pitch;
         if (fixed_[i]) {
-            cents += extKeyFollowCents(o(ext::KeyFollow), midinote);
+            cents += extKeyFollowCents(o(ext::KeyFollow), midinote) + extDetuneCents(o(ext::Detune), midinote);
             pitch = (int32_t)std::lround(std::log2(extFixedHz(o(ext::Coarse), o(ext::Fine))) * kQ24);
         } else {
+            cents += partCents;
             cents += extDetuneCents(o(ext::Detune), midinote) + ratioCents;
-            detune_[i] = std::clamp(o(ext::Detune), -15, 15);
             // the ratio macro: ratio-mode modulators (shortcut: unmeasured on fixed-frequency ones)
             double ratio = extRatio(o(ext::Coarse), o(ext::Fine));
             if (modulator)

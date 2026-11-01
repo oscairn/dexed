@@ -884,6 +884,14 @@ int extendedTest() {
         for (int key : { 36, 60, 96 })
             pitchCase({ { 1034, d } }, key, 1.0, noteHz(key) * std::pow(2.0, extDetuneCents(d, key) / 1200),
                       "detune " + std::to_string(d) + " key " + std::to_string(key));
+    // a fixed-frequency operator takes its own detune (by the key, as a ratio one) but not the part's
+    for (int key : { 48, 72 }) {
+        pitchCase({ { 1031, 1 }, { 1032, 15 }, { 1034, 15 } }, key, 1.0,
+                  extFixedHz(15, 0) * std::pow(2.0, extDetuneCents(15, key) / 1200),
+                  "fixed detune 15 key " + std::to_string(key));
+        pitchCase({ { 1031, 1 }, { 1032, 15 }, { 245, 127 } }, key, 1.0, extFixedHz(15, 0),
+                  "part detune leaves a fixed operator alone, key " + std::to_string(key));
+    }
     for (int c : { 0, 3, 9, 20 })
         for (int f : { 0, 64, 127 }) {
             const double hz = extFixedHz(c, f);
