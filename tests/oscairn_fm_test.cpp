@@ -1763,6 +1763,71 @@ int renderToWav(const std::vector<char *> &args, bool stereo) {
     return f ? 0 : 1;
 }
 
+// render-seq <out.wav> <rate> <length s> [event ...] [id=value ...]: a sequence on channel 1 as a
+// stereo 32-bit float WAV. Events (t in seconds): on@t:key:velocity off@t:key cc@t:number:value
+// pb@t:value (0-16383). The notes are MIDI events, as the reference recorder sends them.
+int renderSeqToWav(const std::vector<char *> &args) {
+    if (args.size() < 5)
+        return 2;
+    const char *path = args[2];
+    const double rate = std::atof(args[3]);
+    const size_t total = (size_t)std::llround(std::atof(args[4]) * rate);
+    struct Ev { size_t frame; uint8_t b[3]; };
+    std::vector<Ev> evs;
+    Host h(entry);
+    h.activate(rate, 512);
+    EventList in;
+    in.events.reserve(1024);
+    for (size_t i = 5; i < args.size(); i++) {
+        const char *at = std::strchr(args[i], '@');
+        if (at != nullptr) {
+            const std::string kind(args[i], (size_t)(at - args[i]));
+            double t = 0;
+            int a = 0, b = 0, n = 0;
+            if (kind == "on" && std::sscanf(at + 1, "%lf:%d:%d%n", &t, &a, &b, &n) == 3)
+                evs.push_back({ (size_t)std::llround(t * rate), { 0x90, (uint8_t)a, (uint8_t)b } });
+            else if (kind == "off" && std::sscanf(at + 1, "%lf:%d%n", &t, &a, &n) == 2)
+                evs.push_back({ (size_t)std::llround(t * rate), { 0x80, (uint8_t)a, 0 } });
+            else if (kind == "cc" && std::sscanf(at + 1, "%lf:%d:%d%n", &t, &a, &b, &n) == 3)
+                evs.push_back({ (size_t)std::llround(t * rate), { 0xb0, (uint8_t)a, (uint8_t)b } });
+            else if (kind == "pb" && std::sscanf(at + 1, "%lf:%d%n", &t, &a, &n) == 2)
+                evs.push_back({ (size_t)std::llround(t * rate), { 0xe0, (uint8_t)(a & 127), (uint8_t)((a >> 7) & 127) } });
+            else
+                return 2;
+            continue;
+        }
+        const char *eq = std::strchr(args[i], '=');
+        if (eq == nullptr)
+            return 2;
+        in.param(0, (clap_id)std::atol(args[i]), std::atof(eq + 1));
+    }
+    std::stable_sort(evs.begin(), evs.end(), [](const Ev &x, const Ev &y) { return x.frame < y.frame; });
+    h.process(512, in);
+    in.clear();
+    std::vector<float> out;
+    out.reserve((total + 512) * 2);
+    size_t next = 0;
+    for (size_t done = 0; done < total; done += 512) {
+        for (; next < evs.size() && evs[next].frame < done + 512; next++)
+            in.midi((uint32_t)(evs[next].frame - done), evs[next].b, 3);
+        h.process(512, in);
+        in.clear();
+        for (size_t i = 0; i < 512; i++) {
+            out.push_back(h.left[i]);
+            out.push_back(h.right[i]);
+        }
+    }
+    out.resize(total * 2);
+    std::ofstream f(path, std::ios::binary);
+    auto u32 = [&](uint32_t v) { f.write((const char *)&v, 4); };
+    auto u16 = [&](uint16_t v) { f.write((const char *)&v, 2); };
+    const uint32_t bytes = (uint32_t)(out.size() * 4);
+    f.write("RIFF", 4); u32(36 + bytes); f.write("WAVEfmt ", 8); u32(16); u16(3); u16(2);
+    u32((uint32_t)rate); u32((uint32_t)rate * 8); u16(8); u16(32); f.write("data", 4); u32(bytes);
+    f.write((const char *)out.data(), bytes);
+    return f ? 0 : 1;
+}
+
 // ---- sound contexts ----
 
 struct Instrument {
@@ -2268,6 +2333,8 @@ int main(int argc, char **argv) {
         return extendedTest();
     if (cmd == "render" || cmd == "render-stereo")
         return renderToWav(args, cmd == "render-stereo");
+    if (cmd == "render-seq")
+        return renderSeqToWav(args);
     if (cmd == "topology")
         return topologyTest();
     if (cmd == "contexts")
