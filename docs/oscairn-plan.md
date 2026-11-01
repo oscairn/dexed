@@ -919,6 +919,17 @@ These answer the seven questions this section used to list.
    first, then their own stored tuning (FM-X micro tuning as Scala data in the state), then
    MTS-ESP, then 12-TET. The desktop Dexed keeps MTS-ESP. Not part of M4.
 
+**Answers on the implementation decisions (Jacob, 2026-11-01)**
+
+The decisions taken while implementing are listed under M4 in section 11; each answer is marked
+there. Confirmed as unmeasured choices: 5, 19's negative time key follow mirroring, 31, 43, 45-47,
+49, 50, 52, 54, 56, 58, 61, 66 and 67's unmeasured parts. Confirmed as measured matches: 11, 12, 22,
+24, 36, 38, 42, 48, 51, 55, 59, 62, 63, 66 and the measured parts of 44-67. 14: keep macOS 15 for
+CI. 17 (resonance overload not modelled) and 20 (FEG segments straight in cents): known differences
+to look at later. 40 waits on the voice-stealing decision (Oscairn RFC 0018, Q4). Acted on in the
+thirteenth session: 2, 3, 10, 18 and 19's time velocity (decisions 69-75); listening examples for 7,
+17 and 20 are in `forks/measurements/listen/` (renders, not committed). The others stay open.
+
 **Notes from implementation**
 
 - The desktop Dexed, when loaded (also by `oscairn-render`), creates
@@ -1099,7 +1110,7 @@ measurement `a126d92`, `6b83d7b`.
   feedback). `fm/compare.py` runs the same analysis on reference and Octet renders of every
   case and checks `fm/tolerances.json`. Every pitch the reference plays is +0.91 cents sharp
   (ratio 1 at several notes; fixed mode +0.66); the comparison renders add +0.91 cents of
-  master tune, the engine keeps standard tuning.
+  master tune, the engine keeps standard tuning (replaced by decision 74: the offset depends on the pitch class and is now in the engine).
 
 **Gate status** (as measured on 2026-10-31; "pending" means the reference renders were still
 queued on the shared recorder when this was written):
@@ -1162,7 +1173,9 @@ ARM64 hardware is still not measured.
    the range matches; Classic Transpose and the settings (100-199) apply to both profiles.
 2. The operator Pitch Velocity Sensitivity had no audible effect in the reference (-7..+7 at
    depths -64 and +63); it is kept as a parameter and not applied.
+    *Resolved in the thirteenth session: the sensitivity moves fixed-frequency operators only (decision 73).*
 3. The reference's +0.91 cent tuning is not copied into the engine (standard tuning in M4).
+    *Resolved in the thirteenth session: the reference's tuning depends on the pitch class; Extended sounds now play it (decision 74).*
 4. Back to Classic only when: the algorithm is the image of a DX7 algorithm with the other two
    operators silent; one key-on reset and one LFO pitch depth offset for all operators; no
    hold, operator pitch EG, pitch velocity, key follow or negative velocity; amplitude depth
@@ -1172,12 +1185,14 @@ ARM64 hardware is still not measured.
    values; measured and replaced in the fifth session, see M7), time key follow, LFO depth offsets, LFO delay; the LFO start phase is taken as the
    start of the drawn wave. (The 2nd LFO's depths, offsets, delay and start phase were measured
    and replaced in the seventh session, see M7 and decisions 46-48.)
+    *Confirmed (Jacob, 2026-11-01).*
 6. The init sounds are named "Classic Init" and "Extended Init" (no product names).
 7. Measured differences Octet keeps on purpose (second session): the operator waves are
    band-limited (the reference's are not, and alias audibly at the top of the keyboard), and a
    formant wave whose centre is above Nyquist is silent (the reference plays a non-harmonic
    tone near Nyquist there). Both are departures from the reference's behaviour; the gate's
    aliasing bound asks for the first, the second follows from it.
+    *Listening examples for Jacob in `forks/measurements/listen/` (thirteenth session); still to confirm.*
 8. Operator wave names: Wave (Sine, All harmonics 1, All harmonics 2, Odd harmonics 1, Odd
    harmonics 2, Formant 1, Formant 2), Spread, Formant (parameters 1000 n + 60..62).
 9. The wave tables take 7.7 MB (10.6 MB with decision 57), built once per process in SynthEngine's constructor (the
@@ -1187,18 +1202,22 @@ ARM64 hardware is still not measured.
     level of the reference's probes; the absolute level may also include the probes' Part and
     master volume, so Jacob may prefer another overall level (normalising to the loudest
     algorithm instead would make algorithm 1 7 dB quieter than the reference).
+    *Replaced in the thirteenth session (decision 69): the 6.57 dB was the probes' Part Volume and pan.*
 11. A modulator's level follows its own measured curve (0.75 dB per step, audible down to
     level 6), different from a carrier's; an operator is a modulator when its algorithm does
     not route it to the output (no algorithm does both).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 12. Operator waves 1 and 2 carry a constant (they run from 0 to their peak) because the
     reference's modulators show it; as carriers the constant reaches the output only as a DC
     step that Dexed's output DC filter removes (the reference's own output highpass does the
     same). A carrier-only offset-free version would be indistinguishable after that filter.
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 13. The reference's output highpass (about 10.3 Hz, first order) is not copied; Dexed's DC
     filter (about 20 Hz) stays for Extended sounds too, 1 dB lower at 33 Hz (note 24).
     Reversed in the fifth session (decision 38).
 14. CI: the macOS job of `oscairn-tests` now runs on macos-15 (GitHub's macos-14 brownout);
     `dexed-pipeline` is left as upstream has it.
+    *Jacob, 2026-11-01: keep macOS 15 for CI.*
 15. Filter type values (M6): Octet's Type parameter (60) numbers the 19 types 0-18 in the
     documented order (18 Thru, the default); the reference's own values skip 9, 18 and 20
     (0-8, 10-17, 19, 21), so the converter maps them. The choices are shown with the
@@ -1209,25 +1228,31 @@ ARM64 hardware is still not measured.
     an output full of harmonics); Octet does not model that, it only bounds the filter's
     states. Its filter runs in floating point after the operators; Extended voices are no
     longer rounded to 16 bits (decision 32).
+    *Jacob, 2026-11-01: recorded as a known difference, to look at later (listening examples in `forks/measurements/listen/`).*
 18. Filter coefficients and the filter EG are updated once per 64-sample block, ramping the
     coefficients linearly across it (the FEG's fastest measured segments, 0-20, are instant
     in the reference and take one block in Octet).
+    *Explained and kept in the thirteenth session (decision 75).*
 19. FEG time velocity sensitivity is kept as a parameter and not applied (the reference made
     a segment instant at velocity 127 with both -64 and +63; unresolved); negative FEG time
     key follow mirrors the positive rule, though the reference measured shorter there too.
+    *Negative time key follow mirroring the positive rule: confirmed (Jacob, 2026-11-01). Time velocity sensitivity: resolved and applied in the thirteenth session (decision 72).*
 20. Octet's FEG segments run straight in cents; the reference's bend slightly (up to about 90
     cents along a 1200-cent segment).
+    *Jacob, 2026-11-01: recorded as a known difference, to look at later (listening examples in `forks/measurements/listen/`).*
 21. A sound whose filter is not Thru at gain 255 does not convert back to Classic (Dexed's
     output filter is a plugin setting, not part of the sound).
 22. Carrier feedback (found in M6): the feedback amount fitted in M4 now acts on a carrier's
     signal before the reference's output level, which `312febe` added later and which had
     halved the feedback (decision 10's level applies to the output only).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 23. Common pitch EG (fourth session): parameters 28-39 under Extended/Pitch EG, depth shown as
     "8 octaves" ... "0.5 octave". A sound whose common pitch EG levels are not all 0 does not
     convert to Classic, and "convert to Extended" does not map the DX7 pitch EG onto it (it
     could, approximately; not done).
 24. Depth velocity sensitivity scales the common pitch EG's rates as well as its levels, so
     segment times stay the same at every velocity (measured at one point: 1.35 % off).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 25. Pitch key follow (56) stores the documented value 0-127 and shows the percent each value
     plays, unlike cutoff key follow's signed steps (decision 16), because its percent steps
     are uneven. Centre (57) is a MIDI note, C3 = 60 by default.
@@ -1255,8 +1280,9 @@ ARM64 hardware is still not measured.
 31. The part LFO's envelope (delay, fade in, hold, fade out) restarts whenever its phase resets,
     and on a first key-on when key-on reset is off (unmeasured); a sound with a part LFO
     destination that has depth does not convert to Classic.
+    *Confirmed (Jacob, 2026-11-01).*
 32. Extended voices skip Dexed's 16-bit rounding of each voice (fifth session): each voice's
-    output goes to the mix in floating point (full scale unchanged, clipped at +-1). Classic
+    output goes to the mix in floating point (full scale unchanged, clipped at +-1); no longer clipped since decision 70. Classic
     voices keep the rounding, so Classic output is bit-identical. Reason and numbers: the
     filter gate below.
 33. Part values (M7) are Extended parameters 235-245 under Extended/Part (velocity sensitivity
@@ -1271,6 +1297,7 @@ ARM64 hardware is still not measured.
 36. Mod Depth cannot raise a modulator past level 99, in Octet as in the reference (`m7e`: a
     static pair at levels 60, 80 and 99 with the macro taking it to 99-147 plays exactly as
     level 99, 20 cases within 0.16 dB rms).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 37. Extended sounds bend by the part's signed ranges, Pitch Bend Upper and Lower (253, 254,
     -48..+24 semitones, defaults +2 and -2, the documented values), not by the plugin's Pitch
     Bend Up/Down settings; the plugin's bend step setting, when on, still quantises as in
@@ -1278,6 +1305,7 @@ ARM64 hardware is still not measured.
 38. Extended sounds' output filter uses the reference's highpass (first order, 10.3 Hz) in place
     of Dexed's DC filter; Classic sounds keep Dexed's exactly (the contexts switch it with their
     profile).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 
 39. Mono/poly, key assign and portamento of Extended sounds are part parameters 255-260 under
     Extended/Part (Mono/Poly, Key Assign, Portamento, Portamento Time, Portamento Mode, Portamento
@@ -1290,6 +1318,7 @@ ARM64 hardware is still not measured.
 40. Mono keeps Dexed's structure: each held key keeps a pool voice and only one is live, so voice
     stealing across the pool is unchanged (question 4). For that decision: a held mono key whose
     voice another sound steals cannot be returned to when the sounding key is released.
+    *Jacob, 2026-11-01: waits on the voice-stealing decision (Oscairn RFC 0018, Q4).*
 41. A mono note without portamento, and a key played again with key assign Single, fade the
     sounding note out and start the new note from silence when the fade ends. The fade's length
     follows the carriers' slowest attack time: none at 0, 2, 5 and 13 ms at 20, 40 and 60 (`m7g`,
@@ -1300,21 +1329,25 @@ ARM64 hardware is still not measured.
 42. A MIDI key pressed n times while held needs n note-offs, then releases every voice it holds
     (measured, Single and Multi). CLAP note-offs keep their matching: by note ID per note, and a
     note-off for a key without an ID releases every held voice of that key at once.
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 43. Unmeasured, chosen: returning to a held key in mono draws new random pitch and pan values and
     counts as a new note for alternate pan; portamento moves ratio-mode operators only, like the
     common pitch EG (fixed-frequency operators keep their frequency); the band-limited wave is not
     chosen again during a glide (the existing shortcut). (Seventh session, `m7k`: a fixed-frequency
     carrier keeps its frequency through a legato glide in the reference too.)
+    *Confirmed (Jacob, 2026-11-01).*
 44. Random pitch and random pan (replaces the distribution part of decision 26, from `m7f`, 32-128
     notes per depth): random pitch is a uniform value within depth / 4 steps of 18.75 cents either
     way, cut towards 0 (depth 4 never moves); random pan is uniform within depth / 2 positions
     either way. Not modelled: the reference's one extra step down at depths 32-127, its narrower
     spread at pan depth 127 (standard deviation 28 positions against uniform's 36) and its left lean.
+    *Measured parts confirmed (Jacob, 2026-11-01); the unmeasured choices stay open.*
 45. Fractional part velocities (revises decision 35's rounding): the operator level velocity
     takes the velocity with its fraction (the reference plays it between its neighbours, and below 1
     down to 1/4 by +7's measured curve; at 1/4 and below +7 is silent); every other velocity-dependent
     value still takes the rounded velocity (unmeasured). Positive sensitivities follow +7's curve,
     measured at velocities 1-6 and 8 in this campaign, in proportion between velocities 1 and 8.
+    *Confirmed (Jacob, 2026-11-01).*
 46. The 2nd LFO runs per voice in Extended sounds (seventh session, measured): each note runs its
     own copy of the sound's LFO, stepped per sample in the note, with its own delay; Classic sounds
     keep Dexed's one LFO per sound. Chosen where unmeasured: a note without key-on reset takes the
@@ -1324,6 +1357,7 @@ ARM64 hardware is still not measured.
     returned-to mono key starts its own. CPU: each Extended voice now steps an LFO per sample, as
     each sound did before (not measured on the target hardware). The part LFO stays one per sound
     (measured as such in the sixth session).
+    *Confirmed (Jacob, 2026-11-01).*
 47. The 2nd LFO depths are the reference's (seventh session): pitch twice the DX7's, depth 99 as
     256, offsets 4-7 deeper than the DX7's sensitivities; amplitude straight in dB from the LFO's
     top, 0.375 dB steps by depth from a measured table and eighths by offset. The mod wheel's
@@ -1331,37 +1365,44 @@ ARM64 hardware is still not measured.
     takes the larger of the LFO's and the wheel's level loss. "Convert to Extended" (and back) picks
     the pitch depth that swings as far with the same offset; the amplitude depth and its offsets
     still convert value for value (approximate: the curves differ).
+    *Confirmed (Jacob, 2026-11-01).*
 48. The 2nd LFO's phase 0 starts half a cycle into the waves as Dexed's LFO draws them (measured for
     every wave and phase), and its delay fades in at the hold's rate (measured). The filter depth
     keeps its measured direction (the reference's triangle starts at the cutoff's highest point).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 49. The part AEG attack offset multiplies every attack time by 2^(offset / 4), held within attack
     times 0-99 (a positive offset on carriers only, as before), and the sustain offset follows a
     table of measured moves at even offsets from -22 to +32 (odd offsets halfway between, 1.5 per
     step beyond -22, unmeasured); decay and release offsets keep 1.5 values per step (seventh
     session, `m7h`).
+    *Confirmed (Jacob, 2026-11-01).*
 50. Key-on delay in mono legato with portamento (seventh session, `m7k`, measured): the legato note
     takes over the sounding note's key-on delay, so it sounds at once when that note has started and
     when that note would have started while it still waits (Octet used to give the legato note a
     delay of its own, with silence in between). The common pitch EG carries on through a legato
     note in the reference as Octet already did. Mono without portamento, which starts the note
     again, keeps a delay of its own (unmeasured).
+    *Confirmed (Jacob, 2026-11-01).*
 51. A modulator's EG levels (eighth session, `m8a`, measured): they step as its operator level does
     on the modulator curve (0.75 dB per step), so operator level and EG level add as values (level 70
     at EG 85 plays as level 56 at EG 99), in steps of two (an even EG level plays as the odd one
     above it). Carriers keep the measured carrier EG curve (whether carriers' EG levels also step in
     twos was not checked).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 52. Ratio Shift (eighth session, `m8b`, `m8d`): a table of the ratio the reference plays at nine
     ratios (0.5, 1, 1.5, 2, 3, 4, 5, 8, 16) and 79 macro values (every third and every eleventh),
     straight between them; above ratio 16 the offset at 16. Carriers are not shifted (measured);
     fixed-frequency modulators are not shifted either (unmeasured: the probe's fixed frequency was too
     low to read). The reference's curve is not smooth between the measured values (up to 5.7 cents
     off at independent values in between, see M7).
+    *Confirmed (Jacob, 2026-11-01).*
 53. Texture (eighth session, `m8c`, `m8f`): a wave by the macro's size, in steps of two (listed at
     `extTextureWave`); negative values reach carriers, positive ones modulators; carriers take the
     second all and odd harmonics waves and modulators the first. Chosen where unmeasured: the texture
     replaces the operator's own wave (only sine operators were measured); above 85 the formant rises
     by five per value to silence (the reference's renders there match no wave of Octet's; decision
     7); values 32-33 play a sine 6.2 dB down on modulators as measured on carriers.
+    *Measured parts confirmed (Jacob, 2026-11-01); the unmeasured choices stay open.*
 54. The retrigger (replaces decision 41; eighth session, `m8e`, measured with the two notes two octaves
     apart so each note's level reads on its own): the new note starts at once, attacking from
     silence, while the sounding note fades out over 13.3 ms with a gain of the square of the time
@@ -1370,27 +1411,33 @@ ARM64 hardware is still not measured.
     the fade above attack 60 is taken as the same. A key played again with key assign Single and a
     mono return to a held key use the same fade (unmeasured). Octet's fade runs about 1 ms ahead of
     the reference's in its first 10 ms (-13 against -9 dB 6 ms after each falls 1 dB).
+    *Confirmed (Jacob, 2026-11-01).*
 55. Waves 1 and 2 start half a cycle on, at their minimum (ninth session, `m9a`, measured): as
     modulators of a sine `spec5` could not tell this from the third session's start at the peak; as
     carriers of a sine the two differ and the reference's is this one.
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 56. A modulated formant wave plays window(t + m) sin(centre t + m) (ninth session, `m9a`, measured):
     the centre's sine takes the modulation once. The kernel hands each operator's wave its phase and
     its modulation (modulators plus feedback) apart; feedback on a formant or odd wave operator takes
     the same path as a modulator's input (unmeasured).
+    *Confirmed (Jacob, 2026-11-01).*
 57. A modulated odd-harmonic wave (3, 4) plays E(2t + m) sin(t + m), the wave being E(2t) sin(t)
     (ninth session, `m9a`, measured). The engine builds E for each odd wave and spread in the same
     band-limited versions as the wave tables, 2.9 MB more (10.6 MB in all, shared by every
     instance); the wave tables of waves 3-4 are kept (the test of where the waves sit reads them),
     though the kernel no longer plays them.
+    *Measured parts confirmed (Jacob, 2026-11-01); the unmeasured choices stay open.*
 58. Rising envelope segments (ninth session, `m7a`, measured on decay 2 rising to 99 on a modulator
     and a carrier): every rising segment, not only the attack, approaches 1.52 dB above full level
     exponentially in dB at its own rate. Unmeasured, taken the same: a rise to a level below 99 and
     a rising release. Only the attack starts at most 56.3 dB below full level (unmeasured for the
     others).
+    *Confirmed (Jacob, 2026-11-01).*
 59. A carrier's EG levels go in steps of two from 20 up, like a modulator's (ninth session, `m9b`,
     measured, replaces the carrier half of decision 51): the m9b table at the odd level (98 plays as
     99). Below 20 the earlier carrier table (its 12-19 values were measured one by one and do not
     pair cleanly).
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 60. The texture macro starts from an operator's own wave (tenth session, `m7a` wave probe and
     `m10t`, measured): a wave on the macro's path has a place there (waves 3-4 at +-(2 + 2 spread),
     waves 1-2 at +-(32 - 2 spread), the formant path's places for formant 2; the plus sign for
@@ -1398,24 +1445,29 @@ ARM64 hardware is still not measured.
     so sine operators play as before. Chosen where unmeasured: formant 1 and formant 2 off the path
     are replaced as a sine's are, and formant 2's places on the path are taken from the table
     without a check.
+    *Measured parts confirmed (Jacob, 2026-11-01); the unmeasured choices stay open.*
 61. The 2nd LFO's amplitude loss bends below about -45 dB as a carrier's EG levels do (tenth
     session, `m7l`, measured at depth 99 offsets 3 and 4; the curve is `m9b`'s): the offset 7 table
     stays the swing as played (its inverse gives the straight loss), offsets share the straight
     loss in eighths, and the result goes through the bend. Unmeasured, chosen: the bend acts on the
     LFO's loss alone (not on the sum with the EG level) and on modulators as on carriers.
+    *Confirmed (Jacob, 2026-11-01).*
 62. Detune on fixed-frequency operators (tenth session, `m10d2`, measured): the operator's own
     detune moves them by the same cents as a ratio-mode operator at that key; the part's detune
     (Hz) does not reach them.
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 63. Formant 2's window components past the main lobe's null are negative (eleventh session, from
     the phases of the `spec2` and `spec4` renders, which agree on where the sign turns within one
     component; checked on `spec`, `spec5`, `m9a`, `m8c`, `m8f`, `m7a`). The tables keep each
     component's real part, so components near the null, whose phase lies between, are scaled down.
+    *Confirmed as a measured match (Jacob, 2026-11-01).*
 64. Portamento moves in steps (eleventh session, `m7f`, `m7g`, measured with
     `fm/glide_steps.py`): one every 440 samples at 44.1 kHz (9.977 ms), each the time value's rate
     times that period, the first at the glide's start. Unmeasured, chosen: the step clock starts with
     each glide (the sequence recorder's timing cannot show whether the reference's runs freely), and
     the period is the same time at every sample rate. The rate table is unchanged (its values at
     times 1-8 are 0.5-0.9 % above the step readings; within the 2 % tolerance).
+    *Measured parts confirmed (Jacob, 2026-11-01); the unmeasured choices stay open.*
 65. The CPU benchmark (`oscairn-fm-test bench`) is informational: the plan sets no CPU budget, so it
     is not a gate. CI prints it on the three Release jobs.
 66. Portamento's step clock runs freely (twelfth session, `m7f`, measured with `fm/glide_grid.py`;
@@ -1425,6 +1477,7 @@ ARM64 hardware is still not measured.
     other sample rates the period stays 9.977 ms on Octet's own 64-sample blocks (the reference was
     only measured at 44.1 kHz). The reference's clock phase against a note is not known for a render,
     so glide comparisons of few steps depend on where the ticks fall.
+    *Confirmed, measured and unmeasured parts (Jacob, 2026-11-01).*
 67. The texture macro's path (twelfth session; replaces decision 53's choice of formant 2 on both
     sides, decision 53's value-by-value formants above 63 and the shortcut above 85, and decision 60's
     "formant waves off the path are replaced as a sine's"): the plus side (modulators' values from a
@@ -1437,8 +1490,90 @@ ARM64 hardware is still not measured.
     below Nyquist) the reference's strongest harmonic is the new formant's centre in 32 (one harmonic
     above it at -64), the earlier formants' in 11; Octet's own strongest harmonic now agrees in 32
     (was 14). Unmeasured: the wrap, and places of off-path formant waves.
+    *Confirmed, measured and unmeasured parts (Jacob, 2026-11-01).*
 68. No refactor for upstream merges (twelfth session, section 8): the Extended hooks stay in
     `dx7note.*` and `lfo.*`; the conflict that occurs is the headless split's, ported by hand.
+
+69. Extended voices play at the reference's own level (thirteenth session, `m13v`, measured): the
+    6.57 dB of decision 10 was the probes' Part Volume 100 (4.13 dB under 127) and centred Part Pan
+    (3.01 dB under a hard pan on its side). Both belong to the performance, so the converter maps
+    them and the engine does not: a full-level carrier in algorithm 1 is now 0.42 dB above a Classic
+    carrier (level 99 sine at note 60: -24.63 -> -17.64 dBFS peak; Classic -18.08). Inside the voice
+    the old level stays (the int32 buffer and the filter's bounds keep their headroom); the mix
+    raises Extended voices by 6.99 dB (`kExtendedVoiceGain`). The reference's level stages, for the
+    converter (dB against 127, sine probe; velocity 1-127, Part Velocity Sensitivity Depth 0-127 and
+    the master EQ switch change nothing at operator level velocity 0):
+
+    | value | Part Volume | Performance Volume | 40 log10(v / 127) |
+    | ---: | ---: | ---: | ---: |
+    | 1 | -84.30 | silent | -84.08 |
+    | 8 | -48.03 | -48.80 | -48.01 |
+    | 16 | -36.03 | -36.76 | -35.99 |
+    | 24 | -28.89 | | -28.94 |
+    | 32 | -24.01 | -24.01 | -23.97 |
+    | 40 | -20.26 | | -20.07 |
+    | 48 | -16.88 | -17.25 | -16.90 |
+    | 64 | -12.01 | -12.00 | -11.91 |
+    | 80 | -7.88 | -8.25 | -8.03 |
+    | 96 | -4.88 | -4.87 | -4.86 |
+    | 100 | -4.13 | -4.50 | -4.15 |
+    | 104 | -3.38 | | -3.47 |
+    | 112 | -2.25 | -2.62 | -2.18 |
+    | 120 | -1.13 | -1.13 | -0.99 |
+
+    The two volumes add (Part 127 with Performance 64: -7.88 against 100/127, as -12.00 + 4.13). Part
+    Volume's measured values all lie on 0.375 dB steps. Dry Level: 0 silent, 64 -6.02, 100 -2.26 dB. Part Pan is
+    equal-power: centre -3.01 dB on each side against hard pan, 0 left +3.01 / right silent, 32 left
+    +2.34 / right -5.47 against centre (96 the mirror). The engine's own pans (alternate, scaling,
+    random) keep their measured law with no centre dip (decision 29).
+70. Extended voices are no longer clipped at full scale on their way to the mix (thirteenth session):
+    at the new level the loudest algorithms pass it (the topology test failed with the clip). The
+    reference's output does clip at full scale, after part volume and pan: `m7a` fr96 and fr127 (a
+    resonant peak 26 dB over thru) peak at exactly 0 dBFS in its renders and Octet's voice used to
+    clip at the same point by Dexed's per-voice clip; they now differ by 13.86 dB. For Jacob: whether
+    the output clip belongs to Octet or to the host's mixer (chosen: the mixer).
+71. Sample rates (thirteenth session): `oscairn-fm-test rates` (CTest `oscairn-fm-rates`) checks
+    Extended level, pitch, EG times, the 2nd LFO's rate and delay, the part LFO's rate, key-on delay,
+    two filter types, an FEG decay and portamento at 44.1, 48 and 96 kHz against each other within
+    the reference comparisons' tolerances; all agree and nothing was found still counted in 44.1 kHz
+    samples. Verified against the reference only at 44.1 kHz (the recorder runs there, as the
+    hardware does internally): everything in the comparison tables. Behaviours that change with the
+    rate by design: the waves' band-limiting and the silence of formants above Nyquist (decision 7)
+    follow the running rate's Nyquist, so above 44.1 kHz the top notes keep harmonics the reference
+    cannot play; the filter's cutoff limit is the reference's 7.35 kHz (a sixth of 44.1 kHz) at every
+    rate, and its Chamberlin sections, matched in Hz, warp differently near that limit at other rates
+    (checked at cutoffs 300 and 512 only); the FEG and filter coefficients follow 64-sample blocks of
+    the running rate, and portamento steps land on them; the retrigger fade and the reference's
+    tuning offsets were measured at 44.1 kHz only.
+72. FEG time velocity sensitivity (thirteenth session, `m13f`, measured, replaces the time velocity
+    half of decision 19): a positive sensitivity moves the time value by sensitivity x (velocity - 1)
+    / 127; any negative sensitivity makes the chosen segments instant above velocity 1. The segment
+    value picks attack, attack and decay, decay, attack and release, or all (measured for the attack
+    and decay 1). Unmeasured, chosen: velocities 2-15 with negative values, decay 2 going with decay 1,
+    the release with "Atk+Rls" and "All", and the hold never moving.
+73. The operator Pitch Velocity Sensitivity (thirteenth session, `m13q`, measured, replaces decision
+    2) moves fixed-frequency operators only, straight in velocity from 64: 73.75, 147.7, 304.05,
+    904.15 and 1504.05 cents at velocity 127 for 1, 2, 3, 5 and 7 (negative values mirror); 4 and 6
+    halfway (unmeasured). The earlier probes used ratio-mode operators, which it does not move.
+74. Tuning (thirteenth session, `m13t`, `m13u`, measured, replaces decision 3): the reference plays
+    each pitch class slightly sharp of equal temperament (C +0.909, C# +1.671, D +1.107, D# +0.763,
+    E +1.627, F +1.317, F# +0.896, G +1.380, G# +1.263, A +0.665, A# +1.548, B +1.300 cents), the same
+    in every octave; fixed frequencies 0.775 cents above the 440 Hz grid on average (+0.59 to +0.97
+    by fine value). Extended sounds now play these (engine behaviour: constant across velocity and
+    ratio, not a master tune; the analog engine's renders are exact); the comparison renders no
+    longer add +0.91 cents of master tune. Not modelled: about +-0.2 cent left between the measured
+    points (ratio 3 at A plays 0.11 cent above ratio 1). Whether the offsets change with the host's
+    sample rate could not be measured (the recorder runs at 44.1 kHz).
+75. The filter and its EG stay updated once per 64-sample block (thirteenth session, decision 18
+    explained). Why: each block's coefficients take the cutoff's exponential, a sine and the damping
+    limits per section (and the FEG's step); doing that every sample instead of once per 64 adds it
+    to every sample of every voice (not measured), while straight ramps across the block cost one
+    addition per coefficient. The cost in sound: a segment the reference plays
+    instantly (times 0-20) takes one block (1.45 ms at 44.1 kHz) in Octet. Tried in a local build
+    (not committed): stepping the coefficients at once when the FEG takes an instant segment. The
+    reference's own instant segments arrive about 2 ms after Octet's, so the step made Octet's holds
+    earlier still: fm/compare_feg.py on `feg2` went from 91 to 82 of 92 (ht4-ht36 about 2.2 ms early
+    against the 2 ms floor). Kept as it is.
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
@@ -2359,6 +2494,48 @@ renders.
   the formant numbers now put Octet's strongest harmonic where the reference's is (32 of 33, was 14),
   so what is left there is the spread 7 window's shape (M5).
 - **Not looked into again, time-boxed:** the fast glides above; the 2nd LFO and other M7 open items.
+
+### Thirteenth session (2026-11-01): Jacob's answers, levels, tuning, velocity, sample rates
+
+Jacob's answers on decisions 1-68 are marked in the list above and summarised in section 10. New
+decisions 69-75. Renders in `forks/measurements/m4/` (never committed): `m13v` (42: level stages),
+`m13t` (28) and `m13u` (185: tuning), `m13p` (29) and `m13q` (71: pitch velocity), `m13f` (95: FEG
+time velocity), `m13l` (40: listening material); listening examples in `forks/measurements/listen/`
+(decisions 7, 17, 20; README there; renders, not committed). Comparison renders
+(`m4/octet_render.py`) now set the probes' part volume and pan as Output (-7.136 dB) and no longer
+add master tune.
+
+- **Level** (decision 69): Extended voices play 6.99 dB louder at the mix, the reference's level
+  without its part volume and pan; the measured volume, dry level and pan curves are recorded for
+  the converter. Extended voices are no longer clipped per voice (decision 70).
+- **FEG time velocity** (decision 72): against `m13f`, 65 of 82 durations within 2 % or 2 ms (18
+  before).
+- **Operator pitch velocity** (decision 73): fixed-frequency operators only; against `m13q`, 71 of
+  71 within 1 cent (9 before).
+- **Tuning** (decision 74): per pitch class; `m13u` 155 -> 185 of 185 within 0.25 cent (mean 0.155
+  -> 0.064 cent), `m13t` mean 0.185 -> 0.067 cent; fm/compare.py pitch and pitch2 unchanged (37 and
+  4 outside tolerance, the same cases; 35 of pitch's are renders its analysis cannot read).
+- **Sample rates** (decision 71): `oscairn-fm-test rates` passes at 44.1, 48 and 96 kHz.
+- **Filter blocks** (decision 75): kept; the instant-segment experiment made the FEG gate worse
+  (91 -> 82 of 92).
+- Like for like on the level change (fm/compare_m7.py, Octet before = 5a11334): m7a 219 -> 217 of
+  242 (fr96 and fr127, the reference's output clip, decision 70; egm0v74 and egm2v124 swap sides of
+  the limit), m8c 126 -> 126 of 149, m9a 74 -> 74 of 79.
+
+**Thirteenth session: tests run.** Code commits `cb9b0d7` (Extended level), `68c1d29` (FEG time
+velocity), `946d1b6` (fixed-frequency pitch velocity), `ef5a1d8` (tuning), `43be587` (the
+sample-rate check). Each was tested on its committed tree with nothing else of the engine's in the
+work tree, locally: Release CTest 36/36 (37/37 with the rate check; the 164 Classic cases
+bit-identical through engine, JUCE plugin and native CLAP on arm64), the x86_64 baseline under
+Rosetta (engine, plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta,
+ASan/UBSan 19/19 (20/20), TSan 19/19 (20/20); `oscairn-fm-test rates` also passes under Rosetta.
+Each new check was confirmed to fail with its change undone (the level, FEG time velocity, pitch
+velocity and tuning checks; the rate check fails when the key-on delay is counted in 44.1 kHz
+samples). The level commit was amended twice before it was pushed (the voice clip and the topology
+failure it caused, the gain moved out of the voice after the filter resonance cases clipped, the
+modulator check's carrier level after an x86_64 failure). CI: the macOS job of `oscairn-tests` was
+not picked up by GitHub's hosted runners on some heads ("not acquired ... after multiple
+attempts"); results per head are in the session report.
 
 ### Fifth session (2026-10-31): tests run
 
