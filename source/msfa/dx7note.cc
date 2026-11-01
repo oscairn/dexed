@@ -244,8 +244,8 @@ int32_t Dx7Note::bendAndTune(const Controllers *ctrls) {
     int pitchbend = ctrls->pitch_cc;
     int32_t pb = (pitchbend - 0x2000);
     if (pb != 0 && extended_ && ctrls->pitch_step == 0) {
-        // the part's signed ranges (documented; the recorder cannot bend, unmeasured)
-        pb = ((float)(pb << 11)) * (float)(pb >= 0 ? bendUpper_ : -bendLower_) / 12.0;
+        // the part's signed ranges, on the reference's pitch grid (extBendSteps)
+        pb = extBendSteps(pb, pb >= 0 ? bendUpper_ : -bendLower_) << 13;
     } else if (pb != 0) {
         if (ctrls->pitch_step == 0) {
             if( pb >= 0 )

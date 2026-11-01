@@ -828,9 +828,11 @@ int extendedTest() {
         }
     };
     const double rate = 48000;
-    // the reference's tuning: each pitch class slightly sharp of A = 440 Hz (extNoteTuneCents), fixed
-    // frequencies 1.02 cents above extFixedHz below its top
-    const double f69 = 440.0 * std::pow(2.0, extNoteTuneCents(69) / 1200);
+    // the reference's pitch grid (extNoteSteps): A4 is step 13012 of 2048 an octave, every key
+    // rounded up to the 1/1024-octave grid from it, fixed frequencies in 1/128-octave fine steps
+    // from A4's step up to coarse 21
+    auto noteSteps = [](int key) { return 13012 + 2 * (int)std::ceil((key - 69) * 1024 / 12.0 - 1e-9); };
+    const double f69 = extStepsHz(13012);
     // -- envelope: decay 1 slopes (ms per dB), fitted between 3 and 35 dB below the peak
     // (from time 20 up: faster decays cross 32 dB within four 64-sample blocks, too few points
     // for this fit; they are checked against the reference renders instead)
@@ -879,8 +881,8 @@ int extendedTest() {
         const double cents = 1200 * std::log2(hz / expectHz);
         expect(std::fabs(cents) < 1.0, what + ": " + std::to_string(cents) + " cents");
     };
-    auto noteHz = [&](int key) { return 440.0 * std::pow(2.0, (key - 69) / 12.0 + extNoteTuneCents(key) / 1200); };
-    auto fixedHz = [&](int coarse, int fine) { return extFixedHz(coarse, fine) * std::pow(2.0, extFixedTuneCents(coarse, fine) / 1200); };
+    auto noteHz = [&](int key) { return extStepsHz(noteSteps(key)); };
+    auto fixedHz = [&](int coarse, int fine) { return extStepsHz(std::min(13012 + 2048 * 5, 13012 + 2048 * (coarse - 16) + 16 * fine)); };
     for (int c : { 0, 1, 2, 7, 15, 31 })
         for (int f : { 0, 37, 64, 127 })
             pitchCase({ { 1032, c }, { 1033, f } }, 57, 1.0, noteHz(57) * extRatio(c, f),
@@ -915,19 +917,25 @@ int extendedTest() {
                 pitchCase({ { 51, depth }, { 1036, pv } }, 60, vel / 127.0,
                           noteHz(60) * std::pow(2.0, extPitchVelocityCents(depth, pv, vel) / 1200),
                           "pitch velocity " + std::to_string(depth) + "/" + std::to_string(pv) + " velocity " + std::to_string(vel));
-    // the reference's tuning, to a twentieth of a cent: every pitch class of an octave on a ratio-1
-    // carrier, and a fixed one at 440 Hz (0.775 cents above it), timed before the note-off
-    for (int key = 60; key < 72; key++) {
-        const auto x = renderExtended({}, key, 1.0, 1.0, 1.0);
-        const double c = 1200 * std::log2(zeroCrossingHz(x, 4800, 46000) / (440.0 * std::pow(2.0, (key - 69) / 12.0)));
-        expect(std::fabs(c - extNoteTuneCents(key)) < 0.05,
-               "tuning at key " + std::to_string(key) + ": " + std::to_string(c) + " cents, want " + std::to_string(extNoteTuneCents(key)));
-    }
-    {
-        const auto x = renderExtended({ { 1031, 1 }, { 1032, 16 } }, 60, 1.0, 1.0, 1.0);
-        const double c = 1200 * std::log2(zeroCrossingHz(x, 4800, 46000) / 440.0);
-        expect(std::fabs(c - 0.775) < 0.05, "tuning of a fixed 440 Hz: " + std::to_string(c) + " cents, want 0.775");
-    }
+    // the reference's tuning, to a fiftieth of a cent, against its renders (`m13u`, `m13t`, `m14s`:
+    // cents from equal temperament at A = 440 Hz): every pitch class of an octave on a ratio-1
+    // carrier, fixed frequencies at four fine values, two ratios and two detunes; timed before the
+    // note-off
+    auto tuning = [&](const std::vector<std::pair<uint32_t, double>> &p, int key, double nominalHz, double want, const std::string &what) {
+        const auto x = renderExtended(p, key, 1.0, 1.0, 1.0);
+        const double c = 1200 * std::log2(zeroCrossingHz(x, 4800, 46000) / nominalHz);
+        expect(std::fabs(c - want) < 0.02, "tuning of " + what + ": " + std::to_string(c) + " cents, want " + std::to_string(want));
+    };
+    const double measured[12] = { 0.909, 1.671, 1.107, 0.763, 1.627, 1.317, 0.896, 1.380, 1.262, 0.665, 1.548, 1.300 };
+    for (int key = 60; key < 72; key++)
+        tuning({}, key, 440.0 * std::pow(2.0, (key - 69) / 12.0), measured[key - 60], "key " + std::to_string(key));
+    for (const auto &xf : std::vector<std::pair<int, double>>{ { 0, 0.665 }, { 1, 0.857 }, { 37, 0.686 }, { 100, 0.754 } })
+        tuning({ { 1031, 1 }, { 1032, 16 }, { 1033, xf.first } }, 60, 440.0 * std::pow(2.0, xf.first / 128.0), xf.second,
+               "fixed fine " + std::to_string(xf.first));
+    tuning({ { 1032, 5 }, { 1033, 37 } }, 62, 440.0 * std::pow(2.0, -7 / 12.0) * 6.85, 1200 * std::log2(2013.3545 / (440.0 * std::pow(2.0, -7 / 12.0) * 6.85)), "ratio 6.85 at key 62");
+    tuning({ { 1032, 0 }, { 1033, 50 } }, 62, 440.0 * std::pow(2.0, -7 / 12.0) * 0.75, 1200 * std::log2(220.3790 / (440.0 * std::pow(2.0, -7 / 12.0) * 0.75)), "ratio 0.75 at key 62");
+    tuning({ { 1034, 7 } }, 60, 440.0 * std::pow(2.0, -9 / 12.0), 1200 * std::log2(262.9826 / (440.0 * std::pow(2.0, -9 / 12.0))), "detune 7 at key 60");
+    tuning({ { 1034, 14 } }, 60, 440.0 * std::pow(2.0, -9 / 12.0), 1200 * std::log2(265.2958 / (440.0 * std::pow(2.0, -9 / 12.0))), "detune 14 at key 60");
     // the operator's pitch velocity sensitivity moves fixed-frequency operators only, straight in
     // velocity from 64 (+7: 1504 cents at velocity 127)
     for (int pv : { -7, 3, 7 })
@@ -1881,7 +1889,7 @@ int extendedTest() {
             for (int k = 1; k <= 6; k++) {
                 double re = 0, im = 0;
                 for (size_t i = 0; i < n; i++) {
-                    const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), ph = 2 * M_PI * 440 * std::pow(2.0, -9 / 12.0) * k * i / rate;
+                    const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), ph = 2 * M_PI * noteHz(60) * k * i / rate;
                     re += w * x[a + i] * std::cos(ph);
                     im += w * x[a + i] * std::sin(ph);
                 }
@@ -1891,12 +1899,10 @@ int extendedTest() {
         };
         using P = std::vector<std::pair<uint32_t, double>>;
         // (the carrier at level 90 keeps the output about where this check was set up, 7 dB under
-        // a level 99 carrier since Extended voices play 6.99 dB louder, and master tune takes key 60
-        // back to equal temperament: harmonic 6 lies about 129 dB under the fundamental, where the
-        // comparison moves by a tenth of a dB with rounding and with the tuning's 0.9 cents)
+        // a level 99 carrier since Extended voices play 6.99 dB louder: harmonic 6 lies about
+        // 129 dB under the fundamental, where the comparison moves by a tenth of a dB with rounding)
         auto pair = [&](int level, int eg) {
-            return renderExtended(P{ { 40, 8 }, { 1051, level }, { 2051, 90 }, { 1041, eg }, { 1042, eg }, { 1043, eg },
-                                     { 130, -extNoteTuneCents(60) / 100 } }, 60,
+            return renderExtended(P{ { 40, 8 }, { 1051, level }, { 2051, 90 }, { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60,
                                   1.0, 0.4, 0.4);
         };
         expect(pair(70, 84) == pair(70, 85), "modulator EG level 84 plays as 85");
@@ -2105,10 +2111,37 @@ int extendedTest() {
                 in.clear();
                 x.insert(x.end(), h.left.begin(), h.left.begin() + 512);
             }
-            const double semis = b[2] == 0x3fff ? b[0] * 8191.0 / 8192 : b[2] == 0 ? b[1] : 0.0;
+            const double semis = b[2] == 0x3fff ? b[0] : b[2] == 0 ? b[1] : 0.0;
             const double cents = 1200 * std::log2(zeroCrossingHz(x, 4800, x.size()) / f69);
             expect(std::fabs(cents - semis * 100) < 1.0, "pitch bend " + std::to_string(b[0]) + "/" + std::to_string(b[1]) +
                                                               " at " + std::to_string(b[2]) + ": " + std::to_string(cents) + " cents");
+        }
+        // the bend's steps on the reference's grid, from its renders (`m14b`, `m10b`: range, bend
+        // from the centre, steps of 1/2048 octave played at key 69), to a fiftieth of a cent
+        for (const auto &b : std::vector<std::array<int, 3>>{ { 2, 40, 0 }, { 2, 44, 1 }, { 2, 84, 3 }, { 2, 124, 5 }, { 2, -44, -1 },
+                                                              { 2, -124, -5 }, { 2, 8191, 341 }, { 12, 6, 0 }, { 12, 8, 1 }, { 12, 14, 3 },
+                                                              { 12, 28, 6 }, { 7, 8191, 1194 }, { 7, -8192, -853 }, { 7, -4096, -426 } }) {
+            Host h(entry);
+            h.activate(rate, 512);
+            EventList in;
+            in.param(0, 5, 1);
+            in.param(0, 40, 1);
+            in.param(0, 1051, 99);
+            in.param(0, 253, b[0]);
+            in.param(0, 254, b[0] == 7 ? -5 : -b[0]);
+            const int v = 8192 + b[1];
+            const uint8_t bend[3] = { 0xe0, (uint8_t)(v & 0x7f), (uint8_t)(v >> 7) };
+            in.midi(0, bend, 3);
+            in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, 69, 1.0);
+            std::vector<float> x;
+            for (int k = 0; k < 100; k++) {
+                h.process(512, in);
+                in.clear();
+                x.insert(x.end(), h.left.begin(), h.left.begin() + 512);
+            }
+            const double cents = 1200 * std::log2(zeroCrossingHz(x, 4800, x.size()) / extStepsHz(13012 + b[2]));
+            expect(std::fabs(cents) < 0.02, "pitch bend " + std::to_string(b[1]) + " at range " + std::to_string(b[0]) + ": " +
+                                                std::to_string(cents) + " cents from " + std::to_string(b[2]) + " steps");
         }
         for (const auto &dc : std::vector<std::pair<int, double>>{ { -128, -49.95 }, { -64, -24.65 }, { 0, 0 }, { 1, 0 }, { 64, 24.58 }, { 127, 49.63 } }) {
             const auto x = renderExtended({ { 245, dc.first } }, 69, 1.0, 1.0, 0.6);

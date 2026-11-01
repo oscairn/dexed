@@ -11,6 +11,7 @@
 #include "ext_tables.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 
 // The fitted data, written by the measurement repository's fm/fit_tables.py.
@@ -179,22 +180,67 @@ double extFixedHz(int coarse, int fine) {
     return std::min(kFixedMaxHz, kFixedBaseHz * std::pow(2.0, clampi(coarse, 0, 31) - 16 + clampi(fine, 0, 127) / 128.0));
 }
 
-// The reference plays every note slightly sharp of equal temperament (A = 440 Hz), by an amount
-// that depends on the pitch class and repeats in every octave (measured on ratio-1 carriers at
-// notes 60-83, 48 and every A from 21 to 117, `m13u`, `m13t`: the same within 0.001 cent an octave
-// apart, and at velocities 1-127). The ratio, fine and detune tables were measured relative to C,
-// so they add to the note's offset. Fixed frequencies sit 0.775 cents above the 440 Hz grid on
-// average over the 128 fine values (+0.59 to +0.97, the same in two octaves), 1.02 cents above the
-// fitted extFixedHz below its top. What remains between the measured points (about +-0.2 cent)
-// is not modelled.
-double extNoteTuneCents(int midinote) {
-    static const double c[12] = { 0.909, 1.671, 1.107, 0.763, 1.627, 1.317, 0.896, 1.380, 1.263, 0.665, 1.548, 1.300 };
-    return c[((midinote % 12) + 12) % 12];
+// The reference's pitch grid (fourteenth session, `m13u`, `m13t`, `m14s`, `m14b` and the earlier
+// pitch campaigns: the steady renders of single carriers land on it within 0.01 cent above
+// 100 Hz, but for the ratio past coarse 31 and the common pitch velocity at velocity 127, 0.15
+// and 0.03 cent off it). An operator plays a whole step of 1/2048 octave, at 44100 x m x 2^(octave - 25) Hz,
+// where the step's mantissa m is 4096 x 2^(step / 2048) rounded to an integer: that rounding
+// is the +-0.2 cent that remained between the measured points. A4 is step 13012 (440.169 Hz),
+// so A sits 0.773 cent above 440 Hz on the grid and plays 0.665 cent above it. A key's pitch is
+// rounded up to the 1/1024-octave grid (85 1/3 steps of 1/1024 a semitone, counted from A), so
+// every third key lies on it and the others play 0.39 or 0.78 cent sharp before the mantissa's
+// rounding. Ratios and the operators' detune lie on the same 1/1024-octave grid (the ratio
+// rounded to its nearest step, measured at all 128 fine values of coarse 1 and 15 other pairs),
+// fixed frequencies on whole 1/128-octave fine steps from A4's step, and the pitch bend plays its
+// cents truncated to whole cents, then to whole steps (`m14b`, `m10b`). The sum of the steps
+// decides the frequency, so the offsets of the earlier tables follow from it.
+namespace {
+constexpr int kA4Steps = 13012;
+constexpr double kA4Q24 = 147326768.6875; // log2(440) in Q24
+int stepMantissa(int i) { return (int)std::lround(4096.0 * std::exp2(i / 2048.0)); }
 }
 
-double extFixedTuneCents(int coarse, int fine) {
-    // (up to the highest fixed frequency, which was measured as played)
-    return std::min(1.02, 1200 * std::log2(kFixedMaxHz / extFixedHz(coarse, fine)));
+int extNoteSteps(int32_t logfreq) {
+    // (less a hundredth of a step: the tuning table leaves keys on the grid a little off it)
+    return kA4Steps + 2 * (int)std::ceil((logfreq - kA4Q24) / 16384.0 - 0.01);
+}
+
+int extRatioSteps(double ratio) { return 2 * (int)std::lround(1024.0 * std::log2(ratio)); }
+
+int extDetuneSteps(int detune, int midinote) { return 2 * (int)std::lround(extDetuneCents(detune, midinote) * 1024.0 / 1200.0); }
+
+int extFixedSteps(int coarse, int fine) {
+    // up to the highest fixed frequency (coarse 21 fine 0), which was measured as played
+    return std::min(kA4Steps + 2048 * 5, kA4Steps + 2048 * (clampi(coarse, 0, 31) - 16) + 16 * clampi(fine, 0, 127));
+}
+
+int extCentsSteps(double cents) { return (int)std::lround(cents * 2048.0 / 1200.0); }
+
+int extBendSteps(int bend, int range) {
+    // whole cents, each truncated towards 0 (the top of a range plays it exactly)
+    const int cents = (int)((double)bend * range * 100 / (bend > 0 ? 8191 : 8192));
+    return (int)(cents * 2048.0 / 1200.0);
+}
+
+double extStepsHz(int steps) {
+    return 44100.0 * stepMantissa(steps & 2047) * std::exp2((steps >> 11) - 25);
+}
+
+void ExtFreqlut::init(double sampleRate) {
+    // the increment at octave 32, Q24 per cycle: 44100 x m x 2^7 x 2^24 / rate
+    for (int i = 0; i < 2048; i++)
+        lut[i] = std::llround(stepMantissa(i) * 44100.0 / sampleRate * 2147483648.0);
+}
+
+int32_t ExtFreqlut::lookup(int32_t pitch) const {
+    const int steps = pitch >> 13; // (floor: modulation below a step does not reach the grid)
+    const int shift = 32 - (steps >> 11);
+    if (shift <= 0)
+        return INT32_MAX; // (far above any rate's Nyquist)
+    if (shift >= 63)
+        return 0;
+    // (rounded: exact at 44.1 kHz, where every increment above 11 Hz is a whole number)
+    return (int32_t)std::min<int64_t>((lut[steps & 2047] + (1ll << (shift - 1))) >> shift, INT32_MAX);
 }
 
 double extKeyFollowCents(int sensitivity, int midinote) {

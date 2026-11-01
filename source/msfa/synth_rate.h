@@ -18,6 +18,7 @@
 #define SYNTH_RATE_H_
 
 #include "freqlut.h"
+#include "ext_tables.h"
 #include "porta.h"
 #include "pitchenv.h"
 
@@ -25,6 +26,7 @@
 // process-wide statics, so two instances at different rates overwrote each other's.
 struct SynthRate {
     Freqlut freqlut;
+    ExtFreqlut extFreqlut; // the Extended profile's pitch grid
     Porta porta;
     uint32_t envMultiplier = 1 << 24; // Env::sr_multiplier
     int pitchEnvUnit = 0;             // PitchEnv::unit_
@@ -33,6 +35,7 @@ struct SynthRate {
     void init(double sampleRate) {
         this->sampleRate = sampleRate;
         freqlut.init(sampleRate);
+        extFreqlut.init(sampleRate);
         porta.init_sr(sampleRate);
         envMultiplier = (44100.0 / sampleRate) * (1<<24);
         pitchEnvUnit = PitchEnv::unitFor(sampleRate);

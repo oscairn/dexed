@@ -220,7 +220,7 @@ private:
     const bool *glideClock_ = nullptr;
     int32_t carry_[N] = {};
     FmOpParams params_[8] = {};
-    int32_t basepitch_[8] = {};
+    int32_t basepitch_[8] = {}; // steps of the reference's pitch grid (extNoteSteps) << 13
     bool fixed_[8] = {};
     int32_t pitchSens_[8] = {};  // LFO pitch depth offset, as DX7 pitch modulation sensitivity
     float partLfoPitch_[8] = {}; // part LFO to this operator's frequency: Q24 log frequency at +1

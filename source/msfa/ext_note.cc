@@ -449,25 +449,24 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         fixed_[i] = o(ext::Mode) != 0;
         double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity);
         detune_[i] = std::clamp(o(ext::Detune), -15, 15);
-        int32_t pitch;
+        // the pitch in whole steps of the reference's grid (extNoteSteps), Q24 per octave
+        int steps = extDetuneSteps(o(ext::Detune), midinote);
         if (fixed_[i]) {
-            cents += extKeyFollowCents(o(ext::KeyFollow), midinote) + extDetuneCents(o(ext::Detune), midinote) +
-                     extFixedPitchVelocityCents(o(ext::PitchVelocity), velocity) + extFixedTuneCents(o(ext::Coarse), o(ext::Fine));
-            pitch = (int32_t)std::lround(std::log2(extFixedHz(o(ext::Coarse), o(ext::Fine))) * kQ24);
+            cents += extKeyFollowCents(o(ext::KeyFollow), midinote) + extFixedPitchVelocityCents(o(ext::PitchVelocity), velocity);
+            steps += extFixedSteps(o(ext::Coarse), o(ext::Fine));
         } else {
-            cents += partCents;
-            cents += extDetuneCents(o(ext::Detune), midinote) + ratioCents + extNoteTuneCents(midinote);
+            cents += partCents + ratioCents;
             // the ratio macro: ratio-mode modulators (shortcut: unmeasured on fixed-frequency ones)
             double ratio = extRatio(o(ext::Coarse), o(ext::Fine));
             if (modulator)
                 ratio = extShiftedRatio(ratio, macro(ext::MacroRatio));
-            pitch = notePitch + (int32_t)std::lround(std::log2(ratio) * kQ24);
+            steps += extNoteSteps(notePitch) + extRatioSteps(ratio);
         }
-        basepitch_[i] = pitch + (int32_t)std::lround(cents / 1200.0 * kQ24);
+        basepitch_[i] = (steps + extCentsSteps(cents)) << 13;
         // the wave, band-limited for this note's frequency (shortcut: chosen at note-on and
         // on edits; pitch EG, LFO and bend moves are not followed)
         {
-            const double hz = rate_->freqlut.lookup(basepitch_[i]) * sampleRate / kQ24;
+            const double hz = rate_->extFreqlut.lookup(basepitch_[i]) * sampleRate / kQ24;
             below_[i] = (int)std::floor(sampleRate / 2 / std::max(hz, 1.0)); // harmonics below Nyquist
             wave_[i] = std::clamp(o(ext::Wave), 0, 6);
             spread_[i] = std::clamp(o(ext::WaveSpread), 0, 7);
@@ -824,7 +823,7 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
         if (partLfoDetune_[i] != 0 && part_lfo != nullptr) {
             // the part LFO's detune move, once per block
             const int d = std::clamp(detune_[i] + (int)(part_lfo[N / 2] * partLfoDetune_[i]), -15, 15);
-            pitch += (int32_t)std::lround((extDetuneCents(d, detuneNote_) - extDetuneCents(detune_[i], detuneNote_)) / 1200.0 * kQ24);
+            pitch += (extDetuneSteps(d, detuneNote_) - extDetuneSteps(detune_[i], detuneNote_)) << 13;
         }
         int32_t *f = freqs_[i];
         const bool lfoPitch = !fixed_[i] && pitchSens_[i] != 0 && pitchMod;
@@ -841,10 +840,10 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
                     const int32_t pmodWheel = (int32_t)((ctrls->pitch_mod * senslfo) >> 14);
                     pmod += std::abs(lfo2) >= std::abs(pmodWheel) ? lfo2 : pmodWheel;
                 }
-                f[s] = rate_->freqlut.lookup(pitch + peg_[i].getsample() + pmod + pp[s]);
+                f[s] = rate_->extFreqlut.lookup(pitch + peg_[i].getsample() + pmod + pp[s]);
             }
         } else {
-            std::fill(f, f + N, rate_->freqlut.lookup(pitch + peg_[i].level() + pp[N - 1]));
+            std::fill(f, f + N, rate_->extFreqlut.lookup(pitch + peg_[i].level() + pp[N - 1]));
         }
         params_[i].freq = f[0];
         phase0[i] = (uint32_t)params_[i].phase;

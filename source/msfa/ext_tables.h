@@ -38,8 +38,20 @@ double extLevelVelocityDb(int sensitivity, double velocity);
 double extRatio(int coarse, int fine);
 double extDetuneCents(int detune, int midinote);
 double extFixedHz(int coarse, int fine);
-double extNoteTuneCents(int midinote);   // ratio mode: the reference's offset from equal temperament by pitch class
-double extFixedTuneCents(int coarse, int fine); // fixed mode: its offset from extFixedHz
+// the pitch grid (decision 76): every operator plays a whole step of 1/2048 octave
+int extNoteSteps(int32_t logfreq);      // a key's pitch in steps, from its Q24 log frequency (log2 Hz)
+int extRatioSteps(double ratio);        // ratio mode: the ratio's steps, on the 1/1024-octave grid
+int extDetuneSteps(int detune, int midinote);
+int extFixedSteps(int coarse, int fine); // fixed mode: the frequency's steps
+int extCentsSteps(double cents);        // any other static offset, to the nearest step
+int extBendSteps(int bend, int range);  // bend -8192-+8191 with a range in semitones
+double extStepsHz(int steps);           // a step's frequency
+// phase increments (Q24 per cycle) for pitches in steps << 13, at one sample rate
+struct ExtFreqlut {
+    void init(double sampleRate);
+    int32_t lookup(int32_t pitch) const;
+    int64_t lut[2048];
+};
 double extKeyFollowCents(int sensitivity, int midinote);  // fixed mode
 double extPitchVelocityCents(int depth, int sensitivity, int velocity); // common depth (the sensitivity is unused)
 double extFixedPitchVelocityCents(int sensitivity, int velocity); // operator sensitivity -7..+7, fixed frequency only
