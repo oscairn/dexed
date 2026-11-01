@@ -191,6 +191,17 @@ double extPitchVelocityCents(int depth, int /*sensitivity*/, int velocity) {
            interpolate(kPitchVelocityX, kPitchVelocityFactor, clampi(velocity, 0, 127));
 }
 
+double extFixedPitchVelocityCents(int sensitivity, int velocity) {
+    // the cents at velocity 127 (velocity 1 the same downwards), straight in velocity from 64
+    // (measured at 1, 2, 3, 5 and 7, mirrored for -3 and -7, at nine velocities on fixed carriers
+    // of 27.5, 440 and 7040 Hz and notes 36-84, `m13q`; 4 and 6 halfway, unmeasured); ratio-mode
+    // operators do not move
+    static const double top[8] = { 0, 73.75, 147.7, 304.05, 604.1, 904.15, 1204.1, 1504.05 };
+    const int s = clampi(sensitivity, -7, 7);
+    const double c = top[s < 0 ? -s : s] * (clampi(velocity, 1, 127) - 64) / 63.0;
+    return s < 0 ? -c : c;
+}
+
 double extPegCents(int level) { return kPegCents[clampi(level, -50, 50) + 50]; }
 double extPegCentsPerMs(int t) { return kPegCentsPerMs[clampi(t, 0, 99)]; }
 

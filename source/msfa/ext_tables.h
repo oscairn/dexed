@@ -39,7 +39,8 @@ double extRatio(int coarse, int fine);
 double extDetuneCents(int detune, int midinote);
 double extFixedHz(int coarse, int fine);
 double extKeyFollowCents(int sensitivity, int midinote);  // fixed mode
-double extPitchVelocityCents(int depth, int sensitivity, int velocity); // common depth, operator sensitivity
+double extPitchVelocityCents(int depth, int sensitivity, int velocity); // common depth (the sensitivity is unused)
+double extFixedPitchVelocityCents(int sensitivity, int velocity); // operator sensitivity -7..+7, fixed frequency only
 double extPegCents(int level);      // operator pitch EG level -50-+50
 double extPegCentsPerMs(int time);   // operator pitch EG: a segment's rate, straight in cents
 // the common pitch EG

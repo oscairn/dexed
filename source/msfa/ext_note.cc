@@ -451,7 +451,8 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         detune_[i] = std::clamp(o(ext::Detune), -15, 15);
         int32_t pitch;
         if (fixed_[i]) {
-            cents += extKeyFollowCents(o(ext::KeyFollow), midinote) + extDetuneCents(o(ext::Detune), midinote);
+            cents += extKeyFollowCents(o(ext::KeyFollow), midinote) + extDetuneCents(o(ext::Detune), midinote) +
+                     extFixedPitchVelocityCents(o(ext::PitchVelocity), velocity);
             pitch = (int32_t)std::lround(std::log2(extFixedHz(o(ext::Coarse), o(ext::Fine))) * kQ24);
         } else {
             cents += partCents;

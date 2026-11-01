@@ -912,6 +912,15 @@ int extendedTest() {
                 pitchCase({ { 51, depth }, { 1036, pv } }, 60, vel / 127.0,
                           noteHz(60) * std::pow(2.0, extPitchVelocityCents(depth, pv, vel) / 1200),
                           "pitch velocity " + std::to_string(depth) + "/" + std::to_string(pv) + " velocity " + std::to_string(vel));
+    // the operator's pitch velocity sensitivity moves fixed-frequency operators only, straight in
+    // velocity from 64 (+7: 1504 cents at velocity 127)
+    for (int pv : { -7, 3, 7 })
+        for (int vel : { 1, 40, 64, 127 })
+            pitchCase({ { 1031, 1 }, { 1032, 16 }, { 1036, pv } }, 60, vel / 127.0,
+                      extFixedHz(16, 0) * std::pow(2.0, extFixedPitchVelocityCents(pv, vel) / 1200),
+                      "fixed pitch velocity " + std::to_string(pv) + " velocity " + std::to_string(vel));
+    expect(std::fabs(extFixedPitchVelocityCents(7, 127) - 1504.05) < 1e-9 && std::fabs(extFixedPitchVelocityCents(-7, 96) + 1504.05 * 32 / 63) < 1e-9,
+           "fixed pitch velocity table");
     // -- operator pitch EG: each segment straight in cents at its time value's rate; with
     // initial and attack level equal the decay starts at once (1 cent, 4 ms windows)
     for (const auto &pc : std::vector<std::array<int, 4>>{ { 10, 10, 0, 40 }, { -10, -10, 0, 30 }, { 0, 10, 35, 99 } }) {
