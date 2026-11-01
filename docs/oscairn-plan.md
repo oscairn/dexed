@@ -1158,7 +1158,8 @@ fixed frequencies below 20 Hz.
     are uneven. Centre (57) is a MIDI note, C3 = 60 by default.
 26. Random pitch and random pan draw from one xorshift generator per sound (two values per
     Extended note), reset by prepare, so renders are deterministic; both spreads are uniform
-    approximations (random pan's left bias in the reference is not modelled).
+    approximations (random pan's left bias in the reference is not modelled). The distributions
+    were refitted in the sixth session (decision 44).
 27. Key-on delay: the table is in 64-sample blocks at 44.1 kHz and plays the same time at every
     sample rate; the note starts at its exact sample (its output then runs late within the
     64-sample grid); tempo sync takes the CLAP transport's tempo, 120 bpm without one; a note in
@@ -1191,7 +1192,7 @@ fixed frequencies below 20 Hz.
 34. Ratio Shift and Texture are stored and not applied (their behaviour is not resolved);
     detune is shown as signed steps (-128..+127) rather than Hz or cents.
 35. A note whose part velocity comes out at 0 or below plays nothing and gets its NOTE_END at
-    once; fractional part velocities are rounded.
+    once; fractional part velocities are rounded (for operator level velocity no longer: decision 45).
 36. Mod Depth cannot raise a modulator past level 99, in Octet as in the reference (`m7e`: a
     static pair at levels 60, 80 and 99 with the macro taking it to 99-147 plays exactly as
     level 99, 20 cases within 0.16 dB rms).
@@ -1202,6 +1203,42 @@ fixed frequencies below 20 Hz.
 38. Extended sounds' output filter uses the reference's highpass (first order, 10.3 Hz) in place
     of Dexed's DC filter; Classic sounds keep Dexed's exactly (the contexts switch it with their
     profile).
+
+39. Mono/poly, key assign and portamento of Extended sounds are part parameters 255-260 under
+    Extended/Part (Mono/Poly, Key Assign, Portamento, Portamento Time, Portamento Mode, Portamento
+    Time Mode; defaults Poly, Multi, Off, 64, Full-time, Rate 1). The reference glides only when
+    both the performance's portamento switch and the part's are on (the part's documented default
+    is On, the performance's Off, so a new performance does not glide); Octet has one switch, Off
+    by default, which the converter should set only when both are on. Extended sounds ignore the
+    plugin's Mono, Portamento Time and Glissando settings (101-103), which Classic sounds keep. A
+    sound with any of 255-257 away from its default does not convert to Classic.
+40. Mono keeps Dexed's structure: each held key keeps a pool voice and only one is live, so voice
+    stealing across the pool is unchanged (question 4). For that decision: a held mono key whose
+    voice another sound steals cannot be returned to when the sounding key is released.
+41. A mono note without portamento, and a key played again with key assign Single, fade the
+    sounding note out and start the new note from silence when the fade ends. The fade's length
+    follows the carriers' slowest attack time: none at 0, 2, 5 and 13 ms at 20, 40 and 60 (`m7g`,
+    from the sustain level), 13 ms above 60 (unmeasured), straight in amplitude. The reference
+    seems to drop the same envelope quickly and attack from where it got (at attack 20 it dips
+    only about 6 dB before attacking); Octet's fade-then-start reproduces 40 and 60 but dips to
+    silence at 20.
+42. A MIDI key pressed n times while held needs n note-offs, then releases every voice it holds
+    (measured, Single and Multi). CLAP note-offs keep their matching: by note ID per note, and a
+    note-off for a key without an ID releases every held voice of that key at once.
+43. Unmeasured, chosen: returning to a held key in mono draws new random pitch and pan values and
+    counts as a new note for alternate pan; portamento moves ratio-mode operators only, like the
+    common pitch EG (fixed-frequency operators keep their frequency); the band-limited wave is not
+    chosen again during a glide (the existing shortcut).
+44. Random pitch and random pan (replaces the distribution part of decision 26, from `m7f`, 32-128
+    notes per depth): random pitch is a uniform value within depth / 4 steps of 18.75 cents either
+    way, cut towards 0 (depth 4 never moves); random pan is uniform within depth / 2 positions
+    either way. Not modelled: the reference's one extra step down at depths 32-127, its narrower
+    spread at pan depth 127 (standard deviation 28 positions against uniform's 36) and its left lean.
+45. Fractional part velocities (revises decision 35's rounding): the operator level velocity
+    takes the velocity with its fraction (the reference plays it between its neighbours, and below 1
+    down to 1/4 by +7's measured curve; at 1/4 and below +7 is silent); every other velocity-dependent
+    value still takes the rounded velocity (unmeasured). Positive sensitivities follow +7's curve,
+    measured at velocities 1-6 and 8 in this campaign, in proportion between velocities 1 and 8.
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1489,6 +1526,7 @@ What the reference does, and Octet now does in Extended sounds only:
   up to +-600 cents at depth 127; the reach grows with the depth (about depth / 4 steps).
   Octet draws a uniform step within round(depth / 4) either way from a per-sound xorshift
   generator that prepare resets (deterministic renders); the distribution is not measured.
+  (Sixth session: refitted from 32-128 notes per depth, decision 44.)
 - **Key-on delay.** Whole 64-sample blocks at 44.1 kHz (0 to 5570 blocks, 8.08 s, each value
   within 0.07 blocks of the grid). Tempo sync plays the note length (1/16 to 8 beats) at the
   host's tempo: the recorder's renders at 120 bpm matched the lengths within the onset jitter
@@ -1503,7 +1541,8 @@ What the reference does, and Octet now does in Extended sounds only:
   performance load); Octet alternates per note of the sound. Random pan: 16 notes at 127
   reached position 50 and 8 notes at 64 reached 14, 13 of 16 (and 8 of 8 in `m6a`) to the
   left: Octet spreads uniformly within 64 (depth / 127)^2 either way (approximation; the
-  left bias is not modelled). The positions add up and clamp at -64/+63.
+  left bias is not modelled). (Sixth session: depth / 2 positions, decision 44; the alternation
+  measured, M7.) The positions add up and clamp at -64/+63.
 - **Stereo.** The engine renders a right channel when given one: unpanned voices (every
   Classic voice) go to both channels alike and the right channel has its own copy of the
   output filter with the left one's settings, so the left channel is exactly the old mono
@@ -1608,7 +1647,7 @@ delay, user steps and slope, and all nine destinations through the plugin or, fo
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
-### M7 (in progress, fifth session, 2026-10-31: part values and four of the seven macros)
+### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth, 2026-10-31)
 
 Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
 `forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
@@ -1685,16 +1724,76 @@ Octet now plays this table (straight between the measured velocities) in place o
 applies to level and scaling). The table is checked against the renders it came from only in
 Octet's own test; the 64 velocity cases of `m7a`/`m7c` above are independent renders.
 
-**Not done in M7 (recorder limit and time).** Mono and poly with legato, key assign,
-portamento (switch, time, fingered and full-time modes, rate and time modes), and pitch bend
-cannot be measured: the recorder plays one note per job and sends no controllers, so
-nothing between two notes and no bend can be rendered. The controller-set and key-controller
-masks only matter with Performance-level controller assignments (not part of the engine
-renders). Pitch bend ranges are implemented from the Data List (decision 37) and checked only in
-Octet's own test. Not measured either: how the macros treat multi-operator feedback loops (Octet
-divides the depth on the loop's last operator only), the macros' rounding at odd values, the
-AEG offsets' rounding, detune on fixed-frequency operators (Octet applies it to every
-operator).
+**Not done in M7.** The controller-set and key-controller masks only matter with
+Performance-level controller assignments (not part of the engine renders). Pitch bend ranges are
+implemented from the Data List (decision 37) and checked only in Octet's own test (the sequence
+recorder can bend; not measured yet). Not measured either: how the macros treat multi-operator
+feedback loops (Octet divides the depth on the loop's last operator only), the macros' rounding at
+odd values, the AEG offsets' rounding, detune on fixed-frequency operators (Octet applies it to
+every operator).
+
+**Sixth session (2026-10-31): sequences.** A second recorder plays several notes and controller
+events per render, so what happens between notes could be measured. Campaigns in
+`forks/measurements/m4/`: `m7p` (pilot), `m7f` (83 renders: mono and poly with both key assign
+modes, portamento every eighth time value, the four time modes, fingered and full-time on legato and
+detached notes, random pitch and pan with 32 notes per render, alternate pan, the part LFO's key-on
+reset modes in poly and mono, the 2nd LFO's key-on reset, fractional part velocities), `m7g` (41:
+time modes over 5 and 19 semitones, the other fourth time values, the retrigger at five attack
+times, a key pressed twice with two note-offs, mono priority among three keys, new notes during a
+release). No render came back empty. Measurement code: oscairn/measurement `fm/compare_seq.py`
+(tolerances `seq`); local: `m7seq.py` (campaigns), `seq_octet.py` (Octet renders through the
+test tool's new `render-seq`, the same events as MIDI). Event times in the reference move by the
+recorder's buffer and run-loop jitter, so everything is measured from each render's own onsets
+and pitch changes.
+
+What the reference does (Octet does the same in Extended sounds, parameters 255-260):
+
+- **Mono:** the last key pressed sounds; releasing it returns to the last key still held (three
+  held keys in two orders). Without portamento every new note, legato or not, and every return to
+  a held key starts again: the sounding note fades out (decision 41) and the new one attacks from
+  silence; also when the old note is in its release. With portamento on (either mode), a legato
+  note carries the envelopes on and glides; key assign makes no difference in mono.
+- **Key assign** (poly): Single fades out the key's sounding note (also in its release) and starts
+  it again; Multi adds a voice. In both a key pressed twice needs two note-offs (decision 42).
+- **Portamento:** only when the performance's switch and the part's are both on (decision 39).
+  Every glide is straight in semitones. Rate 1 keeps the time value's rate (12, 24 semitones, up and
+  down); time 1 takes as long for any distance as rate 1 for an octave (5, 12, 19, 24 semitones);
+  rate 2 and time 2 jump to an octave from the target when farther, then glide as rate 1 and time 1.
+  Fingered glides only on legato notes, in poly as well (a key held); full-time also from a
+  released note's pitch, in mono and poly. The rate by time value (`kPortaRate`, every fourth value
+  measured: 434 semitones per second at 1, 36.6 at 64, 0.12 at 127; 0 is instant), straight in log
+  rate between.
+- **Random pitch, random pan:** decision 44.
+- **Alternate pan:** alternates on every note of the sound: the same key, other keys, with a note
+  held, and in mono on each legato note (as Octet already did).
+- **Part LFO key-on reset:** Each-On resets on every note, 1st-On only when no key of the sound is
+  held, in poly and mono (Octet's existing behaviour; now measured); Off runs free (its phase
+  depends on the time since the performance loaded, not compared).
+- **Fractional part velocities:** decision 45.
+- **Found, not changed: the 2nd LFO is per voice in the reference.** With its key-on reset on, a
+  note overlapping a held one starts its own LFO from the start while the held note's LFO goes on
+  without a jump (`l2r1`: zero crossings of the held note's vibrato every 0.198 s straight through
+  the second note-on); Octet's 2nd LFO is one per sound (as in Dexed) and resets only on a first
+  key. Its pitch depth at depth 30 with offset 7 is also about twice Octet's (about +-720 cents
+  against +-355; decision 5's Classic curve, unmeasured until now).
+
+| Gate (`fm/compare_seq.py`) | Result |
+| --- | --- |
+| Portamento rate 2 %, start jump 0.5 semitone (where both glides last 0.25 s) | `m7f` 22 of 29, `m7g` 27 of 28 (the rate table comes from these renders: every fourth value from `m7g`'s 48- and 12-semitone glides and `m7f`'s multiples of 8, so this checks the implementation and the time modes, not an independent sample). Every glide longer than 0.11 s meets the rate. **Not met:** the 12-semitone glides at times 1-24 and the time-32 glides of time 1, rate 2 and time 2 (25-100 ms long), 2-6 % off: at times 1-24 the reference glides 12 and 24 semitones at a lower rate than 48 (time 1: 415 against 434 semitones per second), which a rate per time value cannot follow; pq28's rate meets (0.08 %) and its jump misses by 0.52 semitone, at the 0.31 s glide's analysis resolution |
+| Mono, legato, key assign: the same notes start again, the same pitches (0.05 semitone) | `m7f` 18 of 18, `m7g` 12 of 13; not met: the retrigger at attack time 20 (decision 41: Octet dips to silence, the reference about 6 dB) |
+| Alternate pan sides | 5 of 5 (same key, other keys, a held note; the mono case is in the row above) |
+| Part LFO key-on reset, 95th percentile 15 cents | 4 of 4 (Each-On and 1st-On, poly and mono; worst 9.6 cents) |
+| Fractional part velocities, level 0.5 dB | 5 of 5 renders, 71 notes, worst 0.46 dB (the curve below velocity 8 comes from these renders) |
+| Random pitch, random pan | Statistics (32-128 notes per depth): random pitch range and standard deviation within one step of the reference's at every depth (depth 127: reference -31..+30, sd 19.3 steps; Octet -31..+30, 19.2), depth 4 never moves in either; random pan range within 4 positions (depth 127: reference -58..+60, Octet -62..+62), standard deviation 28.2 against 38.0 at 127, 16.8 against 19.2 at 64 |
+
+Unmeasured or unresolved: the retrigger fade above attack time 60 and its shape (decision 41);
+portamento on fixed-frequency operators, from a held key returned to, and with key-on delay; the
+reference's lower rates for short glides at times 1-24; random pan's narrower spread and left
+lean, random pitch's extra step down; fractional velocities' effect on other velocity-dependent
+values; the 2nd LFO per voice and its depth (found above, not changed: Octet's LFO is per sound,
+and a per-voice LFO costs per voice what the per-sample LFO costs per sound now); key-on delay
+and the common pitch EG in mono legato (Octet's legato note takes its envelopes from the sounding
+note, the pitch EG included).
 
 ### Fifth session (2026-10-31): tests run
 
@@ -1713,6 +1812,19 @@ report.
 The Octet renders used for comparisons are made with `forks/measurements/m4/octet_render.py`
 (local, now mapping the part values and macros); the equivalence searches with `m7fit.py` and
 the campaigns with `m7gen.py` (local, like the other campaign generators: they build probes).
+
+### Sixth session (2026-10-31): tests run
+
+Code commits `e360357` (the test tool's `render-seq`), `fff4592` (mono, key assign, portamento),
+`ff55562` (fractional part velocities), `ed7c9a2` (random pitch and pan); measurement `abfcd13`,
+`3139a5b` (`fm/compare_seq.py`, tolerances `seq`). For each code commit's tree, locally: Release
+CTest 36/36 (the 164 Classic cases bit-identical through engine, JUCE plugin and native CLAP on
+arm64; the Extended test now also checks mono's last-key priority and return, retrigger against
+legato, portamento rate, fingered and full-time, rate 2's octave start, the time modes, two
+note-offs for a key pressed twice, Single against Multi, fractional velocities, and the random
+pitch and pan ranges), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of 164
+identical), ASan/UBSan 19/19, TSan 19/19. `ed7c9a2`'s tree is the one tested before the work was
+split into commits (the same files). CI results are in the session report.
 
 ### How to run the tests
 
