@@ -1392,16 +1392,21 @@ int extendedTest() {
         expect(peak > 0.01 && worst < 1e-4, "2nd LFO per voice (delay " + std::to_string(delay) +
                                                 "): two notes differ from each alone by " + std::to_string(worst));
     }
-    // its start: phase 0 is half a cycle into Lfo's waves (a square starts low), through the plugin
-    {
-        const auto x = renderMidiNotes({ { 49, 0 }, { 43, 10 }, { 42, 3 }, { 46, 1 }, { 47, 30 }, { 1058, 7 } },
+    // its pitch depth (twice the DX7's; depth 99 and offset 7 play as 256) and its start (phase 0
+    // half a cycle into Lfo's waves: a square starts low), through the plugin
+    for (const auto &d : { std::array<int, 3> { 30, 7, 77 * 256 }, std::array<int, 3> { 99, 7, 256 * 256 },
+                           std::array<int, 3> { 99, 4, 256 * 56 } }) {
+        const auto x = renderMidiNotes({ { 49, 0 }, { 43, 10 }, { 42, 3 }, { 46, 1 }, { 47, (double)d[0] },
+                                         { 1058, (double)d[1] } },
                                        { { 0.0, 60, 100 } }, 0.7);
-        const double half = 0.5 / extLfoHz(10);
+        const double half = 0.5 / extLfoHz(10), want = d[2] * 1200.0 / 32768;
         auto cents = [&](double a, double b) {
             return 1200 * std::log2(zeroCrossingHz(x, (size_t)(a * half * rate), (size_t)(b * half * rate)) / noteHz(60));
         };
         const double lo = cents(0.1, 0.9), hi = cents(1.1, 1.9);
-        expect(lo < -300 && hi > 300, "2nd LFO square starts low: " + std::to_string(lo) + " then " + std::to_string(hi) + " cents");
+        expect(std::fabs(lo + want) < 1 && std::fabs(hi - want) < 1,
+               "2nd LFO pitch depth " + std::to_string(d[0]) + " offset " + std::to_string(d[1]) + ": " +
+                   std::to_string(lo) + " then " + std::to_string(hi) + " cents, want -+" + std::to_string(want));
     }
     // -- the filter (milestone M6): each type's steady-state gain against the model its
     // fitted structure gives (Chamberlin sections and a one-pole, docs/oscairn-plan.md

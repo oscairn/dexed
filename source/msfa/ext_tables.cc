@@ -183,7 +183,8 @@ double extLfoHz(int speed) { return kLfoNormalHz[clampi(speed, 0, 99)]; }
 double extLfoExtendedHz(int speed) { return interpolate(kLfoExtX, kLfoExtHz, clampi(speed, 0, 415)); }
 
 int32_t extPitchDepthOffset(int o) {
-    static const int32_t t[] = { 0, 10, 20, 33, 55, 92, 153, 255 }; // shortcut: DX7 pitch sensitivity (unmeasured)
+    // measured at depths 30 and 99 (the DX7's sensitivities at 1-3; 4-7 are deeper)
+    static const int32_t t[] = { 0, 10, 20, 33, 56, 96, 160, 256 };
     return t[clampi(o, 0, 7)];
 }
 int32_t extAmpDepthOffset(int o) {

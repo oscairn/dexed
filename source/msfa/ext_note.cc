@@ -404,7 +404,8 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         if (v.common((ext::Common)(ext::PartLfoDest1 + 2 * d)) == ext::PartLfoFeedback)
             partLfoFeedback_ += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) / 16.0;
     detuneNote_ = midinote;
-    pitchDepth_ = (std::clamp(v.common(ext::LfoPitchDepth), 0, 99) * 165) >> 6;
+    // the DX7's depth steps, but 99 plays as 256 (measured at 17 depths)
+    pitchDepth_ = v.common(ext::LfoPitchDepth) >= 99 ? 256 : (std::max(v.common(ext::LfoPitchDepth), 0) * 165) >> 6;
     ampDepth_ = (std::clamp(v.common(ext::LfoAmpDepth), 0, 99) * 165) >> 6;
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
     notePitch_ = notePitch;
@@ -765,7 +766,7 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
     for (int s = 0; s < N; s++)
         lfo[s] = lfo_.getsample();
     const int32_t lfo_delay = lfo_.getdelay();
-    const uint32_t pmd = (uint32_t)pitchDepth_ * (uint32_t)lfo_delay; // Q32
+    const int64_t pmd = (int64_t)pitchDepth_ * lfo_delay; // Q32 (depth 99 plays as 256: up to 2^32)
     const bool pitchMod = pmd != 0 || ctrls->pitch_mod != 0;
     const uint32_t amdDepth = (uint32_t)(((int64_t)ampDepth_ * (int64_t)lfo_delay) >> 8);
     uint32_t amd[N];
@@ -816,9 +817,11 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
             for (int s = 0; s < N; s++) {
                 int32_t pmod = partPitch ? (int32_t)std::lrint(part_lfo[s] * partLfoPitch_[i]) : 0;
                 if (lfoPitch) {
-                    const int32_t senslfo = pitchSens_[i] * (lfo[s] - (1 << 23));
-                    const int32_t lfo2 = (int32_t)(((int64_t)pmd * (int64_t)senslfo) >> 39);
-                    const int32_t pmodWheel = (int32_t)(((int64_t)ctrls->pitch_mod * (int64_t)senslfo) >> 14);
+                    const int64_t senslfo = (int64_t)pitchSens_[i] * (lfo[s] - (1 << 23));
+                    // twice the DX7's depth (depth 99 with offset 7 swings +-2400 cents; measured at
+                    // 17 depths and 14 offsets)
+                    const int32_t lfo2 = (int32_t)(((pmd >> 8) * senslfo) >> 30);
+                    const int32_t pmodWheel = (int32_t)((ctrls->pitch_mod * senslfo) >> 14);
                     pmod += std::abs(lfo2) >= std::abs(pmodWheel) ? lfo2 : pmodWheel;
                 }
                 f[s] = rate_->freqlut.lookup(pitch + peg_[i].getsample() + pmod + pp[s]);
