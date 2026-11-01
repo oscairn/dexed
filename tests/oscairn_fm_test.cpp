@@ -1740,6 +1740,25 @@ int extendedTest() {
         expect(worst < 0.1, "modulator level 70 at EG 85 against level 56 at EG 99: " + std::to_string(worst) + " dB");
         auto carrier = [&](int eg) { return renderExtended(P{ { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60, 1.0, 0.4, 0.4); };
         expect(carrier(84) != carrier(85), "carrier EG levels 84 and 85 differ");
+        // the ratio macro: a modulator's ratio by its table (ratio 1 at +44 plays ratio 3), not a
+        // carrier's
+        auto near = [](double a, double b) { return std::fabs(a / b - 1) < 1e-3; };
+        expect(near(extShiftedRatio(1, 44), 3.0) && near(extShiftedRatio(4, 99), 21.332) &&
+                   near(extShiftedRatio(1, -99), 0.5) && near(extShiftedRatio(16, -99), 13.861) &&
+                   near(extShiftedRatio(20, 99), 20 + 33.347 - 16) && extShiftedRatio(2.5, 0) == 2.5,
+               "ratio macro table");
+        const P tone = { { 40, 8 }, { 1051, 60 }, { 2051, 99 }, { 1032, 1 }, { 2032, 1 } };
+        auto withRatio = [&](P p, const P &more) {
+            p.insert(p.end(), more.begin(), more.end());
+            return renderExtended(p, 60, 1.0, 0.4, 0.4);
+        };
+        const auto shifted = harmonics(withRatio(tone, { { 247, 44 } })), three = harmonics(withRatio(tone, { { 1032, 3 } }));
+        double off = 0;
+        for (size_t k = 0; k < shifted.size(); k++)
+            if (three[k] > three[0] - 60) // (the others are numerical noise)
+                off = std::max(off, std::fabs(shifted[k] - three[k]));
+        expect(off < 0.05, "ratio macro +44 on a modulator at ratio 1 plays ratio 3: " + std::to_string(off) + " dB");
+        expect(withRatio({}, { { 247, 99 } }) == withRatio({}, {}), "the ratio macro leaves a carrier alone");
     }
     // -- part values and macros: each plays as the operator or filter values it stands for
     {

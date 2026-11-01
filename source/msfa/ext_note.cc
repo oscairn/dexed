@@ -431,6 +431,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         auto o = [&](ext::Op k) { return v.op(n, k); };
         if (o(ext::KeyOnReset))
             reset_ |= (uint8_t)(1u << i);
+        const bool modulator = !((extCompiled(algorithm_).outputs >> i) & 1);
         // frequency
         fixed_[i] = o(ext::Mode) != 0;
         double cents = extPitchVelocityCents(v.common(ext::PitchVelocityDepth), o(ext::PitchVelocity), velocity) + partCents;
@@ -441,7 +442,11 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         } else {
             cents += extDetuneCents(o(ext::Detune), midinote) + ratioCents;
             detune_[i] = std::clamp(o(ext::Detune), -15, 15);
-            pitch = notePitch + (int32_t)std::lround(std::log2(extRatio(o(ext::Coarse), o(ext::Fine))) * kQ24);
+            // the ratio macro: ratio-mode modulators (shortcut: unmeasured on fixed-frequency ones)
+            double ratio = extRatio(o(ext::Coarse), o(ext::Fine));
+            if (modulator)
+                ratio = extShiftedRatio(ratio, macro(ext::MacroRatio));
+            pitch = notePitch + (int32_t)std::lround(std::log2(ratio) * kQ24);
         }
         basepitch_[i] = pitch + (int32_t)std::lround(cents / 1200.0 * kQ24);
         // the wave, band-limited for this note's frequency (shortcut: chosen at note-on and
@@ -457,7 +462,6 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         }
         // level: operator level, scaling and velocity, in dB, then MSFA's log format
         // modulators have their own level curve (the modulation index the reference plays)
-        const bool modulator = !((extCompiled(algorithm_).outputs >> i) & 1);
         int level = o(ext::Level);
         // the depth macro: the modulator's level plus the macro's value, divided by 1 + its feedback
         // when it is the operator that feeds back, rounded towards 0 (measured at feedback 0, 1, 2,

@@ -103,6 +103,7 @@ int extAegOffsetSteps(int offset);      // -64-+63: EG time steps added to every
 double extAegAttackScale(int offset);   // -64-+63: the attack offset's factor on every attack time
 int extAegSustainSteps(int offset);     // -64-+63: the sustain offset's decay 2 level steps
 double extPartDetuneCents(int detune);  // -128-+127
+double extShiftedRatio(double ratio, int value); // the ratio macro -99-+99 on a modulator's ratio
 // portamento time 0-127 and time mode 0-3 (rate 1, time 1, rate 2, time 2): the glide's rate in
 // semitones per second over a distance of `semitones` (time 0: instant, returns 0)
 double extPortamentoRate(int time, int timeMode, double semitones);
