@@ -784,9 +784,10 @@ double extShiftedRatio(double ratio, int value) {
 // An operator whose own wave is on that path starts from its place there (carriers' places
 // negative, modulators' positive, a sine at 0) and the value moves it: on the `m7a` wave probe a
 // carrier with all harmonics 1 at spread 3 (place +26) plays a sine at -25 and all harmonics 2 at
-// spread 4 at -50, as places +1 and -24 do; the place's sign picks the family.
-// shortcut: places measured from that one wave only; a wave off the path (formant 1, formant 2
-// off it) is replaced as a sine's is
+// spread 4 at -50, as places +1 and -24 do; the place's sign picks the family. Checked on lone
+// carriers with waves 1-4 and on modulators with waves 1, 3 and 4 (`m10t`: 27 of 28 cases).
+// shortcut: formant 2's places are not checked; a wave off the path (formant 1, formant 2 off it)
+// is replaced as a sine's is
 // shortcut: above 85 the formant rises by five per value, to silence at the top of the keyboard
 // (the reference's renders there match no wave of Octet's; at 97-99 they are nearly silent); the operator's own wave is replaced (unmeasured on operators whose
 // wave is not a sine)
