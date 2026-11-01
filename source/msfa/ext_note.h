@@ -139,8 +139,8 @@ class ExtNote {
 public:
     // an operator's wave (msfa/ext_waves.h)
     struct Wave {
-        enum Kind { Sine, Table, Formant, Silent } kind = Sine;
-        const int32_t *table = nullptr; // Table: the wave; Formant: the window
+        enum Kind { Sine, Table, Odd, Formant, Silent } kind = Sine;
+        const int32_t *table = nullptr; // Table: the wave; Odd: its E; Formant: the window
         int32_t centre = 1;             // Formant: the centre harmonic
     };
     void init(const ExtendedVoice &v, int midinote, int velocity, const SynthRate *rate, TuningState &tuning,

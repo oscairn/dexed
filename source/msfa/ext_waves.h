@@ -29,6 +29,9 @@ void init();
 // The table of wave 1-4 at a spread, holding no harmonic above maxHarmonic (at least the
 // fundamental).
 const int32_t *table(int wave, int spread, int maxHarmonic);
+// Wave 3-4 as E, the wave being E(2 t) sin(t), holding the wave's harmonics up to maxHarmonic. A
+// modulated odd wave plays E(2 t + m) sin(t + m) (`m9a`), not the wave at t + m.
+const int32_t *oddWindow(int wave, int spread, int maxHarmonic);
 // The window of wave 5-6 at a spread, holding no component above maxComponent (null: none fit).
 const int32_t *window(int wave, int spread, int maxComponent);
 

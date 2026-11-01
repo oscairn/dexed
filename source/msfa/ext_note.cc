@@ -55,6 +55,9 @@ struct ExtKernels {
         switch (w.kind) {
         case ExtNote::Wave::Table:
             return extwave::lookup(w.table, (int32_t)(p + (uint32_t)m));
+        case ExtNote::Wave::Odd:
+            return (int32_t)(((int64_t)extwave::lookup(w.table, (int32_t)(2 * p + (uint32_t)m)) *
+                              Sin::lookup((int32_t)(p + (uint32_t)m))) >> 24);
         case ExtNote::Wave::Formant:
             return (int32_t)(((int64_t)extwave::lookup(w.table, (int32_t)(p + (uint32_t)m)) *
                               Sin::lookup((int32_t)(p * (uint32_t)w.centre + (uint32_t)m))) >> 24);
@@ -372,9 +375,12 @@ void ExtNote::chooseWave(int i, int w) {
     Wave &wv = waves_[i];
     if (w == 0) {
         wv = Wave {};
-    } else if (w <= 4) {
+    } else if (w <= 2) {
         wv.kind = Wave::Table;
         wv.table = extwave::table(w, spread_[i], below_[i]);
+    } else if (w <= 4) {
+        wv.kind = Wave::Odd;
+        wv.table = extwave::oddWindow(w, spread_[i], below_[i]);
     } else {
         wv.centre = formant_[i] + 1;
         wv.table = extwave::window(w, spread_[i], below_[i] - wv.centre);
