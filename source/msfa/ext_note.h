@@ -53,7 +53,7 @@ private:
     // segments' per-sample steps keep their precision)
     int64_t targets_[4] = {};  // per segment
     int64_t inc_[4] = {};      // per segment, per sample
-    double attackFrac_ = 0;    // attack: fraction of the way to its asymptote per sample
+    double frac_[4] = {};      // rising segments: fraction of the way to their asymptote per sample
     int64_t attackOver_ = 0;   // attack: how far above full level its asymptote lies
     int64_t attackStart_ = 0;  // attack: where it starts, below full level
     int64_t full_ = 0;         // the operator's level at EG level 99

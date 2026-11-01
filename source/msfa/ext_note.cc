@@ -190,11 +190,13 @@ void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, in
                                        : extEgMsPerDb(std::clamp(times[i], 0, 99))) * timeScale;
         const double dbPerSample = 1000.0 / (msPerDb * sampleRate);
         inc_[i] = std::max<int64_t>(1, std::llround(dbPerSample * kLog2PerDb * q32));
+        // a rising segment approaches a point extAttackOverDb above full level exponentially in
+        // dB (as the DX7's does), at the segment's rate in doublings per second, and stops at its
+        // target; falling ones move straight in dB (`m7a`: decay 2 rising to 99 on a modulator and
+        // on a carrier; the rise towards a target below full level, and a rising release, unmeasured)
+        frac_[i] = 1.0 - std::exp(-dbPerSample * kLog2PerDb);
         if (i == 0) {
-            // the attack starts extAttackStartDb below the operator's full level and approaches
-            // a point extAttackOverDb above full level exponentially in dB (as the DX7's
-            // does), at the segment's rate in doublings per second; it stops at its target
-            attackFrac_ = 1.0 - std::exp(-dbPerSample * kLog2PerDb);
+            // the attack starts extAttackStartDb below the operator's full level
             attackOver_ = std::llround(extAttackOverDb() * kLog2PerDb * q32);
             attackStart_ = std::llround(-extAttackStartDb() * kLog2PerDb * q32);
         }
@@ -225,12 +227,11 @@ int32_t ExtEnv::getsample() {
     } else if (ix_ <= 4) {
         const int seg = ix_ - 1;
         const int64_t t = targets_[seg];
-        if (seg == 0 && level_ < t) {
-            level_ = std::max(level_, full_ + attackStart_);
-            const int64_t step = (int64_t)((double)(full_ + attackOver_ - level_) * attackFrac_);
+        if (level_ < t) {
+            if (seg == 0)
+                level_ = std::max(level_, full_ + attackStart_);
+            const int64_t step = (int64_t)((double)(full_ + attackOver_ - level_) * frac_[seg]);
             level_ = std::min(t, level_ + std::max<int64_t>(step, 1));
-        } else if (level_ < t) {
-            level_ = std::min(t, level_ + inc_[seg]);
         } else if (level_ > t) {
             level_ = std::max(t, level_ - inc_[seg]);
         }

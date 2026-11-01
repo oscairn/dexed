@@ -1751,6 +1751,32 @@ int extendedTest() {
         std::printf("quiet sine: harmonics 2-8 at most %.1f dB\n", worst);
         expect(worst < -90, "quiet Extended sine: harmonics 2-8 at " + std::to_string(worst) + " dB");
     }
+    // -- a rising decay segment approaches a point extAttackOverDb above full level exponentially
+    // in dB at its rate in doublings per second, as the attack does (decay 1 to EG 70 at once, then
+    // decay 2 to 99 at time 55): its level 0.1 and 0.2 s in, against the steady level, within 0.5 dB
+    {
+        using P = std::vector<std::pair<uint32_t, double>>;
+        const auto x = renderExtended(P{ { 1041, 99 }, { 1042, 70 }, { 1043, 99 }, { 1045, 0 }, { 1046, 0 }, { 1047, 55 } },
+                                      60, 1.0, 1.6, 1.6);
+        size_t on = 0;
+        while (on < x.size() && std::fabs(x[on]) < 1e-4f)
+            on++;
+        auto db = [&](double t) {
+            const size_t a = on + (size_t)(t * rate), n = (size_t)(0.01 * rate);
+            double e = 0;
+            for (size_t i = 0; i < n; i++)
+                e += (double)x[a + i] * x[a + i];
+            return 10 * std::log10(e / n);
+        };
+        const double steady = db(1.4), r = 1000.0 / extEgMsPerDb(55) / 6.0206;
+        for (double t : { 0.1, 0.2 }) {
+            const double want = extAttackOverDb() - (extAttackOverDb() - extEgLevelDb(70)) * std::exp(-r * (t + 0.005));
+            const double got = db(t) - steady;
+            std::printf("rising decay 2 at %.1f s: %.2f dB (curve %.2f)\n", t, got, want);
+            expect(std::fabs(got - want) < 0.5, "rising decay 2 at " + std::to_string(t) + " s: " + std::to_string(got) +
+                                                    " dB, curve " + std::to_string(want));
+        }
+    }
     // -- a modulator's EG level: in steps of two, adding to its operator level as values (EG 85 at
     // level 70 plays as EG 99 at level 56); a carrier's EG keeps its own curve
     {
