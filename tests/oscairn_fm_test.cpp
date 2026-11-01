@@ -1709,6 +1709,38 @@ int extendedTest() {
         std::printf("quiet sine: harmonics 2-8 at most %.1f dB\n", worst);
         expect(worst < -90, "quiet Extended sine: harmonics 2-8 at " + std::to_string(worst) + " dB");
     }
+    // -- a modulator's EG level: in steps of two, adding to its operator level as values (EG 85 at
+    // level 70 plays as EG 99 at level 56); a carrier's EG keeps its own curve
+    {
+        auto harmonics = [&](const std::vector<float> &x) {
+            std::vector<double> db;
+            const size_t a = 9600, n = 9600;
+            for (int k = 1; k <= 6; k++) {
+                double re = 0, im = 0;
+                for (size_t i = 0; i < n; i++) {
+                    const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), ph = 2 * M_PI * noteHz(60) * k * i / rate;
+                    re += w * x[a + i] * std::cos(ph);
+                    im += w * x[a + i] * std::sin(ph);
+                }
+                db.push_back(20 * std::log10(std::hypot(re, im) + 1e-30));
+            }
+            return db;
+        };
+        using P = std::vector<std::pair<uint32_t, double>>;
+        auto pair = [&](int level, int eg) {
+            return renderExtended(P{ { 40, 8 }, { 1051, level }, { 2051, 99 }, { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60,
+                                  1.0, 0.4, 0.4);
+        };
+        expect(pair(70, 84) == pair(70, 85), "modulator EG level 84 plays as 85");
+        const auto a = harmonics(pair(70, 85)), b = harmonics(pair(56, 99));
+        double worst = 0;
+        for (size_t k = 0; k < a.size(); k++)
+            worst = std::max(worst, std::fabs(a[k] - b[k]));
+        std::printf("modulator level 70 at EG 85 against level 56: harmonics 1-6 within %.3f dB\n", worst);
+        expect(worst < 0.1, "modulator level 70 at EG 85 against level 56 at EG 99: " + std::to_string(worst) + " dB");
+        auto carrier = [&](int eg) { return renderExtended(P{ { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60, 1.0, 0.4, 0.4); };
+        expect(carrier(84) != carrier(85), "carrier EG levels 84 and 85 differ");
+    }
     // -- part values and macros: each plays as the operator or filter values it stands for
     {
         using P = std::vector<std::pair<uint32_t, double>>;

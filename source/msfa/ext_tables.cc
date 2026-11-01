@@ -62,6 +62,13 @@ double extModLevelDb(int l) {
     l = clampi(l, 0, 99);
     return l < kModLevelX[0] ? -200.0 : interpolate(kModLevelX, kModLevelDb, l);
 }
+// a modulator's EG level steps as its operator level does, in steps of two: an even level plays as
+// the odd one above it (measured at every third level with operator levels 99 and 70: the two add
+// as values, not on the carrier's EG curve)
+double extModEgLevelDb(int l) {
+    l = clampi(l, 0, 99) | 1;
+    return l < kModLevelX[0] ? -200.0 : interpolate(kModLevelX, kModLevelDb, l) - kModLevelDb[31];
+}
 double extFeedbackScale(int f) { return kFeedbackScale[clampi(f, 0, 7)]; }
 double extAlgorithmGainDb(int a) { return kAlgorithmGainDb[clampi(a, 1, 88) - 1]; }
 

@@ -31,11 +31,12 @@ class ExtEnv {
 public:
     // levels and times are the 0-99 panel values; outlevel is the operator's level in the same
     // log format (operator level, scaling and velocity); timeScale stretches every segment
-    // attackScale: a factor on the attack time (held within attack times 0-99)
+    // attackScale: a factor on the attack time (held within attack times 0-99); modulator: the
+    // levels follow a modulator's EG curve
     void init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-              double sampleRate, double attackScale = 1);
+              double sampleRate, double attackScale = 1, bool modulator = false);
     void update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                double sampleRate, double attackScale = 1);
+                double sampleRate, double attackScale = 1, bool modulator = false);
     int32_t getsample(); // one sample
     void keydown(bool down);
     bool isActive() const { return ix_ < 5 || levels_[3] > 0; }
@@ -45,7 +46,7 @@ public:
 private:
     void advance(int ix);
     void configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                   double sampleRate, double attackScale);
+                   double sampleRate, double attackScale, bool modulator);
 
     int levels_[4] = {};
     // levels in Q32 per doubling (the Q24 format with 8 more fraction bits, so the slowest

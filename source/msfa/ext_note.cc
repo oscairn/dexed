@@ -171,12 +171,12 @@ struct ExtKernels {
 // ---- envelope ----
 
 void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                       double sampleRate, double attackScale) {
+                       double sampleRate, double attackScale, bool modulator) {
     constexpr double q32 = 4294967296.0;
     full_ = (int64_t)outlevel << 8;
     for (int i = 0; i < 4; i++) {
         levels_[i] = std::clamp(levels[i], 0, 99);
-        const double db = extEgLevelDb(levels_[i]);
+        const double db = modulator ? extModEgLevelDb(levels_[i]) : extEgLevelDb(levels_[i]);
         targets_[i] = std::max<int64_t>(0, ((int64_t)outlevel << 8) + (int64_t)std::llround(db * kLog2PerDb * q32));
         // segment i (attack, decay 1, decay 2, release): dB per sample
         const double msPerDb = (i == 0 ? std::clamp(extAttackMsPerDb(std::clamp(times[i], 0, 99)) * attackScale,
@@ -197,8 +197,8 @@ void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, in
 }
 
 void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                  double sampleRate, double attackScale) {
-    configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale);
+                  double sampleRate, double attackScale, bool modulator) {
+    configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale, modulator);
     down_ = true;
     level_ = targets_[3]; // the hold level
     count_ = holdSamples_;
@@ -206,8 +206,8 @@ void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t
 }
 
 void ExtEnv::update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
-                    double sampleRate, double attackScale) {
-    configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale);
+                    double sampleRate, double attackScale, bool modulator) {
+    configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale, modulator);
 }
 
 void ExtEnv::advance(int ix) { ix_ = ix; }
@@ -495,9 +495,9 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         const double timeScale = extTimeKeyFollowScale(o(ext::TimeKeyFollow), midinote);
         const double attackScale = modulator ? std::min(aegAttack, 1.0) : aegAttack;
         if (start)
-            env_[i].init(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate, attackScale);
+            env_[i].init(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate, attackScale, modulator);
         else
-            env_[i].update(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate, attackScale);
+            env_[i].update(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate, attackScale, modulator);
         if (start)
             peg_[i].init(o(ext::PegInitial), o(ext::PegAttack), o(ext::PegAttackTime), o(ext::PegDecayTime), sampleRate);
         pitchSens_[i] = extPitchDepthOffset(std::clamp(o(ext::PitchDepthOffset), 0, 7));
