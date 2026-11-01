@@ -48,17 +48,20 @@ struct ExtKernels {
     int64_t fbGain = 0; // feedback: the average of the last two outputs times this, Q24
     const ExtNote::Wave *waves = nullptr; // each operator's wave
     int cur = 0;
-    int32_t wave(int op, int32_t ph) const {
+    // operator op's wave at phase ph, modulated by m (its modulators and feedback)
+    int32_t wave(int op, int32_t ph, int32_t m) const {
         const ExtNote::Wave &w = waves[op];
+        const uint32_t p = (uint32_t)ph;
         switch (w.kind) {
         case ExtNote::Wave::Table:
-            return extwave::lookup(w.table, ph);
+            return extwave::lookup(w.table, (int32_t)(p + (uint32_t)m));
         case ExtNote::Wave::Formant:
-            return (int32_t)(((int64_t)extwave::lookup(w.table, ph) * Sin::lookup(ph * w.centre)) >> 24);
+            return (int32_t)(((int64_t)extwave::lookup(w.table, (int32_t)(p + (uint32_t)m)) *
+                              Sin::lookup((int32_t)(p * (uint32_t)w.centre + (uint32_t)m))) >> 24);
         case ExtNote::Wave::Silent:
             return 0;
         default:
-            return Sin::lookup(ph);
+            return Sin::lookup((int32_t)(p + (uint32_t)m));
         }
     }
     bool gains(FmOpParams &p, int32_t &gain1, int32_t &gain2) {
@@ -79,7 +82,7 @@ struct ExtKernels {
         ramp(g1, g2, g);
         const int32_t *f = freqOf[cur];
         for (int i = 0; i < N; i++, ph += f[i - 1]) {
-            const int32_t y = (int32_t)(((int64_t)wave(cur, ph + in[i]) * g[i]) >> 24);
+            const int32_t y = (int32_t)(((int64_t)wave(cur, ph, in[i]) * g[i]) >> 24);
             o[i] = add ? o[i] + y : y;
         }
     }
@@ -88,7 +91,7 @@ struct ExtKernels {
         ramp(g1, g2, g);
         const int32_t *f = freqOf[cur];
         for (int i = 0; i < N; i++, ph += f[i - 1]) {
-            const int32_t y = (int32_t)(((int64_t)wave(cur, ph) * g[i]) >> 24);
+            const int32_t y = (int32_t)(((int64_t)wave(cur, ph, 0) * g[i]) >> 24);
             o[i] = add ? o[i] + y : y;
         }
     }
@@ -101,7 +104,7 @@ struct ExtKernels {
         for (int i = 0; i < N; i++, ph += f[i - 1]) {
             const int32_t scaled = (int32_t)(((int64_t)(y0 + y) * fbGain) >> 25);
             y0 = y;
-            y = (int32_t)(((int64_t)wave(cur, ph + (in ? in[i] : 0) + scaled) * g[i]) >> 24);
+            y = (int32_t)(((int64_t)wave(cur, ph, (in ? in[i] : 0) + scaled) * g[i]) >> 24);
             o[i] = y;
         }
         fb[0] = y0;
@@ -145,7 +148,7 @@ struct ExtKernels {
                         in += bufs[j].get()[i];
                 if (k == 0)
                     in += (int32_t)(((int64_t)(y0 + y) * fbGain) >> 25);
-                const int32_t out = (int32_t)(((int64_t)wave(op, ph[k] + in) * gain) >> 24);
+                const int32_t out = (int32_t)(((int64_t)wave(op, ph[k], in) * gain) >> 24);
                 ph[k] += freqOf[op][i];
                 bufs[op].get()[i] = out;
                 if (k == a.loopLength - 1) {

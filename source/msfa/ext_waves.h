@@ -16,7 +16,8 @@
 // measured harmonic amplitudes and phases (ext_waves_data.h), one per spread, each in versions
 // holding the first 1-16 components exactly and more in quarter-octave steps up to 512, so a
 // note keeps every harmonic below Nyquist up to the 16th. Waves 5-6 (formant 1 and 2) are a window table times a sine at the centre harmonic
-// (formant + 1); the window is band-limited the same way.
+// (formant + 1); the window is band-limited the same way. A modulated formant wave plays
+// window(t + m) sin(centre t + m): the centre's sine takes the modulation once, not centre times.
 namespace extwave {
 
 constexpr int kLgSize = 11;

@@ -1342,8 +1342,9 @@ int extendedTest() {
         }
     }
     // -- a modulated non-sine carrier (`m9a`, note 48, a sine at ratio 1 and level 65 modulating
-    // operator 2): all harmonics 2 at spread 4 plays its wave half a cycle on; harmonics 1-8
-    // relative to the strongest against the reference's, within 1 dB where it is within 40 dB
+    // operator 2): all harmonics 2 at spread 4 plays its wave half a cycle on, formant 1 at formant
+    // 5 window(t + m) sin(6 t + m); harmonics 1-8 relative to the strongest against the
+    // reference's, within 1 dB where it is within 40 dB
     {
         using P = std::vector<std::pair<uint32_t, double>>;
         auto harmonics = [&](const std::vector<float> &x) {
@@ -1365,6 +1366,7 @@ int extendedTest() {
         };
         const struct { int wave, spread, formant; double ref[8]; } cases[] = {
             { 2, 4, 0, { 0.0, -5.2, -16.5, -30.9, -28.1, -42.3, -47.0, -55.2 } },
+            { 5, 0, 5, { -89.3, -67.1, -45.6, -26.4, -2.7, 0.0, -24.6, -15.2 } },
         };
         for (const auto &c : cases) {
             const auto db = harmonics(renderExtended(P{ { 40, 8 }, { 1051, 65 }, { 2051, 99 }, { 1032, 1 }, { 2032, 1 },
