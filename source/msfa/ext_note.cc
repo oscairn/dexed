@@ -33,7 +33,7 @@ int32_t dbToLog(double db) { return (int32_t)std::lround(db * kLog2PerDb * kQ24)
 // 99 (Env::advance: ((127 >> 1) << 6) + 99 * 32 - 4256 + ... in units of 1 << 16), so an
 // Extended carrier at full level is as loud as a Classic one.
 constexpr int32_t kFullScale = ((((127 >> 1) << 6) + (127 << 5) - 4256) << 16);
-constexpr double kExtendedOutputDb = -6.57; // Extended carriers' overall level (see setup)
+constexpr double kExtendedOutputDb = -6.57; // Extended carriers' level in the voice (see setup and kExtendedVoiceGain)
 const int32_t kNoPitch[N] = {};
 
 // The modern kernels with sample-by-sample rendering of multi-operator feedback loops.

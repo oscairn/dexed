@@ -445,8 +445,10 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                         if (v.dx7_note->extended()) {
                             // Extended voices skip Dexed's 16-bit rounding: on a periodic tone its
                             // error lands on the harmonics, about 70 dB down, well above the
-                            // reference's own floor there
-                            f = std::clamp((float)val * (1.0f / (float)(1 << 28)), -1.0f, 1.0f);
+                            // reference's own floor there; and its clipping at full scale (the
+                            // loudest algorithms pass it at the reference's own level, which does
+                            // not clip)
+                            f = (float)val * (kExtendedVoiceGain / (float)(1 << 28));
                         } else {
                             val = val >> 4;
                             int clip_val = val < -(1 << 24) ? 0x8000 : val >= (1 << 24) ? 0x7fff : val >> 9;

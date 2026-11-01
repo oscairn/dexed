@@ -1721,6 +1721,21 @@ int extendedTest() {
         h.process(512, in);
         expect(audible(h.left), std::string(file) + " is silent");
     }
+    // -- overall level: a full-level Extended carrier in algorithm 1 plays 0.42 dB above the
+    // Classic init voice's (the reference at part volume 127 without its centre pan dip)
+    {
+        auto rmsDb = [](const std::vector<float> &x) {
+            double s = 0;
+            for (size_t i = x.size() / 4; i < x.size() / 2; i++)
+                s += (double)x[i] * x[i];
+            return 10 * std::log10(s / (double)(x.size() / 2 - x.size() / 4));
+        };
+        const double ext = rmsDb(renderExtended({}, 69, 1.0, 1.0, 1.0));
+        const double classic = rmsDb(renderExtended({ { 5, 0 } }, 69, 1.0, 1.0, 1.0));
+        std::printf("Extended carrier %.3f dB re Classic\n", ext - classic);
+        expect(std::fabs(ext - classic - 0.42) < 0.05,
+               "Extended carrier level " + std::to_string(ext - classic) + " dB re Classic, want +0.42");
+    }
     // -- profile conversion
     {
         std::vector<double> v;
@@ -1814,8 +1829,12 @@ int extendedTest() {
             return db;
         };
         using P = std::vector<std::pair<uint32_t, double>>;
+        // (the carrier at level 90 keeps the output about where this check was set up, 7 dB under
+        // a level 99 carrier since Extended voices play 6.99 dB louder: harmonic 6 lies about
+        // 129 dB under the fundamental, where the comparison moves by a tenth of a dB with
+        // rounding)
         auto pair = [&](int level, int eg) {
-            return renderExtended(P{ { 40, 8 }, { 1051, level }, { 2051, 99 }, { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60,
+            return renderExtended(P{ { 40, 8 }, { 1051, level }, { 2051, 90 }, { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60,
                                   1.0, 0.4, 0.4);
         };
         expect(pair(70, 84) == pair(70, 85), "modulator EG level 84 plays as 85");

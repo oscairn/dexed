@@ -126,6 +126,14 @@ private:
 };
 
 // What a note takes from its sound's state at note-on.
+// An Extended voice's gain on its way to the mix. Carriers render 6.57 dB under a Classic carrier
+// inside the voice (the int32 buffer and the filter's bounds keep their headroom); the mix raises
+// them by 6.99 dB to the reference's own level, 0.42 dB above a Classic carrier: the level its
+// probes play at Part Volume 127 and without its part pan's 3 dB centre dip, since volumes and
+// pan belong to the performance, not the engine (measured: Part Volume 100 is 4.13 dB under 127,
+// the centred pan 3.01 dB under a hard pan on its side).
+constexpr float kExtendedVoiceGain = 2.2387f; // 10^(6.99 / 20)
+
 struct ExtStart {
     uint32_t randomPitch = 0, randomPan = 0; // uniform 32-bit values drawn for this note
     uint32_t count = 0;                      // the sound's Extended notes before this one (alternate pan)
