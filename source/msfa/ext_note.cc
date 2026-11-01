@@ -416,7 +416,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             partLfoFeedback_ += std::clamp(v.common((ext::Common)(ext::PartLfoDepth1 + 2 * d)), 0, 127) / 16.0;
     detuneNote_ = midinote;
     pitchDepth_ = extLfoPitchDepthSteps(v.common(ext::LfoPitchDepth));
-    ampLfo_ = (float)(extLfoAmpDb(v.common(ext::LfoAmpDepth)) * kLog2PerDb * kQ24);
+    ampLfo_ = (float)(extAmpStraightDb(extLfoAmpDb(v.common(ext::LfoAmpDepth))) * kLog2PerDb * kQ24);
     const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
     notePitch_ = notePitch;
     if (start)
@@ -849,8 +849,10 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
             level = env;
             if (pt != 0)
                 level -= (int32_t)(((uint64_t)env * ((uint64_t)pt << 4)) >> 28);
-            if (ampLfo != 0 && ampShare_[i] != 0) // (the larger of the LFO's and the wheel's loss)
-                level = std::max(0, std::min(level, env - (int32_t)std::lrint(lfoLoss[s] * ampShare_[i])));
+            if (ampLfo != 0 && ampShare_[i] != 0) { // (the larger of the LFO's and the wheel's loss)
+                const double loss = extAmpLossDb(lfoLoss[s] * ampShare_[i] / (kLog2PerDb * kQ24)) * (kLog2PerDb * kQ24);
+                level = std::max(0, std::min(level, env - (int32_t)std::min(loss, 1e9)));
+            }
             if (partLevel) // the part LFO only lowers the level: none at its top, all at its bottom
                 level = std::max(0, level - (int32_t)std::lrint((1.0f - part_lfo[s]) * 0.5f * partLfoLevel_[i]));
             gains_[i][s] = Exp2::lookup(level - (14 * (1 << 24)));

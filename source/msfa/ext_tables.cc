@@ -215,6 +215,32 @@ double extLfoPitchCents(int depth, int offset) {
 static const double kLfoAmpX[] = { 0, 2, 3, 4, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 99 };
 static const double kLfoAmpSteps[] = { 0, 0, 1, 1, 2, 3, 4, 5, 8, 10, 13, 16, 20, 24, 28, 32, 37, 42, 49, 56, 65, 75, 89, 111, 149, 256 };
 double extLfoAmpDb(int depth) { return 0.375 * interpolate(kLfoAmpX, kLfoAmpSteps, clampi(depth, 0, 99)); }
+// The 2nd LFO's amplitude loss plays through the same bend below about -45 dB as a carrier's EG
+// levels (`m9b`: 0.5 dB more than their straight 6.02 dB per 8 levels at -48 dB, 2.8 dB at -60): at
+// depth 99 offsets 3 and 4 the reference swings 48.7 and 62.8 dB where half and five eighths of offset
+// 7's loss are 48 and 60 dB straight (`m7l`). The offset 7 table above is the swing as played.
+// shortcut: measured at EG level 99 on a lone carrier; whether the bend applies to the sum of the EG
+// and LFO losses, and on modulators, is unmeasured
+namespace {
+struct AmpBend {
+    double straight[22], played[22];
+    AmpBend() {
+        const double step = -kCarrierEgDb[11] / 8; // levels 91-99
+        int n = 0;
+        for (int i = 12; i >= 0; i--, n++) // carrier EG levels 99 down to 21
+            straight[n] = (99 - kCarrierEgX[i]) * step, played[n] = -kCarrierEgDb[i];
+        for (int i = 7; i >= 0; i--, n++) // 19 down to 12, the last audible level
+            straight[n] = (99 - kLevelX[i]) * step, played[n] = -kEgLevelDb[i];
+        straight[n] = straight[n - 1] + step, played[n] = 200; // silent below
+    }
+};
+const AmpBend kAmpBend;
+} // namespace
+double extAmpLossDb(double straightDb) { return interpolate(kAmpBend.straight, kAmpBend.played, straightDb); }
+double extAmpStraightDb(double db) {
+    // a swing past the last audible level (depth 99: 256 steps) is the straight loss itself
+    return db >= kAmpBend.played[20] ? db : interpolate(kAmpBend.played, kAmpBend.straight, db);
+}
 double extAmpDepthShare(int o) {
     // measured at depths 16, 30, 70 and 99: eighths
     static const double t[] = { 0, 1, 2, 4, 5, 6, 7, 8 };

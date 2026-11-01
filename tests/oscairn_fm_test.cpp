@@ -1470,9 +1470,12 @@ int extendedTest() {
                    std::to_string(lo) + " then " + std::to_string(hi) + " cents, want -+" + std::to_string(want));
     }
     // its amplitude depth: straight in dB from the LFO's top, 0.375 dB steps by depth (50: 32 steps
-    // at offset 7) and eighths by offset (3: half), through the plugin with a square wave (low first)
+    // at offset 7) and eighths by offset (3: half), through the plugin with a square wave (low first);
+    // below about -45 dB bent as a carrier's EG levels are (depth 99, offsets 3 and 4: 48 and 60 dB
+    // straight play as 48.5 and 62.64)
     for (const auto &d : { std::array<double, 3> { 50, 7, 12.0 }, std::array<double, 3> { 50, 3, 6.0 },
-                           std::array<double, 3> { 85, 7, 33.375 } }) {
+                           std::array<double, 3> { 85, 7, 33.375 }, std::array<double, 3> { 99, 3, 48.50 },
+                           std::array<double, 3> { 99, 4, 62.64 } }) {
         const auto x = renderMidiNotes({ { 49, 0 }, { 43, 10 }, { 42, 3 }, { 46, 1 }, { 48, d[0] }, { 1059, d[1] } },
                                        { { 0.0, 60, 100 } }, 0.7);
         const double half = 0.5 / extLfoHz(10);

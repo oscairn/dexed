@@ -75,6 +75,8 @@ int32_t extLfoPitchDepthSteps(int depth); // pitch depth 0-99 in the DX7's steps
 double extLfoPitchCents(int depth, int offset); // the 2nd LFO's pitch swing at its peak, in cents
 int32_t extAmpDepthOffset(int offset);   // the mod wheel's amplitude sensitivity, as the DX7's (Q24)
 double extLfoAmpDb(int depth);           // amplitude depth 0-99: dB lost at the LFO's bottom with offset 7
+double extAmpLossDb(double straightDb); // the 2nd LFO's amplitude loss as played, from its straight loss
+double extAmpStraightDb(double db);       // its inverse
 double extAmpDepthShare(int offset);     // amplitude depth offset 0-7: its share of offset 7's loss
 
 // filter
