@@ -12,6 +12,7 @@
  *   oscairn-fm-test topology                         the 32 algorithm graphs, against renders
  *   oscairn-fm-test contexts                         native sound contexts (RFC 0005)
  *   oscairn-fm-test state-active                     state loads and flush while active, with contexts
+ *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
  * linked in, which no-alloc needs.
@@ -45,6 +46,7 @@
 #include <atomic>
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <new>
 #include <set>
 #include <sstream>
@@ -2228,6 +2230,88 @@ int renderSeqToWav(const std::vector<char *> &args) {
     return f ? 0 : 1;
 }
 
+// ---- CPU benchmark (informational, not a gate: the plan defines no CPU budget) ----
+
+// bench [seconds]: held notes of representative sounds at 48 kHz in 64-sample blocks, 16 voices
+// (the engine's polyphony) per instance and as many instances as the voice count needs, all on
+// this thread. Prints the real-time factor (render time over audio time) at 1, 16 and 64 voices
+// and the most voices measured to fit within 100 % and 50 % of one core.
+int benchmark(const std::vector<char *> &args) {
+    const double seconds = args.size() > 2 ? std::atof(args[2]) : 0.5;
+    constexpr double kRate = 48000;
+    constexpr uint32_t kBlock = 64;
+    using Params = std::vector<std::pair<clap_id, double>>;
+    // Classic: algorithm 1 with every operator sounding, feedback 6, LFO pitch modulation
+    Params classic = { { 1, 1 }, { 2, 6 }, { 12, 10 } };
+    for (int n = 2; n <= 6; n++)
+        classic.push_back({ (clap_id)(1000 * n + 17), 80 });
+    // Extended, 8 sine operators: algorithm 1, feedback 5, the 2nd LFO per voice on pitch and amplitude
+    Params sines = { { 5, 1 }, { 40, 1 }, { 41, 5 }, { 43, 60 }, { 46, 1 }, { 47, 20 }, { 48, 20 } };
+    for (int n = 1; n <= 8; n++)
+        sines.push_back({ (clap_id)(1000 * n + 51), 85 });
+    // Extended with waves (formant 2 spread 5, odd harmonics, all harmonics spread 7, formant 1),
+    // the texture macro, and a 24 dB lowpass whose cutoff the filter EG moves
+    Params waves = sines;
+    const int wave[8][3] = { { 6, 5, 20 }, { 3, 3, 0 }, { 1, 7, 0 }, { 5, 3, 9 }, { 4, 2, 0 }, { 2, 4, 0 }, { 6, 7, 40 }, { 0, 0, 0 } };
+    for (int n = 1; n <= 8; n++)
+        for (int k = 0; k < 3; k++)
+            waves.push_back({ (clap_id)(1000 * n + 60 + k), (double)wave[n - 1][k] });
+    for (auto p : Params { { 252, 20 }, { 60, 0 }, { 61, 500 }, { 63, 60 }, { 69, 70 }, { 70, 80 }, { 74, 127 }, { 75, -60 } })
+        waves.push_back(p);
+    const std::pair<const char *, const Params *> sounds[] = { { "Classic, 6 operators", &classic },
+                                                              { "Extended, 8 sines, 2nd LFO", &sines },
+                                                              { "Extended, waves, texture, filter", &waves } };
+    // render time per second of audio for `voices` held notes of one sound
+    auto rtf = [&](const Params &p, int voices) {
+        std::vector<std::unique_ptr<Host>> hosts;
+        EventList in;
+        in.events.reserve(256);
+        for (int v = 0; v < voices; v += 16) {
+            hosts.push_back(std::make_unique<Host>(entry));
+            Host &h = *hosts.back();
+            h.activate(kRate, kBlock);
+            for (auto &[id, value] : p)
+                in.param(0, id, value);
+            h.process(kBlock, in);
+            in.clear();
+            for (int k = 0; k < std::min(16, voices - v); k++)
+                in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)(40 + 2 * k), 0.8);
+            h.process(kBlock, in);
+            in.clear();
+        }
+        const int blocks = (int)(seconds * kRate / kBlock);
+        for (int b = 0; b < blocks / 4; b++) // past the attacks
+            for (auto &h : hosts)
+                h->process(kBlock, in);
+        float peak = 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int b = 0; b < blocks; b++)
+            for (auto &h : hosts) {
+                h->process(kBlock, in);
+                peak = std::max(peak, std::fabs(h->left[0]));
+            }
+        const double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        check(peak > 0 && std::isfinite(peak), "the benchmark's notes sound");
+        return took / (blocks * kBlock / kRate);
+    };
+    std::printf("48 kHz, %u-sample blocks, %.2f s of audio per measurement, one thread\n", kBlock, seconds);
+    for (auto &[name, p] : sounds) {
+        const double r1 = rtf(*p, 1), r16 = rtf(*p, 16), r64 = rtf(*p, 64);
+        int fit100 = 0, fit50 = 0;
+        for (int voices = 16; voices <= 2048 && fit100 == voices - 16; voices += 16) {
+            const double r = rtf(*p, voices);
+            if (r < 1.0)
+                fit100 = voices;
+            if (r < 0.5)
+                fit50 = voices;
+        }
+        std::printf("%-34s RTF 1 voice %.5f, 16 voices %.4f, 64 voices %.4f (%.2f us per voice per block); "
+                    "fits within one core: %d voices, half a core: %d voices\n",
+                    name, r1, r16, r64, r64 / 64 * kBlock / kRate * 1e6, fit100, fit50);
+    }
+    return 0;
+}
+
 // ---- sound contexts ----
 
 struct Instrument {
@@ -2735,6 +2819,8 @@ int main(int argc, char **argv) {
         return renderToWav(args, cmd == "render-stereo");
     if (cmd == "render-seq")
         return renderSeqToWav(args);
+    if (cmd == "bench")
+        return benchmark(args);
     if (cmd == "topology")
         return topologyTest();
     if (cmd == "contexts")

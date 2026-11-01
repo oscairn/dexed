@@ -78,3 +78,7 @@ jobs:
         else
           ctest $args
         fi
+
+    - name: CPU benchmark (informational, not a gate)
+      if: matrix.build_type == 'Release'
+      run: build/tests/oscairn-fm-test-linked bench
