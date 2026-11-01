@@ -74,10 +74,12 @@ void init() {
     static const bool ready = [] {
         std::vector<int32_t> &out = storage();
         // waves 1-4: cos(h t + phase_h - h pi / 2) plus a constant (waves 1 and 2 run from 0
-        // to their peak); the phases place the wave in its cycle as the reference does
+        // to their peak); the phases place the wave in its cycle as the reference does: waves 1
+        // and 2 start half a cycle on, at their minimum (`m9a`: as modulators of a sine `spec5`
+        // could not tell the two apart)
         for (int s = 0; s < kSets; s++)
             build(s, kWaveHarmonicAmp + kWaveHarmonicOffset[s], kWaveHarmonicPhase + kWaveHarmonicOffset[s],
-                  kWaveHarmonicCount[s], 1, -kTwoPi / 4, kWaveHarmonicDc[s], out);
+                  kWaveHarmonicCount[s], 1, s < 16 ? kTwoPi / 4 : -kTwoPi / 4, kWaveHarmonicDc[s], out);
         // windows: component d from 0
         for (int s = 0; s < kWindows; s++)
             build(kSets + s, kWaveWindowAmp + kWaveWindowOffset[s], kWaveWindowPhase + kWaveWindowOffset[s],

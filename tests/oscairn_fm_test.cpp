@@ -1319,7 +1319,7 @@ int extendedTest() {
         }
     }
     // -- where the waves sit in their cycle (it shows when they modulate): waves 1 and 2 run from 0
-    // and start at their peak, waves 3 and 4 peak a quarter cycle in, formant 2's window peaks
+    // and peak half a cycle in, waves 3 and 4 peak a quarter cycle in, formant 2's window peaks
     // half a cycle in
     {
         extwave::init();
@@ -1328,7 +1328,7 @@ int extendedTest() {
         for (int w = 1; w <= 4; w++)
             for (int s = 0; s < 8; s++) {
                 const int32_t *t = extwave::table(w, s, 512);
-                const int at = peakAt(t), want = w <= 2 ? 0 : extwave::kSize / 4;
+                const int at = peakAt(t), want = w <= 2 ? extwave::kSize / 2 : extwave::kSize / 4;
                 const int off = std::min(std::abs(at - want), extwave::kSize - std::abs(at - want));
                 const double lo = *std::min_element(t, t + extwave::kSize) / double(1 << 24);
                 expect(off <= slack && (w > 2 || std::fabs(lo) < 0.01),
@@ -1339,6 +1339,45 @@ int extendedTest() {
             const int at = peakAt(extwave::window(6, s, 511));
             expect(std::abs(at - extwave::kSize / 2) <= slack,
                    "formant 2 spread " + std::to_string(s) + ": window peak at " + std::to_string(at));
+        }
+    }
+    // -- a modulated non-sine carrier (`m9a`, note 48, a sine at ratio 1 and level 65 modulating
+    // operator 2): all harmonics 2 at spread 4 plays its wave half a cycle on; harmonics 1-8
+    // relative to the strongest against the reference's, within 1 dB where it is within 40 dB
+    {
+        using P = std::vector<std::pair<uint32_t, double>>;
+        auto harmonics = [&](const std::vector<float> &x) {
+            std::vector<double> db;
+            const size_t a = 9600, n = 19200;
+            for (int k = 1; k <= 8; k++) {
+                double re = 0, im = 0;
+                for (size_t i = 0; i < n; i++) {
+                    const double w = 0.5 - 0.5 * std::cos(2 * M_PI * i / n), ph = 2 * M_PI * noteHz(48) * k * i / rate;
+                    re += w * x[a + i] * std::cos(ph);
+                    im += w * x[a + i] * std::sin(ph);
+                }
+                db.push_back(20 * std::log10(std::hypot(re, im) + 1e-30));
+            }
+            const double top = *std::max_element(db.begin(), db.end());
+            for (auto &d : db)
+                d -= top;
+            return db;
+        };
+        const struct { int wave, spread, formant; double ref[8]; } cases[] = {
+            { 2, 4, 0, { 0.0, -5.2, -16.5, -30.9, -28.1, -42.3, -47.0, -55.2 } },
+        };
+        for (const auto &c : cases) {
+            const auto db = harmonics(renderExtended(P{ { 40, 8 }, { 1051, 65 }, { 2051, 99 }, { 1032, 1 }, { 2032, 1 },
+                                                        { 2060, c.wave }, { 2061, c.spread }, { 2062, c.formant } },
+                                                     48, 1.0, 0.7, 0.7));
+            double worst = 0;
+            for (int k = 0; k < 8; k++)
+                if (c.ref[k] > -40)
+                    worst = std::max(worst, std::fabs(db[k] - c.ref[k]));
+            std::printf("modulated wave %d spread %d formant %d: harmonics within %.2f dB of the reference's\n", c.wave,
+                        c.spread, c.formant, worst);
+            expect(worst < 1.0, "modulated wave " + std::to_string(c.wave) + " spread " + std::to_string(c.spread) +
+                                    ": " + std::to_string(worst) + " dB from the reference");
         }
     }
     // -- LFO rates (1 %): the LFO alone, period from the wraps of its rising saw; Extended
