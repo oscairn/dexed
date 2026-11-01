@@ -1107,7 +1107,7 @@ fixed frequencies below 20 Hz.
    aliasing bound asks for the first, the second follows from it.
 8. Operator wave names: Wave (Sine, All harmonics 1, All harmonics 2, Odd harmonics 1, Odd
    harmonics 2, Formant 1, Formant 2), Spread, Formant (parameters 1000 n + 60..62).
-9. The wave tables take 7.7 MB, built once per process in SynthEngine's constructor (the
+9. The wave tables take 7.7 MB (10.6 MB with decision 57), built once per process in SynthEngine's constructor (the
    desktop Dexed builds them too, since it shares the engine).
 10. Extended carriers play the reference's output level per algorithm (measured, 0 to
     +13.55 dB above algorithm 1) and are 6.57 dB lower overall than a Classic carrier, the
@@ -1297,8 +1297,29 @@ fixed frequencies below 20 Hz.
     the fade above attack 60 is taken as the same. A key played again with key assign Single and a
     mono return to a held key use the same fade (unmeasured). Octet's fade runs about 1 ms ahead of
     the reference's in its first 10 ms (-13 against -9 dB 6 ms after each falls 1 dB).
+55. Waves 1 and 2 start half a cycle on, at their minimum (ninth session, `m9a`, measured): as
+    modulators of a sine `spec5` could not tell this from the third session's start at the peak; as
+    carriers of a sine the two differ and the reference's is this one.
+56. A modulated formant wave plays window(t + m) sin(centre t + m) (ninth session, `m9a`, measured):
+    the centre's sine takes the modulation once. The kernel hands each operator's wave its phase and
+    its modulation (modulators plus feedback) apart; feedback on a formant or odd wave operator takes
+    the same path as a modulator's input (unmeasured).
+57. A modulated odd-harmonic wave (3, 4) plays E(2t + m) sin(t + m), the wave being E(2t) sin(t)
+    (ninth session, `m9a`, measured). The engine builds E for each odd wave and spread in the same
+    band-limited versions as the wave tables, 2.9 MB more (10.6 MB in all, shared by every
+    instance); the wave tables of waves 3-4 are kept (the test of where the waves sit reads them),
+    though the kernel no longer plays them.
+58. Rising envelope segments (ninth session, `m7a`, measured on decay 2 rising to 99 on a modulator
+    and a carrier): every rising segment, not only the attack, approaches 1.52 dB above full level
+    exponentially in dB at its own rate. Unmeasured, taken the same: a rise to a level below 99 and
+    a rising release. Only the attack starts at most 56.3 dB below full level (unmeasured for the
+    others).
+59. A carrier's EG levels go in steps of two from 20 up, like a modulator's (ninth session, `m9b`,
+    measured, replaces the carrier half of decision 51): the m9b table at the odd level (98 plays as
+    99). Below 20 the earlier carrier table (its 12-19 values were measured one by one and do not
+    pair cleanly).
 
-### M5 (in progress, 2026-10-31; third session below)
+### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth)
 
 - **Operator waves** (the spectral forms, section 3.7; neutral names: Wave, Spread, Formant;
   parameters 1000 n + 60..62; Classic conversion refused unless every operator in the DX7
@@ -1393,6 +1414,55 @@ formants 14-18 and 0). Formant 2 at spreads 5-7 with the centre at 61 and 100 al
 floor of harmonics about 52-60 dB below the peak in the reference that Octet does not have
 (23-44 dB differences there), as from a small click once per cycle. Not resolved: how the
 reference folds the window below harmonic 1, and where formant 2's floor comes from.
+
+**Ninth session: a modulated non-sine carrier (decisions 55-57).** Campaign `m9a` (79 renders,
+`forks/measurements/m4/m9a`, generator `m9gen.py`): each wave as the carrier of a sine modulator
+(algorithm 8, note 48): waves 1-4 at spreads 0, 2, 4, 7 at modulator levels 55, 65, 75; formant waves
+1 and 2 at spreads 0, 3, 7 and formants 0, 5, 20 at level 65; waves 0-4 at spread 3 with the
+modulator at twice the carrier's frequency and with the carrier at twice the modulator's; the sine
+pair at each level. No render came back empty (`dropouts.py`: three zero runs, the formant waves'
+own silent stretches). Analysis: `fm/spectral.py` and `fm/compare_mod.py` (first 12 harmonics
+relative to the strongest, 1 dB, those within 60 dB; cases whose first 12 harmonics are all below
+that are now reported as not checked, measurement `64d41f3`); models simulated with the index
+read from the sine pair at the same level (local `m9fit.py`, `wavemod.py`).
+
+What the reference does, each with no free parameter (Octet does the same since `07ec388`,
+`202348f`, `4550932`):
+
+- **Waves 1-2 start half a cycle on** (at their minimum, 0). As modulators of a sine at ratio 1 or
+  as the modulator of a carrier at twice its frequency (`spec5`) the two starts give the same
+  spectrum, so the third session's fit could not tell them apart; as a carrier at ratio 1 and 2
+  they differ by up to 44 dB.
+- **A modulated formant wave plays window(t + m) sin(centre t + m)**: the centre's sine takes the
+  modulation once, not centre times as in Octet's window(t + m) sin(centre (t + m)).
+- **A modulated odd wave plays E(2t + m) sin(t + m)**, where the wave is E(2t) sin(t): E is a wave
+  of its own at twice the rate (built from the odd harmonics' amplitudes and phases; the
+  construction needs the wave to be 0 at t = 0, which holds within 0.0006 for the three checked).
+  Modulated as one table at t + m it missed by 7-35 dB.
+
+| Gate (`m9a`, `fm/compare_mod.py`, 1 dB) | Before | After |
+| --- | --- | --- |
+| Waves 1-2 (28 cases) | 8 met | 25 met (after `07ec388`); not met: all harmonics 1 spread 7 at level 75 (4.2 dB), all harmonics 2 spread 7 at level 75 (17.1 dB) and spread 2 at level 75 (2.1 dB) |
+| Odd waves 3-4 (28) | 0 met | 28 met, worst 0.28 dB |
+| Formant waves (14 checked, 4 not checked: formant 20 at spreads 0 and 3 has nothing within 60 dB in harmonics 1-12) | 5 met | 11 met; not met: spread 7, formant 1 at formant 20 (5.4 dB), formant 2 at formants 0 (16.9 dB) and 20 (18.8 dB) |
+| All 75 checked | 18 met | 69 met |
+
+The same renders with `fm/compare_m7.py` (harmonics 1-8 over time): 22 → 74 of 79. Other campaigns,
+like for like before and after the three commits: `m8c` 99 → 121 of 149 (the pair now meets every
+negative texture value from -59 to -4 at both modulator levels, and -74 at level 40; still not met:
+-94 to -64 otherwise, the spread 7 formant region, and +51 to +66 at level 70, a formant wave on a
+modulator, unchanged), `m8f` 48 of 66 either way (lone carriers, unmodulated), `m7a` 180 → 205 of
+242 (the wave probe's base case 3.23 → 0.28 dB, and with it every macro case on that probe except
+depth +25 to +99 (1.1-4.3 dB), ratio +99 (1.6 dB) and texture; texture on the wave probe at -50 and
++50 got worse, 30.8 → 53.5 and 3.0 → 5.9 dB: formant waves at spread 1, a region still unresolved),
+`m7b` 85 → 89 of 101; `spec` (lone carriers, `fm/compare_waves.py`) and `spec5` (waves as
+modulators) unchanged: 146 of 161 and 100 of 111 met as before, each case's worst difference within
+0.01 dB of the earlier renders'.
+
+Still open in M5: the spread 7 formant windows (as carriers at formants above 9, as modulators, and
+now modulated), formant 2 at formant 0 with spread 5, the reference's flat floor under formant 2 at
+spreads 5-7, and the all-harmonic waves at spread 7 under a strong modulator (level 75). Not looked
+at again this session. The wave choice still follows the note-on frequency only.
 
 ### M6 (in progress, 2026-10-31: filter, filter EG, common pitch EG, pitch key follow, random pitch, key-on delay, stereo and pan are in the engine; the part LFO with all nine of its destinations)
 
@@ -1705,7 +1775,7 @@ delay, user steps and slope, and all nine destinations through the plugin or, fo
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
-### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31)
+### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31; rising segments and carrier EG levels in the ninth, 2026-11-01)
 
 Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
 `forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
@@ -1984,6 +2054,45 @@ Still open after this session: the 2nd LFO's amplitude depth 99 at offsets 3 and
 carrier with a non-sine wave (the wave probe's base case and every negative Texture value on the pair)
 is the largest remaining timbre miss and belongs with them; the modulator's rising decay 2 segment.
 
+**Ninth session (2026-11-01): rising envelope segments and carrier EG levels (decisions 58, 59).**
+The M5 part of this session (a modulated non-sine carrier) is under M5.
+
+- **Rising segments.** In `m7a`'s sustain cases (the pair; the sustain macro +25 to +99 or offset
+  +32/+63 takes both decay 2 levels to 99) the modulation index read from harmonics 1-3 (local
+  `idx.py`) rises in the reference from -10.8 to -1.0 dB towards a point 1.52 dB above its final
+  value, the distance falling as e^(-6.06 t): the attack's curve at decay time 55's rate in
+  doublings per second (within 0.06 dB at every 50 ms step); Octet's straight rise got there about
+  50 ms sooner. A lone carrier's decay 2 rising to 99 (sustain offset +63) does the same.
+  `fm/compare_m7.py` like for like (`4102745`): `m7a` 205 → 212 of 242 (the five sustain cases on
+  the pair 3.42 → 0.74-0.99 dB, the carrier's +32 and +63 1.18 → 0.25), `m7b` 89 → 90 of 101; `m7c`,
+  `m7h`, `m8a` and the M4 `eg` and `decay` campaigns unchanged.
+- **Carrier EG levels** (`m9b`, 52 renders: a lone carrier at every EG level 60-99 and every fifth
+  below, levels read 0.15-0.35 s in). They go in steps of two as a modulator's do: 2k plays as 2k + 1,
+  1.51 dB a step, linear from 25 up (0.75 dB a value); 10 and below silent, 15 at -68.7 dB. Octet's
+  table (every tenth level) was 0.15 dB low throughout and 0.68 dB low at 98. After `a217a5b`: 48 of
+  49 audible levels within 0.1 dB of `m9b` (the renders the table comes from; was 1 of 49, worst 1.3
+  dB), `m7a` 212 → 213, `m7b` 90 → 91, the rest unchanged; nothing went from met to not met, the
+  largest change for the worse 0.16 dB.
+
+| Gate (`fm/compare_m7.py`) | Eighth session's numbers | Now (every campaign re-rendered from `a217a5b`'s tree) |
+| --- | --- | --- |
+| `m7a` | 170 of 242 | 213 of 242 |
+| `m7b` | 71 of 101 | 91 of 101 |
+| `m7c` | 78 of 85 | 78 of 85 |
+| `m7h` | (not listed) | 55 of 66 |
+| `m8a` | 38 of 38 | 38 of 38 |
+| `m8c` | 99 of 149 | 121 of 149 |
+| `m8f` | 48 of 66 | 48 of 66 |
+
+The eighth session's `m7a` and `m7b` numbers were from its own renders; re-rendered from the eighth
+session's head `b909855` with the same script this session they read 180 and 85 (why they differ was
+not looked into). Like for like from `b909855`: `m7a` 180 → 213, `m7b` 85 → 91.
+
+Not done this session (time-boxed, no change): the 2nd LFO's amplitude depth 99 at offsets 3 and 4
+(the reference's swings imply 130 and 167 steps where eighths of offset 7's 256 give 128 and 160,
+while offsets 1-2 fit 256; not resolved); portamento at fast times; feedback 7's straight 6.8 dB per
+harmonic (no model found).
+
 ### Fifth session (2026-10-31): tests run
 
 Code commits `204249a` (no 16-bit rounding of Extended voices), `c5fbc05` (part values and
@@ -2048,6 +2157,22 @@ Extended test under Rosetta, ASan/UBSan 19/19, TSan 19/19. Each new test was che
 change undone. The first gate run of the modulator EG commit failed to build the sanitizer trees (a
 header edit had been lost while splitting the work into commits); it was restored and every gate run
 again on the committed tree. CI results are in the session report.
+
+### Ninth session (2026-11-01): tests run
+
+Code commits `07ec388` (waves 1 and 2 half a cycle on), `202348f` (a formant wave's centre modulated
+once), `4550932` (odd waves as E(2t + m) sin(t + m)), `4102745` (rising segments), `a217a5b` (carrier
+EG levels in twos); measurement `64d41f3` (`fm/compare_mod.py` skips a case with nothing to check).
+For each code commit, on its committed tree (the work tree held nothing else of the engine's), locally:
+Release CTest 36/36 (the 164 Classic cases bit-identical through engine, JUCE plugin and native CLAP on
+arm64; the Extended test now also checks three modulated waves against the reference's harmonics,
+where waves 1 and 2 peak, a rising decay 2's level 0.1 and 0.2 s in, and the carrier EG level steps
+and table), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of 164 identical) and the
+Extended test under Rosetta, ASan/UBSan 19/19, TSan 19/19. Each new test was checked to fail with its
+change undone (the modulated-wave rows with all three wave changes undone at once). Four commit
+messages were corrected before they were pushed (same trees); one of those corrections first
+went to the wrong, already pushed, commit locally, and the odd-wave commit was made again on top of
+the pushed one before anything was pushed. CI results are in the session report.
 
 ### How to run the tests
 
