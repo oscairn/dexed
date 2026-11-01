@@ -902,7 +902,8 @@ These answer the seven questions this section used to list.
 - Whether clap-juce-extensions turns JUCE parameter groups into CLAP module paths, and whether
   its derived parameter IDs collide.
 - The meaning of the `7p 01 0o` ratio and frequency block.
-- Whether 2nd LFO key-on reset and the Part LFO are per voice or shared in FM-X.
+- Whether 2nd LFO key-on reset and the Part LFO are per voice or shared in FM-X. (Measured in M7:
+  the 2nd LFO runs per voice, the part LFO per part.)
 - Licences of the submodules other than JUCE, and the origin of `source/msfa/tuning.*`.
 - The origin and licence of the banks in `assets/builtin_pgm.zip`.
 
@@ -1096,7 +1097,8 @@ fixed frequencies below 20 Hz.
    convert to the nearest value (approximate both ways).
 5. Unmeasured, using the Classic curves: level scaling, level velocity (mirrored for negative
    values; measured and replaced in the fifth session, see M7), time key follow, LFO depth offsets, LFO delay; the LFO start phase is taken as the
-   start of the drawn wave.
+   start of the drawn wave. (The 2nd LFO's depths, offsets, delay and start phase were measured
+   and replaced in the seventh session, see M7 and decisions 46-48.)
 6. The init sounds are named "Classic Init" and "Extended Init" (no product names).
 7. Measured differences Octet keeps on purpose (second session): the operator waves are
    band-limited (the reference's are not, and alias audibly at the top of the keyboard), and a
@@ -1239,6 +1241,30 @@ fixed frequencies below 20 Hz.
     down to 1/4 by +7's measured curve; at 1/4 and below +7 is silent); every other velocity-dependent
     value still takes the rounded velocity (unmeasured). Positive sensitivities follow +7's curve,
     measured at velocities 1-6 and 8 in this campaign, in proportion between velocities 1 and 8.
+46. The 2nd LFO runs per voice in Extended sounds (seventh session, measured): each note runs its
+    own copy of the sound's LFO, stepped per sample in the note, with its own delay; Classic sounds
+    keep Dexed's one LFO per sound. Chosen where unmeasured: a note without key-on reset takes the
+    sound's free-running phase (the reference's phases with key-on reset off followed no pattern
+    over three notes at irregular times, `m7l` `r0i`, and a note overlapping a held one did not take
+    the held note's phase); a mono legato note (portamento on) carries the sounding note's LFO on; a
+    returned-to mono key starts its own. CPU: each Extended voice now steps an LFO per sample, as
+    each sound did before (not measured on the target hardware). The part LFO stays one per sound
+    (measured as such in the sixth session).
+47. The 2nd LFO depths are the reference's (seventh session): pitch twice the DX7's, depth 99 as
+    256, offsets 4-7 deeper than the DX7's sensitivities; amplitude straight in dB from the LFO's
+    top, 0.375 dB steps by depth from a measured table and eighths by offset. The mod wheel's
+    amplitude and pitch modulation in Extended sounds keep the DX7 path (unmeasured); an operator
+    takes the larger of the LFO's and the wheel's level loss. "Convert to Extended" (and back) picks
+    the pitch depth that swings as far with the same offset; the amplitude depth and its offsets
+    still convert value for value (approximate: the curves differ).
+48. The 2nd LFO's phase 0 starts half a cycle into the waves as Dexed's LFO draws them (measured for
+    every wave and phase), and its delay fades in at the hold's rate (measured). The filter depth
+    keeps its measured direction (the reference's triangle starts at the cutoff's highest point).
+49. The part AEG attack offset multiplies every attack time by 2^(offset / 4), held within attack
+    times 0-99 (a positive offset on carriers only, as before), and the sustain offset follows a
+    table of measured moves at even offsets from -22 to +32 (odd offsets halfway between, 1.5 per
+    step beyond -22, unmeasured); decay and release offsets keep 1.5 values per step (seventh
+    session, `m7h`).
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1647,7 +1673,7 @@ delay, user steps and slope, and all nine destinations through the plugin or, fo
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
-### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth, 2026-10-31)
+### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh, 2026-10-31)
 
 Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
 `forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
@@ -1675,7 +1701,8 @@ Extended/Part and Extended/Macros):
   Octet rounds them (1.9 dB at the extreme measured: 0.98 played as 1).
 - **AEG offsets** (attack, decay, sustain, release): 1.5 EG values per step added to every
   operator's attack time, both decay times, decay 2 level and release time (each fits within
-  0.4 dB rms of the equivalent values on a lone carrier). A positive attack offset reaches
+  0.4 dB rms of the equivalent values on a lone carrier). (Seventh session: the attack and sustain
+  offsets measured every second step, decision 49.) A positive attack offset reaches
   carriers only: with +4 to +32 the modulator's attack stays as set (within 0.8 dB); negative
   attack offsets reach every operator. The sustain offset reaches decay 2 level only (adding
   it to decay 1 level too is 1.3-7.9 dB worse).
@@ -1707,7 +1734,7 @@ Extended/Part and Extended/Macros):
 | --- | --- |
 | Pitch, 1 cent | **Met:** note shift 4 of 4, detune 49 of 49 (the table comes from `m7c`'s own renders for 37 of them; the 12 `m7a` cases at notes 36 and 72 are independent) |
 | Filter offsets, level within 0.5 dB | **Met:** 18 of 18 |
-| AEG offsets, harmonics within 1 dB | 44 of 62: decay met at every offset tested, release at all but -8 (1.0 dB); attack misses at +16 (3.1 dB on the carrier, 3.6 on the pair), +24 (2.0, pair) and +32/+63 (1.9-5.6 dB, both probes); sustain misses at -64, -32, -16, +16, +32 and +63 (1.2-2.3 dB: the reference moves the level by 26 values at -16 where 1.5 per step gives 24, and stops at 98 at +16) |
+| AEG offsets, harmonics within 1 dB | 44 of 62: decay met at every offset tested, release at all but -8 (1.0 dB); attack misses at +16 (3.1 dB on the carrier, 3.6 on the pair), +24 (2.0, pair) and +32/+63 (1.9-5.6 dB, both probes); sustain misses at -64, -32, -16, +16, +32 and +63 (1.2-2.3 dB: the reference moves the level by 26 values at -16 where 1.5 per step gives 24, and stops at 98 at +16) (fifth session). **Seventh session** (decision 49), like for like with `fm/compare_m7.py`: `m7b` 22 of 24 (was 20: attack +16 0.5 dB, was 3.1; sustain -16 0.4, was 1.9), `m7c`'s attack offsets on the pair 6 of 6 (were misses at +16 and +24), `m7h` (every second attack and sustain offset from -32 to +32, the renders the new rules come from) 53 of 64 (was 43; not met: attack +10 1.1 dB, newly, and +26 to +32 1.1-5.4 dB, where the reference reaches attack 99 sooner than 2^(offset / 4) and then holds; sustain -32 to -20 1.1-6.8 dB, where its level goes silent), `m7a` unchanged at 20 of 32 of its AEG cases (its offsets of +-32 and +-64 saturate either way) |
 | Mod depth, harmonics within 1 dB | Without feedback (probes A, B): 12 of 12. Static EG at level 85 (C) and the pair with feedback 4 (D): 8 of 12 (+25 and +50 miss by 1.7-3.7 dB). Feedback 1, 2, 7 (`df`): 7 of 12 (+50 misses at feedback 1 and 2 by 1.9-2.6 dB; at feedback 7 the base case misses by 17.7 dB, so a modulator with feedback 7 is not reproduced, an M4 matter, and -50 and +50 miss too). Stack of three: 3 of 4 (+25: 8.8 dB). `m7a`: 8 of 18 (pair: -25 and +25 by 1.0-1.1 dB, +50 and +99 by 8.8 dB; static pair with feedback 4: +25 to +99 by 1.8-8.4 dB, unexplained: in a static pair without feedback the reference stops at level 99 as Octet does (decision 36), so the misses come from the envelope levels or the feedback, not from a level past 99; the wave probe's base case already misses by 3.2 dB, an M5 matter) |
 | Envelope macros, harmonics within 1 dB | Pair and static probes: 44 of 48 (attack +25 1.0 dB on the pair, sustain +25, +50, +99 1.5 dB); wave probe 4 of 24 (its base case misses by 3.2 dB) |
 | Velocity, level within 0.5 dB | **56 of 64** with the measured level velocity table below (29 of 64 with M4's, which used Dexed's curve: up to 14 dB off). Not met: velocities 2 and 3 at sensitivity +7 (0.8-1.5 dB: the table is straight between velocities 1 and 8 where the curve bends), fractional part velocities (0.5 plays 12 dB quieter in the reference than Octet's rounding to 1; 0.98 1.9 dB), and part velocity 36 (0.8 dB, between table points) |
@@ -1770,12 +1797,12 @@ What the reference does (Octet does the same in Extended sounds, parameters 255-
   held, in poly and mono (Octet's existing behaviour; now measured); Off runs free (its phase
   depends on the time since the performance loaded, not compared).
 - **Fractional part velocities:** decision 45.
-- **Found, not changed: the 2nd LFO is per voice in the reference.** With its key-on reset on, a
-  note overlapping a held one starts its own LFO from the start while the held note's LFO goes on
-  without a jump (`l2r1`: zero crossings of the held note's vibrato every 0.198 s straight through
-  the second note-on); Octet's 2nd LFO is one per sound (as in Dexed) and resets only on a first
-  key. Its pitch depth at depth 30 with offset 7 is also about twice Octet's (about +-720 cents
-  against +-355; decision 5's Classic curve, unmeasured until now).
+- **The 2nd LFO is per voice in the reference** (found here, changed in the seventh session). With
+  its key-on reset on, a note overlapping a held one starts its own LFO from the start while the
+  held note's LFO goes on without a jump (`l2r1`: zero crossings of the held note's vibrato every
+  0.198 s straight through the second note-on); Octet's 2nd LFO was one per sound (as in Dexed)
+  and reset only on a first key. Its pitch depth at depth 30 with offset 7 was also about twice
+  Octet's (+-722 cents against +-361).
 
 | Gate (`fm/compare_seq.py`) | Result |
 | --- | --- |
@@ -1790,10 +1817,57 @@ Unmeasured or unresolved: the retrigger fade above attack time 60 and its shape 
 portamento on fixed-frequency operators, from a held key returned to, and with key-on delay; the
 reference's lower rates for short glides at times 1-24; random pan's narrower spread and left
 lean, random pitch's extra step down; fractional velocities' effect on other velocity-dependent
-values; the 2nd LFO per voice and its depth (found above, not changed: Octet's LFO is per sound,
-and a per-voice LFO costs per voice what the per-sample LFO costs per sound now); key-on delay
+values; key-on delay
 and the common pitch EG in mono legato (Octet's legato note takes its envelopes from the sounding
 note, the pitch EG included).
+
+**Seventh session (2026-10-31): the 2nd LFO.** Campaigns in `forks/measurements/m4/`: `m7l` (61
+sequence renders: pitch depth at 17 depths with offset 7 and offsets 0-6 at depths 30 and 99,
+amplitude depth at 8 depths and offsets 0-6 at depth 99, every wave and phase from a key-on reset,
+two notes four octaves apart with key-on reset off and on, with and without delay, and three notes
+at irregular times without key-on reset) and `m7l2` (48: amplitude depth at 18 more depths and
+offsets 1-6 at depths 16, 30 and 70, delay every tenth value). No render came back empty; the zero
+runs flagged were amplitude modulation reaching silence and the gaps between notes. Measurement
+code: oscairn/measurement `fm/compare_lfo2.py` (tolerances `lfo2`); local: `lfo2*.py`.
+
+What the reference does (Octet does the same in Extended sounds; decisions 46-48):
+
+- **Per voice:** each note runs its own 2nd LFO and its own delay; a note started during another
+  leaves the held note's vibrato unchanged (both sides within 0.004 cycle across the second
+  note-on, with key-on reset on and off, with and without delay).
+- **Start:** phase 0 starts the triangle and saw down at their top, saw up and the square low (half
+  a cycle into Dexed's LFO); the other phases follow. Octet's LFO now starts about 1.4 ms behind the
+  reference's (not modelled) and runs 0.3 % slow at the probes' speed (the Extended speed table's
+  interpolation, within the 1 % rate gate).
+- **Pitch depth:** twice the DX7's; the DX7's depth steps (depth x 165 / 64) except that 99 plays as
+  256; offsets 1-7 as 10, 20, 33, 56, 96, 160, 256 (the DX7's sensitivities at 1-3). Depth 99 with
+  offset 7 swings +-2400 cents.
+- **Amplitude depth:** straight in dB from the LFO's top (a triangle LFO gives a triangle in dB), in
+  steps of 0.375 dB: offset 7 loses 1, 3, 8, 16, 32, 56, 111 and 256 steps at depths 3, 8, 16, 30,
+  50, 70, 90 and 99 (table of 26 depths); offsets 1-6 lose 1, 2, 4, 5, 6, 7 eighths of offset 7's
+  (the same at depths 16, 30, 70 and 99).
+- **Delay:** the hold as the DX7's, then a fade in as long as the hold (the DX7's is quantised and at
+  most about half a second).
+- **Key-on reset off:** not modelled. Each note took a phase of its own: three notes on the same key
+  at irregular times did not share one free-running phase, and a note overlapping a held one (`l2r0`)
+  started in the opposite phase to it in one render and about 15 ms ahead of it in another.
+
+| Gate (`fm/compare_lfo2.py`) | Result |
+| --- | --- |
+| Pitch depth, 1 cent | 30 of 31 (`m7l`: 17 depths, offsets 0-6 at depths 30 and 99; worst +0.5 cent elsewhere); **not met:** depth 80, +1.3 cents (0.07 %) |
+| Amplitude depth, 0.5 dB where the reference is above its floor | `m7l` and `m7l2`: every depth from 3 up at offset 7 and offsets 1-6 at depths 16, 30 and 70 within 0.16 dB (the renders the tables come from); at depth 99 offsets 1-2 within 0.07 dB; **not met:** depth 99 offsets 3 and 4 (Octet's swing 0.8 and 2.6 dB less than the reference's 48.7 and 62.8 dB); deeper swings are silent at the bottom in both (not compared) |
+| Wave start and shape, 95th percentile 15 cents over 1 s | Triangle, saws and the three other phases 6.3-14.2 cents; **not met:** the square (61 cents: at its edges, 1.4 ms of start offset and the tracker's smoothing) and the sine (18.9 cents); sample and hold reported only (its values are random) |
+| Delay fade in, 2 % or 50 ms (the depth is read per 0.2 s cycle) | 11 of 12 (`m7l2`, delays 0-90); **not met:** delay 99, whose fade in reaches 10 % 75 ms (2.5 %) earlier in Octet (Octet against the reference: 2.89 against 2.97 s to 10 %, 3.96 against 4.02 s to 50 %, 5.02 against 5.12 s to 90 %). The delay commit's message (`d7cf201`) quotes a first local analysis that sampled both sides at one fixed period; the reference's period differs by 0.3 %, which biased its long cases, so these numbers replace it |
+| Per voice: the held note's phase across another note's start, 0.05 cycle | 4 of 4 (key-on reset off and on, delay 0 and 50) |
+
+Before these changes, like for like: the pitch depth was half the reference's at every depth (e.g.
++-361 against +-722 cents at depth 30); the amplitude swing at depth 30 was 2.8 dB against 6.0; the
+fade in at delay 99 took 0.54 s against about 2.2 s; the start was half a cycle off for every wave.
+
+Unmeasured or unresolved: the 2nd LFO in mono legato and on a returned-to mono key (decision 46);
+the reason for depth 99's smaller swings at offsets 3-4; the mod wheel's pitch and amplitude
+modulation in Extended sounds (the DX7 path); the speed range Normal's table was measured in M4 and
+not re-checked per voice.
 
 ### Fifth session (2026-10-31): tests run
 
@@ -1825,6 +1899,24 @@ note-offs for a key pressed twice, Single against Multi, fractional velocities, 
 pitch and pan ranges), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of 164
 identical), ASan/UBSan 19/19, TSan 19/19. `ed7c9a2`'s tree is the one tested before the work was
 split into commits (the same files). CI results are in the session report.
+
+### Seventh session (2026-10-31): tests run
+
+Code commits `036a7c0` (the 2nd LFO per voice, its start phase), `c7bd7ae` (its pitch depth),
+`99fb48b` (pitch depth conversion), `d7cf201` (its delay's fade in), `3624879` (its amplitude depth),
+`c3d4e65` (the part's attack and sustain offsets); measurement `113cf1f`, `815b67b`
+(`fm/compare_lfo2.py`, tolerances `lfo2`). For each code commit's tree, locally: Release CTest
+36/36 (the 164 Classic cases bit-identical through engine, JUCE plugin and native CLAP on arm64; the
+Extended test now also checks that two notes with the 2nd LFO's key-on reset, with and without a
+delay, play as the sum of each alone, the pitch depth at depths 30 and 99 and offsets 4 and 7 with
+the square starting low, the amplitude depth at depths 50 and 85 and offset 3, the delay's fade in
+as long as its hold at delays 40, 70 and 99, the pitch depth's conversion and round trip, the
+sustain offset table and the attack offset's factor), the x86_64 baseline under Rosetta (engine,
+plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta, ASan/UBSan 19/19, TSan
+19/19. The new per-voice, pitch depth, start and delay tests were each checked to fail with the
+change undone (the amplitude and AEG tests were not). Four commits had their messages corrected
+after these runs and before they were pushed, two of them also comments (`c7bd7ae`, `c3d4e65`;
+Release CTest ran again on `c3d4e65`). CI results are in the session report.
 
 ### How to run the tests
 
