@@ -2067,8 +2067,25 @@ int extendedTest() {
         const std::vector<std::pair<uint32_t, double>> porta = { { 255, 0 }, { 257, 1 }, { 258, 64 }, { 259, 0 } };
         const auto g = renderMidiNotes(porta, { { 0.0, 48, 100 }, { 0.5, 60, 100 }, { 0.6, 48, 0 } }, 1.2);
         const double mid = semis(g, 0.59, 0.61) + 12; // 0.1 s into the glide
-        expect(std::fabs(mid - 3.663) < 0.1 && std::fabs(semis(g, 0.9, 1.2)) < 0.02,
-               "portamento rate at time 64: " + std::to_string(mid) + " semitones after 0.1 s");
+        // (the glide moves in steps every 9.977 ms, the first at once: 0.1 s in it is a step ahead
+        // of a straight glide; 0.2 s is 20.05 steps, so the rate is read between the two)
+        const double later = semis(g, 0.79, 0.81) + 12;
+        expect(std::fabs((later - mid) / 0.2 - 36.63) < 0.5 && std::fabs(semis(g, 0.9, 1.2)) < 0.02,
+               "portamento rate at time 64: " + std::to_string((later - mid) / 0.2) + " semitones per second");
+        // the steps: the pitch holds within each 9.977 ms and moves by the rate times that
+        {
+            const auto st = renderMidiNotes(porta, { { 0.0, 84, 100 }, { 0.5, 96, 100 }, { 0.6, 84, 0 } }, 1.0);
+            const double T = 440.0 / 44100;
+            double a[4], b[4];
+            for (int k = 0; k < 4; k++) {
+                a[k] = semis(st, 0.5 + k * T + 0.002, 0.5 + k * T + 0.0045);
+                b[k] = semis(st, 0.5 + k * T + 0.0055, 0.5 + k * T + 0.008);
+            }
+            for (int k = 1; k < 4; k++)
+                expect(std::fabs(a[k] - b[k]) < 0.03 && std::fabs(a[k] - a[k - 1] - 36.63 * T) < 0.03,
+                       "portamento step " + std::to_string(k) + ": " + std::to_string(a[k] - a[k - 1]) +
+                           " semitones, " + std::to_string(b[k] - a[k]) + " within it");
+        }
         const auto f = renderMidiNotes(porta, { { 0.0, 48, 100 }, { 0.4, 48, 0 }, { 0.5, 60, 100 } }, 0.7);
         expect(std::fabs(semis(f, 0.52, 0.6)) < 0.02, "fingered portamento: no glide on a detached note");
         auto fullTime = porta;

@@ -803,8 +803,11 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
     const bool ppegMoving = ppeg_.active() || glide_ != 0;
     for (int s = 0; s < N; s++) {
         ppeg[s] = ppeg_.getsample();
-        if (glide_ != 0) { // portamento, straight in semitones
-            glide_ = glide_ > 0 ? std::max(0.0, glide_ - glideStep_) : std::min(0.0, glide_ + glideStep_);
+        if (glide_ != 0) { // portamento, straight in semitones, in steps
+            if ((glideWait_ -= 1) <= 0) {
+                glideWait_ += glideTick_;
+                glide_ = glide_ > 0 ? std::max(0.0, glide_ - glideStep_) : std::min(0.0, glide_ + glideStep_);
+            }
             ppeg[s] += (int32_t)std::lrint(glide_);
         }
     }
@@ -937,9 +940,16 @@ void ExtNote::transferState(const ExtNote &src) {
     }
 }
 
+// The reference moves a glide in steps, one every 440 samples at 44.1 kHz (9.977 ms), the first at
+// once (`m7f`, `m7g`, fm/glide_steps.py: the same period at every time value and distance, steps
+// of the time value's rate times the period)
+static constexpr double kGlideTickSeconds = 440.0 / 44100.0;
+
 void ExtNote::glideFrom(double from, double semitonesPerSecond) {
     glide_ = from - notePitch_;
-    glideStep_ = semitonesPerSecond > 0 ? semitonesPerSecond * kQ24 / 12.0 / rate_->sampleRate : 0;
+    glideTick_ = kGlideTickSeconds * rate_->sampleRate;
+    glideWait_ = 0;
+    glideStep_ = semitonesPerSecond > 0 ? semitonesPerSecond * kQ24 / 12.0 * kGlideTickSeconds : 0;
     if (glideStep_ <= 0 || std::isinf(glideStep_))
         glide_ = 0;
 }

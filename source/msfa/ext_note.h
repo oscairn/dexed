@@ -200,8 +200,12 @@ private:
     int shift_ = 0;
     double velocity_ = 0;        // ExtStart::velocity (operator level velocity)
     double notePitch_ = 0;       // the key's log frequency (Q24)
-    double glide_ = 0;           // portamento: offset from it, Q24, moving to 0 by glideStep_ a sample
+    // portamento: offset from it, Q24, moving to 0 by glideStep_ once every glideTick_ samples
+    // (glideWait_ to the next move)
+    double glide_ = 0;
     double glideStep_ = 0;
+    double glideTick_ = 0;
+    double glideWait_ = 0;
     int32_t carry_[N] = {};
     FmOpParams params_[8] = {};
     int32_t basepitch_[8] = {};
