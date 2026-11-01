@@ -81,7 +81,7 @@ struct SynthContext {
     const uint8_t *patch = nullptr; // 156 bytes, owned by the engine's user
     const ExtendedVoice *ext = nullptr; // Extended values (Octet only), owned by the engine's user
     bool extended() const { return ext != nullptr && ext->extended(); }
-    Controllers ctrl;               // settings and controller values
+    Controllers ctrl {};            // settings and controller values (zeroed until prepare sets them)
     Lfo lfo;
     ExtPartLfo partLfo; // Extended sounds' part LFO
     PluginFx fx;
@@ -246,7 +246,7 @@ private:
     bool sustain[16];      // per channel; instrument-wide mode keeps all 16 equal
     int selected[16] = {}; // the context each MIDI channel plays
     bool perChannel = false;
-    Controllers channelCtrl[MAX_CONTEXTS][16]; // per-channel mode: what voices read
+    Controllers channelCtrl[MAX_CONTEXTS][16] {}; // per-channel mode: what voices read (zeroed until prepare)
     // the controllers a voice of context c on MIDI channel ch (1-16) reads
     Controllers &voiceCtrl(int c, int ch) { return perChannel ? channelCtrl[c][(ch - 1) & 15] : contexts[c].ctrl; }
     // the channels (bit mask) a controller message on channel ch (1-16) reaches
