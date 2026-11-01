@@ -1223,7 +1223,7 @@ fixed frequencies below 20 Hz.
     from the sustain level), 13 ms above 60 (unmeasured), straight in amplitude. The reference
     seems to drop the same envelope quickly and attack from where it got (at attack 20 it dips
     only about 6 dB before attacking); Octet's fade-then-start reproduces 40 and 60 but dips to
-    silence at 20.
+    silence at 20. (Replaced by decision 54 in the eighth session.)
 42. A MIDI key pressed n times while held needs n note-offs, then releases every voice it holds
     (measured, Single and Multi). CLAP note-offs keep their matching: by note ID per note, and a
     note-off for a key without an ID releases every held voice of that key at once.
@@ -1272,6 +1272,31 @@ fixed frequencies below 20 Hz.
     delay of its own, with silence in between). The common pitch EG carries on through a legato
     note in the reference as Octet already did. Mono without portamento, which starts the note
     again, keeps a delay of its own (unmeasured).
+51. A modulator's EG levels (eighth session, `m8a`, measured): they step as its operator level does
+    on the modulator curve (0.75 dB per step), so operator level and EG level add as values (level 70
+    at EG 85 plays as level 56 at EG 99), in steps of two (an even EG level plays as the odd one
+    above it). Carriers keep the measured carrier EG curve (whether carriers' EG levels also step in
+    twos was not checked).
+52. Ratio Shift (eighth session, `m8b`, `m8d`): a table of the ratio the reference plays at nine
+    ratios (0.5, 1, 1.5, 2, 3, 4, 5, 8, 16) and 79 macro values (every third and every eleventh),
+    straight between them; above ratio 16 the offset at 16. Carriers are not shifted (measured);
+    fixed-frequency modulators are not shifted either (unmeasured: the probe's fixed frequency was too
+    low to read). The reference's curve is not smooth between the measured values (up to 5.7 cents
+    off at independent values in between, see M7).
+53. Texture (eighth session, `m8c`, `m8f`): a wave by the macro's size, in steps of two (listed at
+    `extTextureWave`); negative values reach carriers, positive ones modulators; carriers take the
+    second all and odd harmonics waves and modulators the first. Chosen where unmeasured: the texture
+    replaces the operator's own wave (only sine operators were measured); above 85 the formant rises
+    by five per value to silence (the reference's renders there match no wave of Octet's; decision
+    7); values 32-33 play a sine 6.2 dB down on modulators as measured on carriers.
+54. The retrigger (replaces decision 41; eighth session, `m8e`, measured with the two notes two octaves
+    apart so each note's level reads on its own): the new note starts at once, attacking from
+    silence, while the sounding note fades out over 13.3 ms with a gain of the square of the time
+    left's share. The fade is the same at every attack time 0-60 (at 70 the first note had not
+    finished its attack; at 80 and 90 it was still near silent, so nothing could be read there), so
+    the fade above attack 60 is taken as the same. A key played again with key assign Single and a
+    mono return to a held key use the same fade (unmeasured). Octet's fade runs about 1 ms ahead of
+    the reference's in its first 10 ms (-13 against -9 dB 6 ms after each falls 1 dB).
 
 ### M5 (in progress, 2026-10-31; third session below)
 
@@ -1680,7 +1705,7 @@ delay, user steps and slope, and all nine destinations through the plugin or, fo
 speed, through the part LFO's own step count), the x86_64 baseline under Rosetta
 (engine, plugin, CLAP: 164 of 164 identical), ASan/UBSan 19/19, TSan 19/19.
 
-### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh, 2026-10-31)
+### M7 (in progress: part values and four of the seven macros in the fifth session; mono, key assign, portamento, random pitch and pan, alternate pan, part LFO key-on reset and fractional velocities in the sixth; the 2nd LFO per voice with its measured depths, start and delay, and the AEG attack and sustain offsets in the seventh; modulator EG levels, Ratio Shift, Texture and the retrigger fade in the eighth, 2026-10-31)
 
 Measurement code: oscairn/measurement `fm/compare_m7.py` (tolerances `m7`). Renders in
 `forks/measurements/m4/`: `m7a` (every macro at -99, -50, -25, +25, +50, +99 on three probes:
@@ -1735,7 +1760,7 @@ Extended/Part and Extended/Macros):
   +99), neither a fixed factor nor a fixed offset in ratio; the texture macro changes the
   carrier's spectrum as well (at -99 the fundamental vanishes and the energy sits near
   Nyquist, at -50 a formant-like peak near harmonic 7-8). Both are kept as parameters with no
-  effect.
+  effect. (Both modelled in the eighth session: decisions 52 and 53.)
 
 | Gate (`fm/compare_m7.py`) | Result |
 | --- | --- |
@@ -1745,7 +1770,7 @@ Extended/Part and Extended/Macros):
 | Mod depth, harmonics within 1 dB | Without feedback (probes A, B): 12 of 12. Static EG at level 85 (C) and the pair with feedback 4 (D): 8 of 12 (+25 and +50 miss by 1.7-3.7 dB). Feedback 1, 2, 7 (`df`): 7 of 12 (+50 misses at feedback 1 and 2 by 1.9-2.6 dB; at feedback 7 the base case misses by 17.7 dB, so a modulator with feedback 7 is not reproduced, an M4 matter, and -50 and +50 miss too). Stack of three: 3 of 4 (+25: 8.8 dB). `m7a`: 8 of 18 (pair: -25 and +25 by 1.0-1.1 dB, +50 and +99 by 8.8 dB; static pair with feedback 4: +25 to +99 by 1.8-8.4 dB, unexplained: in a static pair without feedback the reference stops at level 99 as Octet does (decision 36), so the misses come from the envelope levels or the feedback, not from a level past 99; the wave probe's base case already misses by 3.2 dB, an M5 matter) |
 | Envelope macros, harmonics within 1 dB | Pair and static probes: 44 of 48 (attack +25 1.0 dB on the pair, sustain +25, +50, +99 1.5 dB); wave probe 4 of 24 (its base case misses by 3.2 dB) |
 | Velocity, level within 0.5 dB | **56 of 64** with the measured level velocity table below (29 of 64 with M4's, which used Dexed's curve: up to 14 dB off). Not met: velocities 2 and 3 at sensitivity +7 (0.8-1.5 dB: the table is straight between velocities 1 and 8 where the curve bends), fractional part velocities (0.5 plays 12 dB quieter in the reference than Octet's rounding to 1; 0.98 1.9 dB), and part velocity 36 (0.8 dB, between table points) |
-| Ratio shift and texture | Not modelled (17 of 25 and 2 of 19 cases happen to meet) |
+| Ratio shift and texture | Not modelled (17 of 25 and 2 of 19 cases happen to meet). Eighth session: both modelled, 24 of 25 and 8 of 19 (see below) |
 
 **Operator level velocity sensitivity (an M4 value, measured here because the velocity cases
 exposed it).** `m7d`: a lone carrier at every sensitivity -7..+7 and 17 velocities (102 of the 255
@@ -1886,6 +1911,79 @@ the reason for depth 99's smaller swings at offsets 3-4; the mod wheel's pitch a
 modulation in Extended sounds (the DX7 path); the speed range Normal's table was measured in M4 and
 not re-checked per voice.
 
+**Eighth session (2026-10-31): modulator EG levels, Ratio Shift, Texture, the retrigger.** Campaigns
+in `forks/measurements/m4/`: `m8a` (38: a pair, the modulator's EG levels every third value at
+operator level 99 and four at level 70), `m8b` (174: Ratio Shift every 11 values at modulator ratios
+0.5, 1, 1.5, 2, 3, 4, 5, 8, 16, and a fixed-frequency modulator), `m8c` (149: Texture every third
+value on a lone carrier, every fifth on the pair at modulator levels 70 and 40), `m8d` (594: Ratio
+Shift every third value at the same ratios), `m8f` (66: Texture on a lone carrier at the other
+negative values), `m8e` (10 sequences: the mono retrigger two octaves apart at attack times 0-90, so
+each note's level can be read on its own). No render came back empty; the zero runs `dropouts.py`
+flagged in `m8c` are the formant waves' own silent stretches. Local tools: `m8gen.py`, `fitegl.py`,
+`ratiofit2.py` (the modulator ratio from the sideband spacing, refined on the first upper sideband),
+`texfit.py`, `texfit2.py`, `retrig3.py` (each note's level by demodulation).
+
+- **Modulator EG levels (decision 51).** The equivalent modulator level (Octet's renders searched
+  over operator level at EG 99) was E or E + 1 for EG level E, alternating (E + 1 for even E); at
+  operator level 70 the sum minus 99. Octet used the carrier EG curve, 0.6 dB louder at EG 85, which
+  was the depth macro's miss on probe C. Like for like with `fm/compare_m7.py`: `m8a` 29 → 38 of 38
+  (the renders the rule comes from), `m7b` 69 → 71 of 101 (depth macro probe C at +25 and +50: 2.45
+  and 2.64 → 0.14 and 0.15 dB), `m7a` 169 → 170 of 242, `m7c` 78 of 85 either way (the attack
+  offset cases on the pair 0.7-0.9 → 0.1-0.5 dB). Worse: `m7a`'s five cases where the sustain macro
+  or offset takes the modulator's decay 2 level from 75 to 99 (1.52 → 3.42 dB, not met before
+  either): the modulator rises in decay 2 sooner in the reference (Octet's rising decay segments
+  move straight in dB at the decay rate; not measured).
+- **Ratio Shift (decision 52).** At table values, independent renders (`m7b`, note 60 against the
+  table's note 48) agree within 0.6 cents; between table values, `m7a` at ratio 1 (-50, -25, +25,
+  +50) within 0.2, 0.4, 4.5 and 3.6 cents and `m7b` at ratio 4 (-50, +25, +50) within 4.7, 1.9 and
+  5.7 cents (with the first table, every 11 values only: 0.8, 2.1, 1.8, 3.2, 2.2, 4.9, 17.7). The value at
+  ratio 1, +55 comes from `m7b`'s own render (the scan read half the frequency in `m8b`). Timbre
+  (`fm/compare_m7.py`): `m7b` Ratio Shift cases 24 of 25 (r4 at +50 misses, 7.95 dB on harmonic 8:
+  the inharmonic sidebands move 5.7 cents), `m7a` 16 of 18 (the two misses on the wave probe,
+  whose base case already misses).
+- **Texture (decision 53).** On a lone carrier every negative value from -63 to -1 matches one of
+  Octet's waves within 0.3 dB rms (the renders the table comes from); -64 to -85 within 0.7-2.6 dB
+  rms on the closest formant; beyond, nothing matches. On the pair, positive values reach the
+  modulator: `m8c` level 40 every case met, level 70 met except +51 to +66 (1.2-7.6 dB: the formant
+  wave at spread 1-7 on a modulator, an M5 matter). Negative values on the pair miss almost
+  everywhere (up to 60 dB) though the carrier's wave is right on its own: a modulated carrier with a
+  non-sine wave does not play as the reference's, the M5 issue the wave probe's base case shows.
+  `fm/compare_m7.py` like for like: `m8c` 60 → 99 of 149, `m8f` 4 → 48 of 66, `m7b` texture cases
+  2 → 8 of 19, `m7a` 1 → 5 of 18.
+
+- **The retrigger (decision 54).** The old note's level (demodulated at 130.8 Hz) falls the same way
+  at attack times 0-60: -1, -3, -5, -9, -15, -24, -40 dB at 2 ms steps, (1 - t / 13.3 ms) squared
+  within 1.5 dB; the new note's level (at 523 Hz) rises from its key-on at each attack time's rate.
+  Octet waited for a 2-13 ms straight fade before starting the new note. `fm/compare_seq.py` like for
+  like: `m7g` notes 12 → 13 of 13 (the retrigger at attack 20 now dips as little as the reference's),
+  `m7f` 18 of 18 either way, the glides unchanged (`m7f` 22 of 29, `m7g` 27 of 28).
+
+Found and not changed:
+
+- **Feedback 7 on a modulator** (`m7c` `df7`, 17.7 dB): the reference's harmonics fall a straight
+  6.8 dB per harmonic up to the 12th; Octet's fall away, and no single feedback amount (tried 1.5,
+  2.3 and 3 times the DX7's at feedback 7) gives a straight line: a stronger feedback turns Octet's
+  spectrum into a saw's (1/n) instead. Not resolved.
+- **Probe D** (the pair with envelopes and feedback 4, depth macro +25 and +50: 1.67 and 3.70 dB):
+  steady state matches; the misses are harmonics 4-6 during the attack (0.02-0.3 s), 2-6 dB fewer in
+  Octet. Not resolved (feedback during a rising level).
+- **Random pan's spread:** in `m7f`'s four depth-127 renders, two pairs share long runs of the same
+  positions (23 values in a row in one pair), so the reference's 128 notes hold about 70 independent
+  values, and its positions near the centre read in steps of 8-12 (the pan law is flat there). Its
+  standard deviation (28.2 against uniform's 36.4) is therefore weaker evidence than it looked; not
+  changed.
+- **Portamento at fast times:** the slope is read between 20 % and 80 % of each glide, so a fixed
+  start delay would not lower it; the lower slope of 12- and 24-semitone glides at times 1-24 needs a
+  finer look than the 25-100 ms glides give. Not changed.
+- **The attack offset +10** (`m7h` `oA74`, 1.05 dB): the attack itself is within 0.3 dB; the miss is
+  in the decay after it (2-3 s), where Octet's level runs about 1 dB above the reference's. Its
+  neighbours (+8, +12) meet. Not changed.
+
+Still open after this session: the 2nd LFO's amplitude depth 99 at offsets 3 and 4 and the M5 cases
+(spread 7 formants, formant 2 at spread 5, the reference's flat floor) were not looked at; a modulated
+carrier with a non-sine wave (the wave probe's base case and every negative Texture value on the pair)
+is the largest remaining timbre miss and belongs with them; the modulator's rising decay 2 segment.
+
 ### Fifth session (2026-10-31): tests run
 
 Code commits `204249a` (no 16-bit rounding of Extended voices), `c5fbc05` (part values and
@@ -1935,6 +2033,21 @@ plugin, CLAP: 164 of 164 identical) and the Extended test under Rosetta, ASan/UB
 fail with the change undone (the amplitude and AEG tests were not). Four commits had their messages corrected
 after these runs and before they were pushed, two of them also comments (`c7bd7ae`, `c3d4e65`;
 Release CTest ran again on `c3d4e65`). CI results are in the session report.
+
+### Eighth session (2026-10-31): tests run
+
+Code commits `c59a932` (modulator EG levels), `8188190` (Ratio Shift), `45d6419` (Texture), `e36240c`
+(the retrigger fade). For each code commit's tree, locally: Release CTest 36/36 (the 164
+Classic cases bit-identical through engine, JUCE plugin and native CLAP on arm64; the Extended test now
+also checks that a modulator's EG level 84 plays as 85 and level 70 at EG 85 as level 56 at EG 99
+within 0.1 dB while a carrier's EG levels 84 and 85 differ, the ratio macro's table and +44 at ratio
+1 playing as ratio 3, the ratio macro leaving a carrier alone, the texture's waves on a carrier and a
+modulator and its table, and the retrigger fade's level 2.7-6.5 ms in and the old note gone after
+13.3 ms), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of 164 identical) and the
+Extended test under Rosetta, ASan/UBSan 19/19, TSan 19/19. Each new test was checked to fail with its
+change undone. The first gate run of the modulator EG commit failed to build the sanitizer trees (a
+header edit had been lost while splitting the work into commits); it was restored and every gate run
+again on the committed tree. CI results are in the session report.
 
 ### How to run the tests
 
