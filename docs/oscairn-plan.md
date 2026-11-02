@@ -962,7 +962,7 @@ thirteenth session: 2, 3, 10, 18 and 19's time velocity (decisions 69-75); liste
 
 ### Known differences from the reference (2026-11-01)
 
-Every difference between Extended sounds and the reference known at `1920d6e`: what differs, how
+Every difference between Extended sounds and the reference known at `2b35e18` (updated in the fifteenth session): what differs, how
 much and where, the cause if known, whether it is deliberate (with its decision) or unresolved, how
 to reproduce it, and where it sits in the code. Renders live in `forks/measurements/` (never
 committed); scripts are oscairn/measurement's `fm/` unless a local folder is named. Every
@@ -989,35 +989,64 @@ Reproduce: `forks/measurements/fmx-compare/` (`gen.py`, the recorder job file `j
 
 Found by the whole-sound comparison:
 
-1. **AEG time key follow is far stronger than the reference's.** Sounds that use it decay and attack
-   too fast at higher keys: 3F0118 (key 60, velocity 100, held) is 12 dB under the reference after
-   1 s, 28 dB after 2 s and 43 dB after 2.9 s; 3F076E attacks in 56 instead of 253 ms at key 36 and
-   in 16 instead of 56 ms at key 84. 24 of the 50 sounds use the parameter; their median score is
-   16.2 against 5.2 for the rest. With it at 0 on every operator (a diagnostic only:
-   `OCTET_TKF0=1 octet_render.py`, scored into `results-tkf0.json`) 21 of the 24 improve (median by
-   5.1; envelope 4.6 -> 2.4 dB, |level| 2.9 -> 1.2 dB) and 3F0118 lies within 0.5-3.9 dB of the
-   reference over 2.9 s; two get worse (3F0A1B, 3F0913) and the percussive ones keep large envelope
-   differences, so the reference has some key follow, much less than Octet's. Cause: the Classic
-   rate-scaling curve, used unmeasured (decision 5; `extTimeKeyFollowScale` in
-   `msfa/ext_tables.cc`, marked as a shortcut there, applied in `ExtNote`'s setup in
-   `msfa/ext_note.cc`). **Unresolved, and the largest single cause found.** Needs a campaign of
-   time key follow 0-7 at several keys and segment times.
-2. **Formant waves in whole sounds** (3F003B, 3F0231, 3F0B05, 3F0300): spectrum deviation 6-13 dB;
-   3F0231 (formant 1 at spread 7, and formant 2) is 12-15 dB low above 500 Hz, 3F003B 11 dB high
-   below 500 Hz. The open M5 cases (entries 9 and 10) heard in sounds. Unresolved.
-3. **Feedback 7**: 3F0579 (an operator at ratio 22 with feedback 7) is 23-26 dB low below 4 kHz with
-   the same envelope; 3F0A41's spectrum deviation is 10 dB or more. The open feedback 7 case
-   (entry 11). Unresolved.
-4. **Strong macros with feedback 7** (3F1A31, the only factory sound with them: Mod Depth -64, Ratio
-   Shift -99): Octet 2-35 dB brighter in the bands above 500 Hz and 8-13 dB quieter. Mod Depth was
-   measured at +-25, +-50 and +99, Ratio Shift at nine ratios, and feedback 7 does not fit the depth
-   rule (M7). Unresolved; code `extShiftedRatio` (`msfa/ext_tables.cc`) and the depth macro in
-   `ExtNote`'s setup.
-5. **Slower attacks in Octet, not explained**: 3F003B 63 against 9 ms at keys 60 and 84 (formant
-   waves, algorithm 83); 3F0221 56 against 9 ms at key 36 and 166 against 21 ms on the chord (one
-   operator has key-on reset off); 3F0443 702-717 against 8-9 ms at keys 60 and 84 with velocities 90 and 127
-   (not at velocity 40 or key 36; its filter is Thru). Unresolved.
-6. **3F0A3E's held release**: 56 ms against 510 ms (its single notes agree). Unresolved.
+**Re-run after the fifteenth session** (Octet `5b0c5d3`, the same 50 recordings, converter states,
+scripts and scoring; `octet-final/`, `results-final.json`, `score-final.txt`): median score 11.5 ->
+3.9, quartiles 4.7 / 16.9 -> 2.4 / 8.9, range 0.4-28.8 -> 0.4-26.7; below 5 ("close"): 14 -> 31; 15 or
+more: 19 -> 7. Median level within 1 dB: 23 -> 37 sounds, 3 dB or more: 16 -> 7. Median envelope term
+2.2 -> 0.6 dB, spectrum term 4.2 -> 1.6 dB. Single-note pitch readings (finite ones) within 5 cents:
+382 of 413 -> 398 of 429, within 1 cent 311 -> 331. 32 sounds improved, 17 did not move (by 0.05 or
+less), one got worse: 3F0913 12.7 -> 15.3 (its level and envelope terms
+improved, 2.5 -> 0.2 dB and 10.0 -> 2.7; the score rose through the held note's release reading, 54 ms
+against 203 ms, which could not be read before; not looked into further). The per-Part isolation
+renders (`m4/m15b`, `m4/m15p`: each FM-X Part rebuilt from its decoded values without controller sets
+or knobs, keys 48 and 72, both sides) show which of the remaining sounds are engine differences:
+3F003B, 3F0300 and 3F1A31's Parts match within 1 dB median per third-octave band and 0.3 dB in level
+(their whole-sound scores come from what the converter drops, see "Not engine differences"); 3F0A41's
+and 3F0B05's match in spectrum (0.0-0.6 dB median) but one Part of each is 2.4-5.2 dB louder in Octet
+at one key (3F0B05's at key 72, 3F0A41's second Part at both keys; not looked into); 3F0231 (4.4-4.9 dB
+median), 3F0B37's third Part (1.8-3.7, up to 19 at one band) and 3F0573 at key 48 (5.6) differ in
+spectrum.
+
+1. **AEG time key follow** (resolved, decision 77): Octet used the Classic rate-scaling curve on
+   every segment and the hold, far too strong at high keys and the wrong way at low ones (3F0118's
+   held note 43 dB low at 2.9 s; 3F076E attacks 56 instead of 253 ms at key 36). Measured in `m15k`
+   (230 renders) and modelled as the reference's rate steps; 24 of the 50 sounds use it, and their
+   scores fell the most (3F076E 28.8 -> 1.4, 3F025C 19.6 -> 1.5, 3F0925 18.8 -> 1.3, 3F0118 9.9 ->
+   2.4). Left: fast segments (faster than about 1.4 ms/dB) read up to 15 % slower in the reference
+   than Octet's tables give, with or without key follow (`m15k` t20s0: 6 %), an EG difference at fast
+   rates, not key follow; the slowest attack checked is 7 % slow. Code `extTimeKeyFollowSteps`,
+   `extTimeKeyFollowScale` (`msfa/ext_tables.cc`), `ExtEnv` (`msfa/ext_note.cc`). Reproduce:
+   `m4/m15gen.py m15k`, `m4/ana15.py`, `m4/cmp15.py`.
+2. **Formant waves in whole sounds** (3F0231, 3F0B37, 3F0573; time-boxed, no change): of the four
+   sounds listed first, 3F003B, 3F0300 and 3F0B05 match the reference's spectrum Part by Part (`m15b`,
+   `m15p`; 3F0B05's Part is 5.2 dB louder at key 72), so their spectral deviation in the whole sound is
+   the converter's (controller sets, knobs). 3F0231 (formant 1 at
+   spread 7 and formant 2) still differs by 4-5 dB median per band on the Part alone, 3F0B37's Part 3
+   (formant 1 at spread 7, resonance 60) by up to 19 dB at one band, 3F0573 at key 48 by 5.6 dB: the
+   open M5 cases (entries 9, 10, 12). Unresolved; code `msfa/ext_waves.*`, `ExtNote::chooseWave`.
+3. **Feedback on a modulator** (resolved, decision 78): Octet used a carrier's fitted amount (0.18 of
+   the DX7's) on every operator; a modulator in the reference feeds back the DX7's amount. 3F0579's
+   spectrum term 10.0 -> 2.6 (its pitch reading at key 84, an operator above Nyquist, remains: score
+   10.6 -> 9.6), 3F0443 10.2 -> 3.3, 3F044C 9.7 -> 3.4, 3F0526 8.7 -> 5.0. Carrier feedback is unchanged
+   and matches (`m15f`: feedback 4-7 at levels 50-99 and an EG level on a carrier, every harmonic
+   above -70 dB within 0.4 dB). Code `ExtNote::setFeedback` (`msfa/ext_note.cc`). Reproduce:
+   `m4/m15gen.py m15g`, `m4/fbcmp.py`.
+4. **Strong macros with feedback 7** (3F1A31): not the macros. Its FM-X Part uses algorithm 1, where
+   every operator is a carrier; the reference's macros do nothing to a carrier that feeds back
+   (`m15h`: depth -99 to +50 and ratio shift -99 at feedback 4 and 7, all within 0.1 dB), as in Octet,
+   and the Part alone matches the reference within 0.4 dB median per band (`m15p`). The whole-sound
+   difference (Octet 9 dB quieter, 20 dB brighter above 500 Hz) comes from the Performance (controller
+   sets, a part LFO to an effect), which the converter drops. No engine difference known.
+5. **Attacks that read slower in Octet**: 3F0443's (702 against 9 ms) was a missing early peak, fixed
+   with the modulator feedback (now 9-10 ms on every note). 3F003B's (63 against 9 ms) is not the
+   engine's: the Part alone matches (`m15b`). 3F0221 (56 against 9 ms at key 36, 166 against 21 ms on
+   the chord) is left: its operators 1 and 2 play at ratio 0.5 (33 Hz at key 36) and operator 2 has
+   key-on reset off, so the attack reading depends on the free-running phase (decision 46).
+   Unresolved for 3F0221.
+6. **3F0A3E's held release** (56 against 510 ms): the two releases have the same shape (both fall
+   about 5 dB per 100 ms after the note-off at 25 s); the reading differs because the level was still
+   falling before the note-off and the reference has a 1 dB bump there. A measurement artefact, not an
+   engine difference.
 7. **2nd LFO pitch modulation in whole sounds**: 3F0526 (depth 8, delay 10, key-on reset) reads
    -0.6, -26.6 and -6.5 cents at keys 36, 60 and 84, the same at every velocity, averaged over
    250-750 ms after the onset, so the vibrato's phase, depth or delay differs there. 3F067F (depth 4,
@@ -1053,15 +1082,17 @@ Deliberate (decided):
   3660 cents from the documented ratio in `m14s`); Octet plays the documented ratio. `extRatio`,
   `extRatioSteps` (`msfa/ext_tables.cc`); `pitch2`, `m14s`, `fm/compare.py`.
 
-Pitch limits Octet still has (Jacob: no ceiling on pitch shift or transpose, even where the
-reference has one; recorded here, no code changed in this round):
+Pitch ranges past the reference's (Jacob: no ceiling on pitch shift or transpose, even where the
+reference has one; deliberate):
 
-- **Fixed frequencies stop at coarse 21 fine 0** (14,085.4 Hz, the highest measured): `extFixedSteps`
-  in `msfa/ext_tables.cc` holds higher values there. Whether the reference stops there was not
-  measured. To remove.
-- **Note Shift -48..+48 and Pitch Bend Upper and Lower -48..+24** (parameters 244, 253, 254 in
-  `oscairn/Parameters.cpp`): the documented ranges. Widening them changes ranges only, not IDs.
-  For Jacob.
+- **Note Shift and Pitch Bend Upper and Lower -127..+127** (decision 79; the reference: -48..+48 and
+  -48..+24): values in the reference's ranges play as before; a key shifted past 0-127 plays the rest
+  as equal-tempered semitones with the end key's key-scaled tables. Parameters 244, 253, 254
+  (`oscairn/Parameters.cpp`), `SynthEngine::keyBeyond`, `ExtStart::keyBeyond`, `ExtNote`'s setup.
+- **Fixed frequencies on every coarse and fine value** (decision 80): the reference plays coarse 21
+  fine 64 at 19,920 Hz and holds coarse 21 fine 127 and coarse 22-31 at 22,043 Hz (`m15f`); Octet
+  plays the 1/128-octave grid without a ceiling (above Nyquist as ratio-mode operators do).
+  `extFixedSteps`, `extFixedHz` (`msfa/ext_tables.cc`).
 
 Unresolved from the milestones (measured, not matched):
 
@@ -1074,10 +1105,9 @@ Unresolved from the milestones (measured, not matched):
    `msfa/ext_waves.*`.
 10. **Formant 2 at formant 0, spreads 4-5** (2.8 dB at 4, 1.98 dB at 5 after decision 63) and the
     reference's flat floor under formant 2 at spreads 5-7. Same campaigns and code.
-11. **Feedback 7 on a modulator** (M7, `m7c` df7, 17.7 dB): the reference's harmonics fall a straight
-    6.8 dB per harmonic to the 12th; no single feedback amount does that in Octet. Carrier feedback 7
-    matches (within 0.1 dB at harmonics 2-8). `extFeedbackScale` (`msfa/ext_tables.cc`);
-    `fm/compare_m7.py`.
+11. **Feedback on a modulator** (resolved, decision 78): df7 within 0.09 dB at harmonics 2-6 (was 17.7
+    dB). Left in `m15g`: feedback 7 at level 50 (2.5 dB) and 99 (3.8 dB), feedback 4 at level 80 (20 dB
+    at one harmonic). `ExtNote::setFeedback`; `m4/fbcmp.py`.
 12. **Waves 1-2 at spread 7 under a strong modulator** (`m9a` level 75: 4.2 and 17.1 dB); wave 2 at
     spread 2 under it (2.1 dB, at a harmonic 58 dB down).
 13. **Texture extremes**: +51 to +66 on the level 70 modulator (`m8c` tp70 rows, 16-25 dB), -99 on the
@@ -1088,7 +1118,8 @@ Unresolved from the milestones (measured, not matched):
     modulators not shifted (unmeasured).
 15. **The depth macro** with feedback during a rising level (probe D: 1.7 and 3.7 dB at +25 and +50,
     harmonics 4-6 in the attack), at feedback 1 and 2 (+50: 1.9-2.6 dB) and on a stack of three (+25:
-    8.8 dB). `m7b`, `fm/compare_m7.py`.
+    8.8 dB), measured before decision 78 and not re-run since. With the new feedback amount the rule
+    holds on `m15h` (feedback 4 and 7 at depth -50 and +25: 0.02-1.25 dB). `m7b`, `fm/compare_m7.py`.
 16. **Part AEG offsets**: attack +16 to +63 (up to 5.6 dB), sustain -64, -32, -16, +16, +32, +63
     (1.2-2.3 dB), release -8 (1.0 dB), attack +10 (1.05 dB, in the decay after it). `m7b`, `m7h`.
 17. **Level velocity**: velocities 2 and 3 at sensitivity +7 (0.8-1.5 dB), part velocity 36 (0.8 dB).
@@ -1120,18 +1151,25 @@ level table (`m9b`), the texture places (`m8c`, `m8f`) and the Ratio Shift table
 all: fixed frequencies below 20 Hz, LFO speed 0, operator pitch EG attack at times 90-99, level
 scaling (decision 5, Classic curves), the mod wheel's depths in Extended sounds.
 
-Verified against the reference only at 44.1 kHz (decision 71): everything above. Behaviours that
-change with the rate by design: band-limiting and formant silence follow the running Nyquist; the
-filter's cutoff limit stays 7.35 kHz and its sections warp differently near it; the FEG, filter and
-portamento steps follow 64-sample blocks of the running rate; the retrigger fade and the pitch
-grid's mantissa were measured at 44.1 kHz.
+Verified against the reference only at 44.1 kHz (decision 71): everything above. Octet's own
+cross-rate check (`oscairn-fm-test rates`, decision 81) holds 14 measurements (level, pitch, decay,
+attack, hold, both LFOs, key-on delay, two filters, the FEG and portamento) at 48, 88.2, 96 and
+192 kHz to the 44.1 kHz values within the comparison tolerances. Behaviours that change with the rate
+by design: band-limiting and formant silence follow the running Nyquist (at 88.2 kHz and up, harmonics
+and formants between 22 kHz and the running Nyquist sound where the reference's 44.1 kHz rendering
+cannot have them; all above hearing); the filter's cutoff limit stays 7.35 kHz and its sections warp
+differently near it; the FEG, filter and portamento steps follow 64-sample blocks of the running rate;
+the retrigger fade and the pitch grid's mantissa were measured at 44.1 kHz.
 
 Not engine differences (the converter's, found by the whole-sound comparison and listed in its
 report): controller sets and knob positions are not converted, so a Part that a knob fades in at its
 stored position plays at full level (one factory performance's FM-X Part is silent in the reference
 for this reason and was replaced in the comparison); Performance-level AEG, FEG, cutoff and resonance
 offsets are dropped; Part and Performance Volume and pan are not applied yet; a Part that plays only
-from the arpeggiator is converted as a normal Part.
+from the arpeggiator is converted as a normal Part. After the fifteenth session these account for most
+of what is left in 3F003B (26.7), 3F1A31 (14.2) and 3F0300 (16.2): each of their FM-X Parts, rebuilt
+without controller sets, matches the reference within 1 dB median per band and 0.3 dB in level
+(`m4/m15b`, `m4/m15p`), and of the spectral part of 3F0A41's (13.5) and 3F0B05's (17.3).
 
 ---
 
@@ -1781,6 +1819,49 @@ ARM64 hardware is still not measured.
     and the recorder run at 44.1 kHz; the reference plugin at other host rates was not measured.
     Octet's increments are rounded, so 48 kHz plays within 0.01 cent of 44.1 kHz from 55 Hz up and
     96 kHz within 0.09 cent at 55 Hz (its 24-bit phase).
+77. AEG time key follow (fifteenth session, `m15k`, measured; replaces decision 5's shortcut for
+    it). The reference moves every segment's rate, not its time, by whole steps of its EG rate scale:
+    eight steps to a doubling of the rate, each doubling split into eight equal steps, with the decay
+    table's times on it (time 0 step 119, times 93-99 step 0; every value within 0.2 %). The move is
+    sensitivity x keys / 4 steps, truncated towards 0, where keys counts groups of three notes from
+    note 1 away from notes 64-69 (which do not move), down to -15 (notes 21 and below) and up to +15
+    (112 and above); the moved step is held within 0-127, so fast segments stop at the fastest rate
+    and slow ones at the slowest. Low notes play slower, high notes faster; at sensitivity 7 the
+    range is 26 steps each way (about 9.5 times). The hold does not follow the key; ratio mode, a
+    note shift (the shifted key counts), decay 2 and release follow the same rule. Octet:
+    `extTimeKeyFollowSteps`, `extTimeKeyFollowScale` (`msfa/ext_tables.cc`), a time factor per
+    segment in `ExtEnv`. Measured against Octet on the same 230 renders: 90 of 151 decay readings
+    within 3 % (10 before); the rest are fast segments (faster than about 1.4 ms/dB) that read up
+    to 15 % slower in the reference, by the same amount at sensitivity 0 (time 20: 6 %), so they are
+    the fast-segment reading, not key follow. The slowest attack checked (time 50, sensitivity 7,
+    note 12) is 7 % slow in Octet.
+78. Feedback on a modulator (fifteenth session, `m7c` df7, `m15g`, `m15h`, measured): a modulator that
+    feeds back uses the DX7's amount of its own output (scale 1 against the DX7's shift); a carrier
+    keeps the amount fitted before (0.18 of the DX7's, its signal taken before the output level).
+    df7 (feedback 7, level 70) falls a straight 6.8 dB per harmonic in both now (harmonics 2-6 within
+    0.09 dB, 26 dB off before); `m15g` (14 renders, feedback 4-7, levels 50-99, an EG level, ratio 3):
+    11 within 1 dB on the harmonics above -70 dB (1 before); feedback 7 at level 50 misses by 2.5 dB,
+    at 99 by 3.8, feedback 4 at level 80 by 20 dB at one harmonic. The depth macro's rule (divided by
+    1 + feedback on the operator that feeds back) holds with the new amount (`m15h`: 0.02-1.25 dB);
+    the macros do nothing to a carrier that feeds back, in the reference as in Octet (`m15h`: depth
+    -99 to +50 and ratio shift -99 at feedback 4 and 7, within 0.1 dB). The topology check with
+    feedback 5 now matches all 88 algorithms (f72 included).
+79. Note Shift and Pitch Bend Upper and Lower widened to -127..+127 (fifteenth session, Jacob's rule of
+    no ceiling on pitch; a deliberate difference from the reference's -48..+48 and -48..+24). Values in
+    the old ranges play as before. A key shifted past 0-127 keeps the end key for everything scaled by
+    key (key follow, level scaling, time key follow, pan) and plays the distance beyond as
+    equal-tempered semitones before the pitch grid's rounding (`ExtStart::keyBeyond`); voices keep
+    that distance so note-offs, single key assign and repeated presses still find their key. Pitch
+    increments above any Nyquist are held at the lookup's largest value; the Extended test renders
+    the extremes (note shift and bend ranges at +-127 at keys 0 and 127, fixed coarse 31 fine 127)
+    on four waves and checks the output is finite (under ASan/UBSan too).
+80. Fixed frequencies past coarse 21 fine 0 (fifteenth session, `m15f`): the reference plays coarse 21
+    fine 64 at 19,920 Hz and holds coarse 21 fine 127 and coarse 22-31 at 22,043 Hz (just under its
+    Nyquist); Octet now plays every coarse and fine value on the 1/128-octave grid without a ceiling
+    (a deliberate difference above 22 kHz). The table's old ceiling `kFixedMaxHz` stays in
+    `ext_tables_data.h` (generated by the measurement repository) unused.
+81. The `rates` check runs at 44.1, 48, 88.2, 96 and 192 kHz (fifteenth session); all 14 measurements
+    met their tolerances at the new rates without an engine change.
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
@@ -2780,6 +2861,32 @@ of the four fixed fine values, both ratios and all 14 bend values fail; the 12 k
 the two detunes pass, as the table played them. CI on `b903c93`: `oscairn-tests` all 5 jobs
 passed; `dexed-pipeline` Linux Build and Windows Build passed, macOS Build failed at its signing
 certificate import (the fork has no signing secrets).
+
+### Fifteenth session (2026-11-01): time key follow, modulator feedback, wider ranges
+
+Decisions 77-81; the register in section 10 has the per-sound results. Renders in
+`forks/measurements/m4/` (never committed): `m15k` (230: AEG time key follow), `m15f` (18: carrier
+feedback, fixed frequencies past coarse 21), `m15g` (14: modulator feedback), `m15h` (20: macros on a
+carrier that feeds back, the depth macro on a modulator that does), `m15b` (4) and `m15p` (24): FM-X
+Parts of eight factory performances rebuilt from their decoded values without controller sets, both
+sides; the whole-sound comparison re-run in `fmx-compare/` (`octet-final/`, `results-final.json`) and
+the listening pairs refreshed in `listen-fmx/` (old Octet files as `-octet-before`).
+
+**Fifteenth session: tests run.** Each code commit was tested on its committed tree (the plan's
+edits stashed), locally: Release CTest 37/37 (the 164 Classic cases bit-identical through engine,
+JUCE plugin and native CLAP on arm64), the x86_64 baseline under Rosetta (engine, plugin, CLAP: 164 of
+164 identical), the Extended test and `oscairn-fm-test rates` under Rosetta, ASan/UBSan 20/20, TSan
+20/20: `166aa13`, `e381059`, `1163ef4`, `5b0c5d3` and `2b35e18` (the last one's `rates` at all five
+rates, also under Rosetta). Each new check was confirmed to fail with its
+change undone: the time key follow slopes at notes 30, 66 and 105 and sensitivity 3 (with the Classic
+curve back in `ExtNote`; the step-rule checks are table checks and pass either way), df7's harmonics
+(26.2 dB off with the old feedback amount), the three wide-range pitches (2000, -1200 and 5200 cents
+off with the old ranges) and fixed coarse 21 fine 64 (600 cents low with the old ceiling). The
+extremes check (note shift, bend ranges and fixed frequency at their limits stay finite) is a guard
+and passes either way; the rates commit adds rates only. CI on `166aa13`, `e381059`, `1163ef4`,
+`5b0c5d3` and `2b35e18`: `oscairn-tests` all 5 jobs passed on each; `dexed-pipeline` Linux Build and
+Windows Build passed on each, macOS Build failed at its signing certificate import (the fork has no
+signing secrets).
 
 ### Fifth session (2026-10-31): tests run
 
