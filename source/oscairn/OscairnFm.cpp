@@ -654,6 +654,8 @@ bool parseState(const std::string &text, std::vector<double> &values, uint8_t na
     return true;
 }
 
+void setSound(Plugin &s, const std::vector<double> &values, const uint8_t name[10]);
+
 bool stateLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     Plugin &s = self(plugin);
     std::string text;
@@ -663,13 +665,19 @@ bool stateLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     uint8_t name[10];
     if (!parseState(text, values, name))
         return false;
+    setSound(s, values, name);
+    return true;
+}
+
+// Makes values and name the sound shown (the context selected on channel 1), as a state load.
+void setSound(Plugin &s, const std::vector<double> &values, const uint8_t name[10]) {
     const int c = s.view.load(std::memory_order_relaxed);
     std::memcpy(s.slots[c].voiceName, name, 10);
     if (!s.active) {
         std::memcpy(s.slots[c].patch + 145, name, 10);
         for (size_t i = 0; i < values.size(); i++)
             s.apply(c, i, values[i]);
-        return true;
+        return;
     }
     // Active: the values are visible to get_value and save at once; the audio thread applies
     // them to the engine at its next process or flush.
@@ -678,10 +686,37 @@ bool stateLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     s.stateChanged[c].store(true, std::memory_order_release);
     if (s.host != nullptr && s.host->request_process != nullptr)
         s.host->request_process(s.host);
-    return true;
 }
 
 const clap_plugin_state_t stateExt = { stateSave, stateLoad };
+
+// ---- preset load: a cartridge voice into the sound shown ----
+
+const clap_host_preset_load_t *hostPresetLoad(const clap_host_t *host) {
+    if (host == nullptr || host->get_extension == nullptr)
+        return nullptr;
+    auto *ext = static_cast<const clap_host_preset_load_t *>(host->get_extension(host, CLAP_EXT_PRESET_LOAD));
+    return ext != nullptr ? ext : static_cast<const clap_host_preset_load_t *>(host->get_extension(host, CLAP_EXT_PRESET_LOAD_COMPAT));
+}
+
+bool presetLoad(const clap_plugin_t *plugin, uint32_t kind, const char *location, const char *loadKey) {
+    Plugin &s = self(plugin);
+    std::vector<double> values;
+    uint8_t name[10];
+    std::string error;
+    const clap_host_preset_load_t *host = hostPresetLoad(s.host);
+    if (!readPreset(kind, location, loadKey, values, name, error)) {
+        if (host != nullptr && host->on_error != nullptr)
+            host->on_error(s.host, kind, location, loadKey, 0, error.c_str());
+        return false;
+    }
+    setSound(s, values, name);
+    if (host != nullptr && host->loaded != nullptr)
+        host->loaded(s.host, kind, location, loadKey);
+    return true;
+}
+
+const clap_plugin_preset_load_t presetLoadExt = { presetLoad };
 
 // ---- sound contexts (RFC 0005) ----
 
@@ -769,6 +804,29 @@ uint32_t contextsPrepare(const clap_plugin_t *plugin, const char *name, const os
         seen[i] = true;
         values[i] = v;
     }
+    const int c = freeSlot(s);
+    if (c < 0) {
+        diagnostic(message, capacity, "no free sound context");
+        return CLAP_INVALID_ID;
+    }
+    return publish(s, c, name, values, voiceName);
+}
+
+// prepare_preset (draft 5): a context from a cartridge voice, as prepare from its values.
+uint32_t contextsPreparePreset(const clap_plugin_t *plugin, const char *name, uint32_t kind, const char *location, const char *loadKey,
+                               char *message, uint32_t capacity) {
+    if (name == nullptr || std::strlen(name) > 63) {
+        diagnostic(message, capacity, "name missing or longer than 63 bytes");
+        return CLAP_INVALID_ID;
+    }
+    std::vector<double> values;
+    uint8_t voiceName[10];
+    std::string error;
+    if (!readPreset(kind, location, loadKey, values, voiceName, error)) {
+        diagnostic(message, capacity, error.c_str());
+        return CLAP_INVALID_ID;
+    }
+    Plugin &s = self(plugin);
     const int c = freeSlot(s);
     if (c < 0) {
         diagnostic(message, capacity, "no free sound context");
@@ -972,7 +1030,8 @@ bool snapshotsPrepare(const clap_plugin_t *plugin, const clap_istream_t *stream,
 }
 
 const clap_plugin_state_t snapshotExt = { snapshotSave, snapshotLoad };
-const oscairn_plugin_sound_contexts_t contextsExt = { contextsCapacity, contextsGet, contextsPrepare, contextsSelect, contextsDiscard, &snapshotExt };
+const oscairn_plugin_sound_contexts_t contextsExt = { contextsCapacity, contextsGet, contextsPrepare, contextsSelect, contextsDiscard, &snapshotExt,
+                                                    contextsPreparePreset };
 const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare };
 
 // ---- ports ----
@@ -1043,6 +1102,7 @@ const clap_plugin_t *create(const clap_host_t *host) {
         if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePortsExt;
         if (std::strcmp(id, OSCAIRN_EXT_SOUND_CONTEXTS) == 0) return &contextsExt;
         if (std::strcmp(id, OSCAIRN_EXT_SOUND_SNAPSHOTS) == 0) return &snapshotsExt;
+        if (std::strcmp(id, CLAP_EXT_PRESET_LOAD) == 0 || std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT) == 0) return &presetLoadExt;
         return nullptr;
     };
     s->plugin.on_main_thread = [](const clap_plugin_t *) {};

@@ -513,7 +513,7 @@ int noAllocTest() {
                                  ctx->prepare(h.plugin, "B", b, 2, nullptr, nullptr, nullptr, 0) };
         EventList in;
         in.events.reserve(64);
-        for (int k = 0; k < 40; k++) {
+        for (int k = 0; k < 100; k++) {
             ctx->select(h.plugin, ids[k % 2], (int16_t)(k % 3 == 0 ? -1 : k % 16));
             in.clear();
             in.note(CLAP_EVENT_NOTE_ON, 0, k, (int16_t)(k % 16), 40 + k);
@@ -3614,7 +3614,127 @@ int presetsTest() {
     check(missing.presets.empty() && missing.errors.size() == 1, "a missing file is refused");
     provider->destroy(provider);
 
-    std::printf("discovery: 2 locations, 32 voices named from the cartridge, 7 malformed files refused\n");
+    // a context prepared from each voice, and preset-load into the sound shown, render exactly
+    // as the voice loaded the existing way (its bytes and switches as parameter events)
+    auto play = [](Instrument &x, std::vector<float> &l, std::vector<float> &r) {
+        for (int k = 0; k < 100; k++) {
+            if (k == 0) {
+                x.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60, 0.8);
+                x.in.note(CLAP_EVENT_NOTE_ON, 100, 2, 0, 67, 0.5);
+            }
+            if (k == 70)
+                x.in.note(CLAP_EVENT_NOTE_OFF, 7, -1, -1, -1);
+            x.run();
+            l.insert(l.end(), x.host.left.begin(), x.host.left.end());
+            r.insert(r.end(), x.host.right.begin(), x.host.right.end());
+        }
+    };
+    auto preparePreset = [&](Instrument &x, const char *name, const std::string &file, const char *key, std::string *why = nullptr) {
+        char message[256] = {};
+        check(x.ctx->prepare_preset != nullptr, "prepare_preset");
+        const uint32_t id = x.ctx->prepare_preset(x.host.plugin, name, CLAP_PRESET_DISCOVERY_LOCATION_FILE, file.c_str(), key, message, sizeof message);
+        if (why != nullptr)
+            *why = message;
+        return id;
+    };
+    for (int i = 0; i < 32; i++) {
+        Instrument ref, prepared, loaded;
+        for (const auto &p : oscairn_fm::params()) {
+            if (p.kind == oscairn_fm::Kind::Byte)
+                ref.in.param(0, p.id, (double)voices[i][p.target] - p.offset);
+            else if (p.kind == oscairn_fm::Kind::OpSwitch)
+                ref.in.param(0, p.id, 1);
+        }
+        ref.run();
+        const std::string key = std::to_string(i);
+        const uint32_t id = preparePreset(prepared, "Prepared", fixture, key.c_str());
+        check(id != CLAP_INVALID_ID && prepared.select(id), "prepare and select voice " + key);
+        prepared.run();
+        check(std::string(prepared.info(id).name) == "Prepared", "the context has the name it was given");
+        auto *load = static_cast<const clap_plugin_preset_load_t *>(loaded.host.plugin->get_extension(loaded.host.plugin, CLAP_EXT_PRESET_LOAD));
+        check(load != nullptr && load->from_location(loaded.host.plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, fixture.c_str(), key.c_str()),
+              "preset-load voice " + key);
+        loaded.run();
+        std::vector<float> l0, r0, l1, r1, l2, r2;
+        play(ref, l0, r0);
+        play(prepared, l1, r1);
+        play(loaded, l2, r2);
+        // (many generated voices are quiet: deep amplitude modulation)
+        check(std::any_of(l0.begin(), l0.end(), [](float v) { return v != 0; }), "voice " + key + " is not silent");
+        check(l0 == l1 && r0 == r1, "voice " + key + ": the prepared context renders bit-identically");
+        check(l0 == l2 && r0 == r2, "voice " + key + ": preset-load renders bit-identically");
+    }
+
+    // a saved Sound still opens after the cartridge is gone: the snapshot holds the voice
+    {
+        const std::string gone = "presets-gone.syx";
+        writeFile(gone, cart);
+        Instrument a(false), b(false); // the snapshot is exclusive: saved and loaded while inactive
+        const uint32_t id = preparePreset(a, "From a cartridge", gone, "9");
+        check(id != CLAP_INVALID_ID && a.select(id), "prepare from the cartridge");
+        std::string snapshot;
+        clap_ostream_t out { &snapshot, [](const clap_ostream_t *s, const void *buffer, uint64_t size) -> int64_t {
+                                static_cast<std::string *>(s->ctx)->append(static_cast<const char *>(buffer), size);
+                                return (int64_t)size;
+                            } };
+        check(a.ctx->state->save(a.host.plugin, &out), "snapshot save");
+        check(std::remove(gone.c_str()) == 0, "remove the cartridge");
+        std::string why;
+        check(preparePreset(b, "Gone", gone, "9", &why) == CLAP_INVALID_ID && !why.empty(), "the cartridge is gone");
+        struct Reader { const std::string *data; size_t pos; } reader { &snapshot, 0 };
+        clap_istream_t in { &reader, [](const clap_istream_t *s, void *buffer, uint64_t size) -> int64_t {
+                               auto *r = static_cast<Reader *>(s->ctx);
+                               const size_t n = std::min<size_t>(size, r->data->size() - r->pos);
+                               std::memcpy(buffer, r->data->data() + r->pos, n);
+                               r->pos += n;
+                               return (int64_t)n;
+                           } };
+        check(b.ctx->state->load(b.host.plugin, &in), "snapshot load without the cartridge");
+        bool named = false;
+        oscairn_sound_context_info_t info {};
+        for (uint32_t k = 0; k < b.ctx->capacity(b.host.plugin); k++)
+            named = named || (b.ctx->get(b.host.plugin, k, &info) && std::string(info.name) == "From a cartridge" && info.selected_channels == 0xffff);
+        check(named, "the reopened sound keeps its name and selection");
+        std::vector<float> l0, r0, l1, r1;
+        a.host.activate(48000, 512);
+        b.host.activate(48000, 512);
+        play(a, l0, r0);
+        play(b, l1, r1);
+        check(audible(l0) && l0 == l1 && r0 == r1, "the reopened sound plays the same");
+    }
+
+    // malformed cartridges and bad load keys are refused with a reason, and change nothing
+    {
+        Instrument x;
+        auto *load = static_cast<const clap_plugin_preset_load_t *>(x.host.plugin->get_extension(x.host.plugin, CLAP_EXT_PRESET_LOAD));
+        x.host.output.clear();
+        const std::string before = x.host.saveState();
+        std::vector<std::pair<std::string, std::string>> refused; // file, key
+        for (const auto &m : malformedCartridges(cart))
+            refused.push_back({ "presets-" + m.first + ".syx", "0" });
+        for (const char *key : { "32", "-1", "01", "", "x", "1 ", "100" })
+            refused.push_back({ fixture, key });
+        refused.push_back({ "presets-missing.syx", "0" });
+        for (const auto &[file, key] : refused) {
+            std::string why;
+            check(preparePreset(x, "Bad", file, key.c_str(), &why) == CLAP_INVALID_ID && !why.empty(), "refused: " + file + " key '" + key + "'");
+            check(!load->from_location(x.host.plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, file.c_str(), key.c_str()), "preset-load refused: " + file);
+        }
+        char message[256] = {};
+        check(x.ctx->prepare_preset(x.host.plugin, "Bad", CLAP_PRESET_DISCOVERY_LOCATION_FILE, fixture.c_str(), nullptr, message, sizeof message) ==
+                  CLAP_INVALID_ID, "no load key");
+        check(x.ctx->prepare_preset(x.host.plugin, "Bad", CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr, "0", message, sizeof message) ==
+                  CLAP_INVALID_ID, "no presets inside the plugin");
+        x.run();
+        check(x.host.saveState() == before, "refused preset loads leave the sound as it was");
+        for (int k = 0; k < 7; k++)
+            check(preparePreset(x, "Good", fixture, "0") != CLAP_INVALID_ID, "refused preparations took no context");
+        std::string why;
+        check(preparePreset(x, "One too many", fixture, "0", &why) == CLAP_INVALID_ID && why == "no free sound context", "contexts full");
+    }
+
+    std::printf("discovery: 2 locations, 32 voices named from the cartridge, 7 malformed files refused; prepare_preset and preset-load "
+                "bit-identical for 32 voices; the snapshot opens without the cartridge; 16 bad presets refused\n");
     return 0;
 }
 
