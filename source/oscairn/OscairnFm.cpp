@@ -18,6 +18,7 @@
 
 #include "engine/SynthEngine.h"
 #include "Parameters.h"
+#include "Presets.h"
 
 #include <oscairn-clap/sound-contexts.h>
 
@@ -1060,7 +1061,16 @@ const clap_plugin_factory_t factory = {
 
 extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
     CLAP_VERSION_INIT,
-    [](const char *) { return true; },
+    [](const char *path) {
+        setPluginPath(path);
+        return true;
+    },
     []() {},
-    [](const char *id) -> const void * { return std::strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &factory : nullptr; },
+    [](const char *id) -> const void * {
+        if (std::strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0)
+            return &factory;
+        if (std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID) == 0 || std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT) == 0)
+            return presetDiscoveryFactory();
+        return nullptr;
+    },
 };

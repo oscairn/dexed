@@ -13,6 +13,7 @@
  *   oscairn-fm-test contexts                         native sound contexts (RFC 0005)
  *   oscairn-fm-test state-active                     state loads and flush while active, with contexts
  *   oscairn-fm-test snapshots                        a snapshot's sounds prepared beside the playing ones
+ *   oscairn-fm-test presets                          cartridge voices through CLAP preset discovery
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
@@ -72,6 +73,7 @@ const clap_plugin_entry_t *entry = &clap_entry;
 #else
 const clap_plugin_entry_t *entry = nullptr;
 #endif
+std::string modulePath; // --module, for the built-in cartridges beside it
 
 // ---- the DX7 cases through the CLAP ----
 
@@ -3431,6 +3433,191 @@ int stateActiveTest() {
     return 0;
 }
 
+
+// ---- presets: cartridge voices (source/oscairn/Presets.h) ----
+
+// Packs 155-byte voices into a 32-voice bulk dump (F0 43 00 09 20 00 ... checksum F7).
+std::vector<uint8_t> cartridge(const std::vector<std::vector<uint8_t>> &voices) {
+    std::vector<uint8_t> m = { 0xF0, 0x43, 0x00, 0x09, 0x20, 0x00 };
+    for (const auto &v : voices) {
+        uint8_t b[128] = {};
+        for (int op = 0; op < 6; op++) {
+            const uint8_t *s = v.data() + op * 21;
+            uint8_t *d = b + op * 17;
+            std::memcpy(d, s, 11);
+            d[11] = (uint8_t)((s[11] & 3) | ((s[12] & 3) << 2));
+            d[12] = (uint8_t)((s[13] & 7) | ((s[20] & 15) << 3));
+            d[13] = (uint8_t)((s[14] & 3) | ((s[15] & 7) << 2));
+            d[14] = s[16];
+            d[15] = (uint8_t)((s[17] & 1) | ((s[18] & 31) << 1));
+            d[16] = s[19];
+        }
+        std::memcpy(b + 102, v.data() + 126, 9);
+        b[111] = (uint8_t)((v[135] & 7) | ((v[136] & 1) << 3));
+        std::memcpy(b + 112, v.data() + 137, 4);
+        b[116] = (uint8_t)((v[141] & 1) | ((v[142] & 7) << 1) | ((v[143] & 7) << 4));
+        b[117] = v[144];
+        std::memcpy(b + 118, v.data() + 145, 10);
+        m.insert(m.end(), b, b + 128);
+    }
+    int sum = 0;
+    for (size_t i = 6; i < m.size(); i++)
+        sum += m[i];
+    m.push_back((uint8_t)((128 - (sum & 127)) & 127));
+    m.push_back(0xF7);
+    return m;
+}
+
+// The fixture: 32 generated voices (never a factory bank), one with a blank name and one
+// with characters the names show differently.
+std::vector<std::vector<uint8_t>> fixtureVoices() {
+    std::vector<std::vector<uint8_t>> v;
+    for (int i = 0; i < 32; i++)
+        v.push_back(voice(i));
+    std::memset(v[5].data() + 145, ' ', 10);
+    std::memcpy(v[6].data() + 145, "A\\B~C\x7f  x ", 10);
+    return v;
+}
+
+void writeFile(const std::string &path, const std::vector<uint8_t> &data) {
+    std::ofstream f(path, std::ios::binary);
+    f.write((const char *)data.data(), (std::streamsize)data.size());
+    check((bool)f, "write " + path);
+}
+
+struct Indexer {
+    clap_preset_discovery_indexer_t indexer {};
+    struct Location { uint32_t flags; std::string name, path; };
+    std::vector<Location> locations;
+    std::vector<std::string> types;
+    Indexer() {
+        indexer.clap_version = CLAP_VERSION;
+        indexer.name = "dexed tests";
+        indexer.indexer_data = this;
+        indexer.declare_filetype = [](const clap_preset_discovery_indexer_t *i, const clap_preset_discovery_filetype_t *t) {
+            static_cast<Indexer *>(i->indexer_data)->types.push_back(t->file_extension ? t->file_extension : "");
+            return true;
+        };
+        indexer.declare_location = [](const clap_preset_discovery_indexer_t *i, const clap_preset_discovery_location_t *l) {
+            static_cast<Indexer *>(i->indexer_data)->locations.push_back({ l->flags, l->name, l->location ? l->location : "" });
+            return true;
+        };
+        indexer.declare_soundpack = [](const clap_preset_discovery_indexer_t *, const clap_preset_discovery_soundpack_t *) { return true; };
+        indexer.get_extension = [](const clap_preset_discovery_indexer_t *, const char *) -> const void * { return nullptr; };
+    }
+};
+
+struct Listed {
+    struct Preset { std::string name, key, plugin; };
+    std::vector<Preset> presets;
+    std::vector<std::string> errors;
+    clap_preset_discovery_metadata_receiver_t receiver {};
+    static Listed *self(const clap_preset_discovery_metadata_receiver_t *r) { return static_cast<Listed *>(r->receiver_data); }
+    Listed() {
+        receiver.receiver_data = this;
+        receiver.on_error = [](const clap_preset_discovery_metadata_receiver_t *r, int32_t, const char *m) { self(r)->errors.push_back(m); };
+        receiver.begin_preset = [](const clap_preset_discovery_metadata_receiver_t *r, const char *name, const char *key) {
+            self(r)->presets.push_back({ name ? name : "", key ? key : "", "" });
+            return true;
+        };
+        receiver.add_plugin_id = [](const clap_preset_discovery_metadata_receiver_t *r, const clap_universal_plugin_id_t *id) {
+            self(r)->presets.back().plugin = std::string(id->abi) + ":" + id->id;
+        };
+        receiver.set_soundpack_id = [](const clap_preset_discovery_metadata_receiver_t *, const char *) {};
+        receiver.set_flags = [](const clap_preset_discovery_metadata_receiver_t *, uint32_t) {};
+        receiver.add_creator = [](const clap_preset_discovery_metadata_receiver_t *, const char *) {};
+        receiver.set_description = [](const clap_preset_discovery_metadata_receiver_t *, const char *) {};
+        receiver.set_timestamps = [](const clap_preset_discovery_metadata_receiver_t *, clap_timestamp, clap_timestamp) {};
+        receiver.add_feature = [](const clap_preset_discovery_metadata_receiver_t *, const char *) {};
+        receiver.add_extra_info = [](const clap_preset_discovery_metadata_receiver_t *, const char *, const char *) {};
+    }
+};
+
+// The malformed cartridges: each is refused with a reason.
+std::vector<std::pair<std::string, std::vector<uint8_t>>> malformedCartridges(const std::vector<uint8_t> &good) {
+    std::vector<uint8_t> shortDump(good.begin(), good.end() - 100);
+    shortDump.back() = 0xF7;
+    std::vector<uint8_t> otherFormat = good;
+    otherFormat[3] = 0x00;
+    return {
+        { "empty", {} },
+        { "text", { 'n', 'o', 't', ' ', 's', 'y', 's', 'e', 'x' } },
+        { "truncated", std::vector<uint8_t>(good.begin(), good.begin() + 2000) },
+        { "short-dump", shortDump },
+        { "other-format", otherFormat },
+        { "raw-voices", std::vector<uint8_t>(good.begin() + 6, good.begin() + 4102) },
+    };
+}
+
+int presetsTest() {
+    const auto voices = fixtureVoices();
+    const std::vector<uint8_t> cart = cartridge(voices);
+    check(cart.size() == 4104, "fixture size");
+    const std::string fixture = "presets-fixture.syx";
+    writeFile(fixture, cart);
+
+    // the desktop Dexed's cartridge folder, in a home made for the test
+    char cwd[4096];
+    check(getcwd(cwd, sizeof cwd) != nullptr, "getcwd");
+    const std::string home = std::string(cwd) + "/presets-home";
+#ifdef __APPLE__
+    const std::string userFolder = home + "/Library/Application Support/DigitalSuburban/Dexed/Cartridges";
+#else
+    const std::string userFolder = home + "/.local/share/DigitalSuburban/Dexed/Cartridges";
+    unsetenv("XDG_DATA_HOME");
+#endif
+    check(std::system(("mkdir -p '" + userFolder + "'").c_str()) == 0, "make the user cartridge folder");
+    setenv("HOME", home.c_str(), 1);
+
+    auto *factory = static_cast<const clap_preset_discovery_factory_t *>(entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID));
+    check(factory != nullptr && factory == entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT), "preset discovery factory");
+    check(factory->count(factory) == 1, "one provider");
+    const auto *desc = factory->get_descriptor(factory, 0);
+    Indexer ix;
+    const auto *provider = factory->create(factory, &ix.indexer, desc->id);
+    check(provider != nullptr && provider->init(provider), "provider init");
+
+    // locations: the built-in cartridges beside the module (the build puts them there) and the user's folder
+    const std::string builtin = modulePath.substr(0, modulePath.find_last_of('/') + 1) + "Octet/Cartridges";
+    check(ix.locations.size() == (modulePath.empty() ? 1u : 2u), "two locations");
+    for (const auto &l : ix.locations) {
+        const bool user = l.path == userFolder;
+        check(user || l.path == builtin, "location " + l.path);
+        check(l.flags == (user ? CLAP_PRESET_DISCOVERY_IS_USER_CONTENT : CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT), "location flags");
+    }
+    check(ix.types.size() == ix.locations.size() && std::all_of(ix.types.begin(), ix.types.end(), [](auto &t) { return t == "syx"; }),
+          "file type syx");
+
+    // every voice of the fixture, keys 0..31, named from the cartridge
+    Listed listed;
+    check(provider->get_metadata(provider, CLAP_PRESET_DISCOVERY_LOCATION_FILE, fixture.c_str(), &listed.receiver), "get_metadata");
+    check(listed.errors.empty() && listed.presets.size() == 32, "32 presets");
+    for (int i = 0; i < 32; i++) {
+        char expected[16];
+        std::snprintf(expected, sizeof expected, "GEN %06d", i);
+        const std::string name = i == 5 ? "Voice 6" : i == 6 ? "AYB>C<  x" : expected;
+        check(listed.presets[i].name == name, "preset name " + listed.presets[i].name);
+        check(listed.presets[i].key == std::to_string(i), "load key");
+        check(listed.presets[i].plugin == "clap:org.oscairn.fm", "plugin ID");
+    }
+
+    // malformed cartridges list nothing and report why
+    for (const auto &[name, data] : malformedCartridges(cart)) {
+        const std::string path = "presets-" + name + ".syx";
+        writeFile(path, data);
+        Listed bad;
+        check(provider->get_metadata(provider, CLAP_PRESET_DISCOVERY_LOCATION_FILE, path.c_str(), &bad.receiver), "get_metadata " + name);
+        check(bad.presets.empty() && bad.errors.size() == 1, "malformed cartridge refused: " + name);
+    }
+    Listed missing;
+    provider->get_metadata(provider, CLAP_PRESET_DISCOVERY_LOCATION_FILE, "presets-missing.syx", &missing.receiver);
+    check(missing.presets.empty() && missing.errors.size() == 1, "a missing file is refused");
+    provider->destroy(provider);
+
+    std::printf("discovery: 2 locations, 32 voices named from the cartridge, 7 malformed files refused\n");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -3442,6 +3629,7 @@ int main(int argc, char **argv) {
     for (size_t i = 0; i + 1 < args.size(); i++)
         if (std::strcmp(args[i], "--module") == 0) {
             entry = loadEntry(args[i + 1]);
+            modulePath = args[i + 1];
             args.erase(args.begin() + (long)i, args.begin() + (long)i + 2);
             break;
         }
@@ -3485,6 +3673,8 @@ int main(int argc, char **argv) {
         return stateActiveTest();
     if (cmd == "snapshots")
         return snapshotsTest();
+    if (cmd == "presets")
+        return presetsTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }
