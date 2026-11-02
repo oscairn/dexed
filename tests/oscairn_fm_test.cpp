@@ -2403,7 +2403,7 @@ int extendedTest() {
 // ---- the Extended profile at other sample rates ----
 
 // The reference was measured at 44.1 kHz; Octet runs at any rate. The same Extended cases at 44.1,
-// 48 and 96 kHz must agree on times (2 %), LFO rates (1 %), pitch (1 cent; 0.05 cent for the
+// 48, 88.2, 96 and 192 kHz must agree on times (2 %), LFO rates (1 %), pitch (1 cent; 0.05 cent for the
 // tuning) and levels (0.5 dB; the filter 0.2 dB), the tolerances the reference comparisons use.
 int crossRateTest() {
     int failures = 0;
@@ -2552,7 +2552,7 @@ int crossRateTest() {
     };
     for (const auto &c : m) {
         const double base = c.at(44100);
-        for (double r : { 48000.0, 96000.0 }) {
+        for (double r : { 48000.0, 88200.0, 96000.0, 192000.0 }) {
             const double v = c.at(r);
             const double diff = c.relative ? v / base - 1 : v - base;
             const bool ok = std::isfinite(v) && std::fabs(diff) <= c.tolerance;
@@ -2561,7 +2561,7 @@ int crossRateTest() {
                 failures++;
         }
     }
-    std::printf("Extended profile at 44.1, 48 and 96 kHz %s\n", failures ? "FAILED" : "pass");
+    std::printf("Extended profile at 44.1, 48, 88.2, 96 and 192 kHz %s\n", failures ? "FAILED" : "pass");
     return failures ? 1 : 0;
 }
 
