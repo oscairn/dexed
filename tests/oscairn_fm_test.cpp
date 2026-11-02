@@ -1950,6 +1950,17 @@ int extendedTest() {
             worst = std::max(worst, std::fabs(a[k] - b[k]));
         std::printf("modulator level 70 at EG 85 against level 56: harmonics 1-6 within %.3f dB\n", worst);
         expect(worst < 0.1, "modulator level 70 at EG 85 against level 56 at EG 99: " + std::to_string(worst) + " dB");
+        // feedback 7 on the level 70 modulator: harmonics 2-6 fall a straight 6.8 dB each, as the
+        // reference's do (`m7c` df7, the DX7's feedback amount on a modulator)
+        {
+            const auto f = harmonics(renderExtended(P{ { 40, 8 }, { 41, 7 }, { 1051, 70 }, { 2051, 90 } }, 60, 1.0, 0.4, 0.4));
+            const double ref[5] = { -7.1, -14.5, -21.6, -28.4, -35.1 };
+            double fw = 0;
+            for (int k = 0; k < 5; k++)
+                fw = std::max(fw, std::fabs(f[k + 1] - f[0] - ref[k]));
+            std::printf("feedback 7 on a modulator: harmonics 2-6 within %.2f dB of the reference's\n", fw);
+            expect(fw < 0.5, "feedback 7 on a modulator: " + std::to_string(fw) + " dB from the reference's harmonics");
+        }
         auto carrier = [&](int eg) { return renderExtended(P{ { 1041, eg }, { 1042, eg }, { 1043, eg } }, 60, 1.0, 0.4, 0.4); };
         expect(carrier(84) == carrier(85) && carrier(85) != carrier(86),
                "carrier EG level 84 plays as 85, 86 differs");

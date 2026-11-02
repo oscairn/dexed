@@ -391,13 +391,14 @@ void ExtNote::chooseWave(int i, int w) {
 
 void ExtNote::setFeedback(int feedback) {
     fbShift_ = feedback != 0 ? 8 - feedback : 16; // (16: off, for renderGraph)
-    // the measured feedback amount, relative to the DX7's shift for the same value
-    fbGain_ = feedback != 0 ? std::llround(extFeedbackScale(feedback) * (double)(1 << 24) / (1 << fbShift_)) : 0;
-    // the amount was fitted to a carrier's output before carriers got the reference's output
-    // level (algorithm gain and overall level); a carrier's feedback takes its signal before
-    // that level, so the fitted modulation stays
+    // a modulator feeds back the DX7's amount of its own output (`m7c` df7 and `m15g`: harmonics
+    // within 0.2 dB); a carrier the measured amount, relative to the DX7's: it was fitted to a
+    // carrier's output before carriers got the reference's output level (algorithm gain and
+    // overall level), so a carrier's feedback takes its signal before that level
     const CompiledAlgorithm &ca = extCompiled(algorithm_);
-    if (fbGain_ != 0 && ca.feedbackFrom >= 0 && ((ca.outputs >> ca.feedbackFrom) & 1))
+    const bool carrier = ca.feedbackFrom >= 0 && ((ca.outputs >> ca.feedbackFrom) & 1);
+    fbGain_ = feedback != 0 ? std::llround((carrier ? extFeedbackScale(feedback) : 1.0) * (double)(1 << 24) / (1 << fbShift_)) : 0;
+    if (fbGain_ != 0 && carrier)
         fbGain_ = std::llround((double)fbGain_ * std::pow(10.0, -(extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb) / 20));
 }
 
