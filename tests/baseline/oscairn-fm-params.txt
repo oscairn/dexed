@@ -159,7 +159,7 @@
 241 | Extended/Part | Filter EG Depth Offset | -64 | 63 | 0 | stepped
 242 | Extended/Part | Cutoff Offset | -64 | 63 | 0 | stepped
 243 | Extended/Part | Resonance Offset | -64 | 63 | 0 | stepped
-244 | Extended/Part | Note Shift | -48 | 48 | 0 | stepped
+244 | Extended/Part | Note Shift | -127 | 127 | 0 | stepped
 245 | Extended/Part | Detune | -128 | 127 | 0 | stepped
 246 | Extended/Macros | Mod Depth | -99 | 99 | 0 | stepped
 247 | Extended/Macros | Ratio Shift | -99 | 99 | 0 | stepped
@@ -168,8 +168,8 @@
 250 | Extended/Macros | Sustain | -99 | 99 | 0 | stepped
 251 | Extended/Macros | Release | -99 | 99 | 0 | stepped
 252 | Extended/Macros | Texture | -99 | 99 | 0 | stepped
-253 | Extended/Part | Pitch Bend Upper | -48 | 24 | 2 | stepped
-254 | Extended/Part | Pitch Bend Lower | -48 | 24 | -2 | stepped
+253 | Extended/Part | Pitch Bend Upper | -127 | 127 | 2 | stepped
+254 | Extended/Part | Pitch Bend Lower | -127 | 127 | -2 | stepped
 255 | Extended/Part | Mono/Poly | 0 | 1 | 1 | stepped enum
 256 | Extended/Part | Key Assign | 0 | 1 | 1 | stepped enum
 257 | Extended/Part | Portamento | 0 | 1 | 0 | stepped enum

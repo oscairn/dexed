@@ -93,11 +93,11 @@ enum Common {
     VelocityDepth, VelocityOffset, // 0-127 (64 and 64 leave the velocity unchanged)
     AegAttackOffset, AegDecayOffset, AegSustainOffset, AegReleaseOffset, // -64-+63: every operator's EG
     FegDepthOffset, CutoffOffset, ResonanceOffset, // -64-+63
-    NoteShift,          // -48-+48 semitones
+    NoteShift,          // -127-+127 semitones (the reference: -48-+48)
     PartDetune,         // -128-+127 (documented as tenths of a Hz; plays cents, extPartDetuneCents)
     // the macros: offsets to the modulators' values (ExtNote::setup)
     MacroDepth, MacroRatio, MacroAttack, MacroDecay, MacroSustain, MacroRelease, MacroTexture, // -99-+99
-    BendUpper, BendLower, // -48-+24 semitones: the pitch at full bend up and full bend down
+    BendUpper, BendLower, // -127-+127 semitones (the reference: -48-+24): the pitch at full bend up and full bend down
     // how the sound plays its notes (SynthEngine)
     MonoPoly,           // 0 mono, 1 poly
     KeyAssign,          // 0 single, 1 multi: a key played again while it sounds

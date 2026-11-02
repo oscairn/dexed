@@ -67,6 +67,7 @@ struct ProcessorVoice {
     bool fadeSquared = false; // the fade's gain is (left / total) squared (a note started again)
     double velocityExact = 0; // Extended: the velocity with its fraction (part velocity sensitivity)
     int presses = 0;          // Extended: MIDI note-ons of this key still to be released (0: another voice counts them)
+    int keyBeyond = 0;        // Extended: semitones the note shift moved the key past 0-127 (played as pitch)
 };
 
 enum DexedEngineResolution {
@@ -206,6 +207,7 @@ public:
     int tuningTranspositionShift() { return tuningTranspositionShift(0); }
     int tuningTranspositionShift(int c);
     uint8_t shiftedKey(int c, int key);
+    int keyBeyond(int c, int key);
 
     int getEngineType() { return contexts[0].engineType; }
     void setEngineType(int tp) { setEngineType(0, tp); }

@@ -572,6 +572,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     SynthContext &x = contexts[c];
     const uint8_t *patch = x.patch;
 
+    const int beyond = keyBeyond(c, pitch);
     pitch = shiftedKey(c, pitch);
 
     if ( normalizeDxVelocity ) {
@@ -623,6 +624,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     currentNote = (note + 1) % MAX_ACTIVE_NOTES;
     voices[note].channel = channel;
     voices[note].midi_note = pitch;
+    voices[note].keyBeyond = beyond;
     voices[note].velocity = velo;
     voices[note].sustained = sustain[(channel - 1) & 15];
     Controllers &ctrl = voiceCtrl(c, channel);
@@ -711,6 +713,7 @@ void SynthEngine::startVoice(int note, int c, int64_t wait) {
     const bool steal = v.dx7_note->isPlaying();
     ExtStart start = nextExtStart(x, wait);
     start.velocity = v.velocityExact;
+    start.keyBeyond = v.keyBeyond;
     v.dx7_note->init(x.patch, v.midi_note, v.velocity, v.channel, &voiceCtrl(c, v.channel), x.ext, start);
     if ( !steal )
         v.dx7_note->oscSync();
@@ -766,7 +769,7 @@ void SynthEngine::extKeydown(int note, int c) {
         // single: a key played again silences its sounding note
         for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
             if ( i != note && voices[i].live && voices[i].context == c && voices[i].fadeTotal == 0 &&
-                 voices[i].midi_note == voices[note].midi_note )
+                 voices[i].midi_note == voices[note].midi_note && voices[i].keyBeyond == voices[note].keyBeyond )
                 retrigger = i;
     }
     if ( retrigger >= 0 ) // a note that takes over without portamento: the old one fades out as it starts
@@ -775,7 +778,7 @@ void SynthEngine::extKeydown(int note, int c) {
     voices[note].presses = 1;
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
         if ( i != note && voices[i].keydown && voices[i].context == c && voices[i].channel == voices[note].channel &&
-             voices[i].midi_note == voices[note].midi_note ) {
+             voices[i].midi_note == voices[note].midi_note && voices[i].keyBeyond == voices[note].keyBeyond ) {
             voices[note].presses += voices[i].presses;
             voices[i].presses = 0;
         }
@@ -822,9 +825,11 @@ bool SynthEngine::extKeyup(int note) {
 // A MIDI note-off of an Extended sound: a key pressed n times is released by its n-th note-off,
 // then every voice it holds (measured with the same key twice, single and multi).
 void SynthEngine::extRelease(int note) {
-    const int c = voices[note].context, ch = voices[note].channel, key = voices[note].midi_note;
+    const int c = voices[note].context, ch = voices[note].channel, key = voices[note].midi_note,
+              beyond = voices[note].keyBeyond;
     auto same = [&](int i) {
-        return voices[i].keydown && voices[i].context == c && voices[i].channel == ch && voices[i].midi_note == key;
+        return voices[i].keydown && voices[i].context == c && voices[i].channel == ch && voices[i].midi_note == key &&
+               voices[i].keyBeyond == beyond;
     };
     int lead = note;
     for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
@@ -848,7 +853,8 @@ int SynthEngine::findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels) 
         if ( voices[note].keydown &&
              (channels & (1u << ((voices[note].channel - 1) & 15))) &&
              voices[note].channel == chan &&
-             voices[note].midi_note == shiftedKey(voices[note].context, pitch) ) {
+             voices[note].midi_note == shiftedKey(voices[note].context, pitch) &&
+             voices[note].keyBeyond == keyBeyond(voices[note].context, pitch) ) {
             return note;
         }
     }
@@ -1006,11 +1012,19 @@ bool SynthEngine::peekVoiceStatus(VoiceStatus &voiceStatus) {
 }
 
 // The key a voice of context c plays for a played key: Classic as Dexed (wrapping), Extended
-// with the part's note shift too, held within 0-127.
+// with the part's note shift too, held within 0-127; keyBeyond is how far an Extended key's shift
+// went past that range (in semitones, played as pitch).
 uint8_t SynthEngine::shiftedKey(int c, int key) {
     if ( contexts[c].extended() )
-        return (uint8_t)std::clamp(key + tuningTranspositionShift(c) + std::clamp(contexts[c].ext->common(ext::NoteShift), -48, 48), 0, 127);
+        return (uint8_t)std::clamp(key + tuningTranspositionShift(c) + std::clamp(contexts[c].ext->common(ext::NoteShift), -127, 127), 0, 127);
     return (uint8_t)(key + tuningTranspositionShift(c));
+}
+
+int SynthEngine::keyBeyond(int c, int key) {
+    if ( !contexts[c].extended() )
+        return 0;
+    const int k = key + tuningTranspositionShift(c) + std::clamp(contexts[c].ext->common(ext::NoteShift), -127, 127);
+    return k - std::clamp(k, 0, 127);
 }
 
 int SynthEngine::tuningTranspositionShift(int c) {

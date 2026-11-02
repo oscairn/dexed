@@ -142,6 +142,7 @@ struct ExtStart {
     int64_t wait = 0;                        // samples before the note starts, added to its key-on delay
     double velocity = 0;                     // the velocity with its fraction (the part's sensitivity), or 0
     uint32_t lfoPhase = 0;                   // the sound's free-running 2nd LFO phase (no key-on reset)
+    int keyBeyond = 0;                       // semitones the note shift moved the key past 0-127
 };
 
 class ExtNote {
@@ -215,6 +216,7 @@ private:
     int shift_ = 0;
     double velocity_ = 0;        // ExtStart::velocity (operator level velocity)
     double notePitch_ = 0;       // the key's log frequency (Q24)
+    int keyBeyond_ = 0;          // semitones past key 0 or 127 (ExtStart)
     // portamento: offset from it, Q24, moving to 0 by glideStep_ in each block *glideClock_ is true
     double glide_ = 0;
     double glideStep_ = 0;

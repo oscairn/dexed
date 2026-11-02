@@ -171,8 +171,8 @@ void Dx7Note::init(const uint8_t patch[156], int midinote, int velocity, int cha
     initialised_ = true;
     extended_ = ext != nullptr && ext->extended();
     if (extended_) {
-        bendUpper_ = std::clamp(ext->common(ext::BendUpper), -48, 24);
-        bendLower_ = std::clamp(ext->common(ext::BendLower), -48, 24);
+        bendUpper_ = std::clamp(ext->common(ext::BendUpper), -127, 127);
+        bendLower_ = std::clamp(ext->common(ext::BendLower), -127, 127);
         currentPatch = patch;
         playingMidiNote = midinote;
         midiChannel = channel;
@@ -402,8 +402,8 @@ void Dx7Note::updateBasePitches()
 void Dx7Note::update(const uint8_t patch[156], int midinote, int velocity, int channel, const ExtendedVoice *ext) {
     if (extended_) {
         if (ext != nullptr && ext->extended()) {
-            bendUpper_ = std::clamp(ext->common(ext::BendUpper), -48, 24);
-            bendLower_ = std::clamp(ext->common(ext::BendLower), -48, 24);
+            bendUpper_ = std::clamp(ext->common(ext::BendUpper), -127, 127);
+            bendLower_ = std::clamp(ext->common(ext::BendLower), -127, 127);
             ext_.update(*ext, midinote, velocity, rate_, *tuning_state_);
         }
         return;

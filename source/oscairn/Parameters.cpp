@@ -275,13 +275,13 @@ static std::vector<Param> build() {
         extv(241, pt, "Filter EG Depth Offset", -64, 63, ext::FegDepthOffset, Text::Signed);
         extv(242, pt, "Cutoff Offset", -64, 63, ext::CutoffOffset, Text::Signed);
         extv(243, pt, "Resonance Offset", -64, 63, ext::ResonanceOffset, Text::Signed);
-        extv(244, pt, "Note Shift", -48, 48, ext::NoteShift, Text::Signed);
+        extv(244, pt, "Note Shift", -127, 127, ext::NoteShift, Text::Signed);
         extv(245, pt, "Detune", -128, 127, ext::PartDetune, Text::Signed);
         static const char *const macros[] = { "Mod Depth", "Ratio Shift", "Attack", "Decay", "Sustain", "Release", "Texture" };
         for (int i = 0; i < 7; i++)
             extv(246 + i, m, macros[i], -99, 99, ext::MacroDepth + i, Text::Signed);
-        extv(253, pt, "Pitch Bend Upper", -48, 24, ext::BendUpper, Text::Signed);
-        extv(254, pt, "Pitch Bend Lower", -48, 24, ext::BendLower, Text::Signed);
+        extv(253, pt, "Pitch Bend Upper", -127, 127, ext::BendUpper, Text::Signed);
+        extv(254, pt, "Pitch Bend Lower", -127, 127, ext::BendLower, Text::Signed);
         static const char *const monoPoly[] = { "Mono", "Poly", nullptr };
         static const char *const keyAssign[] = { "Single", "Multi", nullptr };
         static const char *const portaModes[] = { "Fingered", "Full-time", nullptr };

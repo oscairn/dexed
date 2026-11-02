@@ -2192,6 +2192,66 @@ int extendedTest() {
             expect(std::fabs(cents) < 0.02, "pitch bend " + std::to_string(b[1]) + " at range " + std::to_string(b[0]) + ": " +
                                                 std::to_string(cents) + " cents from " + std::to_string(b[2]) + " steps");
         }
+        // note shift and bend past the reference's ranges (Jacob: no ceiling, -127 to +127): a key
+        // shifted past 0-127 plays the rest as semitones (key -20 at ratio 31; key 139 at ratio 0.5,
+        // at 96 kHz), a bend of 100 semitones down at ratio 31
+        {
+            auto renderBent = [&](const std::vector<std::pair<uint32_t, double>> &p, int key, double r, int bend, double seconds) {
+                Host h(entry);
+                h.activate(r, 512);
+                EventList in;
+                in.param(0, 5, 1);
+                in.param(0, 40, 1);
+                in.param(0, 1051, 99);
+                for (const auto &q : p)
+                    in.param(0, q.first, q.second);
+                const uint8_t pb[3] = { 0xe0, (uint8_t)(bend & 0x7f), (uint8_t)(bend >> 7) };
+                in.midi(0, pb, 3);
+                in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)key, 1.0);
+                std::vector<float> x;
+                for (size_t done = 0; done < (size_t)(seconds * r); done += 512) {
+                    h.process(512, in);
+                    in.clear();
+                    x.insert(x.end(), h.left.begin(), h.left.begin() + 512);
+                }
+                return x;
+            };
+            auto hzAt = [&](const std::vector<std::pair<uint32_t, double>> &p, int key, double r, int bend) {
+                return zeroCrossingHz(renderBent(p, key, r, bend, 1.0), (size_t)(0.1 * r), (size_t)r, r);
+            };
+            const struct {
+                std::vector<std::pair<uint32_t, double>> p;
+                int key, bend;
+                double rate, hz;
+                const char *what;
+            } wide[] = {
+                { { { 244, -60 }, { 1032, 31 } }, 40, 0x2000, 48000, extStepsHz(noteSteps(-20) + extRatioSteps(extRatio(31, 0))), "note shift -60 at key 40" },
+                { { { 244, 24 }, { 1032, 0 } }, 115, 0x2000, 96000, extStepsHz(noteSteps(139) + extRatioSteps(extRatio(0, 0))), "note shift +24 at key 115" },
+                { { { 254, -100 }, { 1032, 31 } }, 110, 0, 48000,
+                  extStepsHz(noteSteps(110) + extRatioSteps(extRatio(31, 0)) + extBendSteps(-8192, 100)), "bend -100 at key 110" },
+            };
+            for (const auto &w : wide) {
+                const double cents = 1200 * std::log2(hzAt(w.p, w.key, w.rate, w.bend) / w.hz);
+                expect(std::fabs(cents) < 0.5, std::string(w.what) + ": " + std::to_string(cents) + " cents");
+            }
+            // the extremes stay finite: note shift and bend at -127 and +127 at keys 0 and 127, a
+            // fixed operator at coarse 31 fine 127, on every wave
+            float worst = 0;
+            bool finite = true;
+            for (int w : { 0, 1, 3, 5 })
+                for (int shift : { -127, 127 })
+                    for (int key : { 0, 127 })
+                        for (int bend : { 0, 0x3fff }) {
+                            const auto x = renderBent({ { 244, shift }, { 253, shift }, { 254, -shift }, { 1060, w }, { 1061, 7 },
+                                                        { 40, 8 }, { 2051, 99 }, { 2031, 1 }, { 2032, 31 }, { 2033, 127 } },
+                                                      key, 48000, bend, 0.15);
+                            for (float v : x) {
+                                finite = finite && std::isfinite(v);
+                                worst = std::max(worst, std::fabs(v));
+                            }
+                        }
+            expect(finite && worst < 4, "note shift, bend and fixed frequency at their extremes: peak " + std::to_string(worst));
+        }
         for (const auto &dc : std::vector<std::pair<int, double>>{ { -128, -49.95 }, { -64, -24.65 }, { 0, 0 }, { 1, 0 }, { 64, 24.58 }, { 127, 49.63 } }) {
             const auto x = renderExtended({ { 245, dc.first } }, 69, 1.0, 1.0, 0.6);
             const double cents = 1200 * std::log2(zeroCrossingHz(x, 4800, x.size()) / f69);

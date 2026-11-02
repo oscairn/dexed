@@ -418,7 +418,9 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
     detuneNote_ = midinote;
     pitchDepth_ = extLfoPitchDepthSteps(v.common(ext::LfoPitchDepth));
     ampLfo_ = (float)(extAmpStraightDb(extLfoAmpDb(v.common(ext::LfoAmpDepth))) * kLog2PerDb * kQ24);
-    const int32_t notePitch = tuning.midinote_to_logfreq(midinote);
+    // a key the note shift moved past 0-127 plays its distance beyond as equal-tempered semitones
+    // (the key-scaled tables keep the end key)
+    const int32_t notePitch = tuning.midinote_to_logfreq(midinote) + (int32_t)std::lround(keyBeyond_ * kQ24 / 12);
     notePitch_ = notePitch;
     if (start)
         glide_ = glideStep_ = 0;
@@ -593,6 +595,7 @@ void ExtNote::init(const ExtendedVoice &v, int midinote, int velocity, const Syn
     initialised_ = true;
     random_ = st.randomPitch;
     velocity_ = st.velocity;
+    keyBeyond_ = st.keyBeyond;
     {
         // pan: alternate (this side on the sound's first note, the other on the next, ...),
         // scaling and random positions added
