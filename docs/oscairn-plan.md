@@ -1574,6 +1574,40 @@ ARM64 hardware is still not measured.
     reference's own instant segments arrive about 2 ms after Octet's, so the step made Octet's holds
     earlier still: fm/compare_feg.py on `feg2` went from 91 to 82 of 92 (ht4-ht36 about 2.2 ms early
     against the 2 ms floor). Kept as it is.
+76. The pitch grid (fourteenth session, `m14s`, `m14b`, with `m13u`, `m13t`, `fine`, `detune`,
+    `m10b`, `pitch` and `pitch2`, measured; replaces decision 74). Jacob's hypothesis holds, with the
+    second rounding found: every operator plays a whole step of 1/2048 octave, at
+    44100 x m x 2^(octave - 25) Hz, where m is 4096 x 2^(step / 2048) rounded to an integer. That
+    rounding is the residual (+-0.2 cent at most, by step). A4 is step 13012: on the grid 0.773 cent
+    above 440 Hz, played at 440.169 Hz (+0.665) after the mantissa's rounding. So the constant is
+    neither a reference-pitch offset of its own nor a clock ratio: it is the same in cents in every
+    octave, and fixed coarse 16 fine 0 is A4's step. Where each term is quantised:
+    - the key: rounded up to the 1/1024-octave grid counted from A (85 1/3 steps of 1/1024 octave a
+      semitone), so every third key (C, D#, F#, A) lies on it and the others play 0.39 or 0.78 cent
+      above it before the mantissa (Note Shift moves the key before the rounding: `m14s`);
+    - ratios: rounded to the nearest 1/1024-octave step (all 128 fine values of coarse 1 and 15 other
+      pairs); the operator detune table lies on the 1/1024-octave grid (105 measured values);
+    - fixed frequencies: whole 1/128-octave fine steps from A4's step, up to coarse 21 fine 0 (the
+      highest measured, 14085.4 Hz);
+    - the part detune: whole steps, odd ones too, the same at every key (`m14s`);
+    - the pitch bend: its cents truncated towards 0 to whole cents, then to whole steps (`m14b` in
+      steps of 0.1 and 0.3 cent at keys 60 and 61, `m10b`; the same steps at both keys, so it adds
+      after the key's rounding).
+    The sum of the steps decides the frequency. Every steady render of a single carrier above
+    100 Hz lies on this grid within 0.01 cent, but for the ratio past coarse 31 (0.15 cent off it)
+    and the common pitch velocity at velocity 127 (0.03 cent off). Octet now plays the rule for
+    Extended sounds (`extNoteSteps`, `ExtFreqlut`), Classic bit-identical. Chosen and not measured:
+    the other static offsets (part detune, key follow, random pitch, pitch velocity) go through their
+    tables and are rounded to the nearest step; pitch EG, LFO, portamento and master tune are added
+    before the lookup, which takes the step below. The tables the rule leaves as they were now miss
+    by whole steps where they missed before: the detune between its measured keys (5 of 20 new
+    values one 1/1024-octave step off, up to 1.18 cent), the part detune between its measured values,
+    the common pitch velocity (`pitch` cpv32v1 now 1.12 cent off) and the ratio past coarse 31. At
+    48 and 96 kHz Octet plays the same frequencies in Hz: the residual is the mantissa's, not a
+    44.1 kHz phase-increment effect (each increment is a whole number at 44.1 kHz), and the hardware
+    and the recorder run at 44.1 kHz; the reference plugin at other host rates was not measured.
+    Octet's increments are rounded, so 48 kHz plays within 0.01 cent of 44.1 kHz from 55 Hz up and
+    96 kHz within 0.09 cent at 55 Hz (its 24-bit phase).
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
@@ -2536,6 +2570,43 @@ failure it caused, the gain moved out of the voice after the filter resonance ca
 modulator check's carrier level after an x86_64 failure). CI: the macOS job of `oscairn-tests` was
 not picked up by GitHub's hosted runners on some heads ("not acquired ... after multiple
 attempts"); results per head are in the session report.
+
+### Fourteenth session (2026-11-01): the pitch grid
+
+Decision 76. Renders in `forks/measurements/m4/` (never committed): `m14s` (79: part detune at keys
+45, 69 and 93, note shift, ten coarse/fine pairs, detune at keys 54, 66, 90 and 101, common pitch
+velocity, fixed key follow) and `m14b` (3 sequences: pitch bend in steps of 4 and 2 values at ranges
+2 and 12, keys 60 and 61). Pitches by the slope of the analytic signal's phase over 0.65-0.85 s of
+a steady note (the reference's renders sit on the grid within 0.003 cent above 200 Hz with it, 0.006
+above 100 Hz; below that the estimate wanders by up to 0.13 cent). Octet before = `e57145d`, both
+at 44.1 kHz:
+
+| renders | before | after |
+| --- | --- | --- |
+| `m13u` (185) | mean 0.064, worst 0.198 cent | mean 0.0000, worst 0.0004 |
+| `m13t` (26) | mean 0.067, worst 0.410 | mean 0.001, worst 0.012 |
+| `m14s` (79) within 0.05 cent | 23 | 55 |
+| `m10b` bends (fm/compare_bend.py, 38 checked) | 38 met, worst 0.55 | 38 met, worst 0.01 |
+| `m14b` steps | not the reference's | the same steps |
+| fm/compare.py `pitch` outside tolerance; readable cases within 0.05 cent | 37; 108 of 135 | 38; 125 of 135 |
+| fm/compare.py `pitch2` | 4; 62 of 120 | 4; 117 of 120 |
+
+Worse in `m14s`: 6 part detune values (by up to 0.15 cent), 5 detunes between the table's keys (up
+to 1.18 cent), pitch velocity (pv127o14v127, 11.06 -> 11.22 cent), fixed key follow (kf99n50, 1.71
+-> 1.77) and the ratio past coarse 31 (c31f127, 24.4 -> 24.7; c31f100 is 3830 and 3660 cent off before and
+after, the reference playing ratio 6.565 there). In `pitch`, cpv32v1 went from -0.85 to
+-1.12 cent. All are tables the rule leaves as they were.
+
+**Fourteenth session: tests run.** Code commit `b903c93`, tested on its committed tree with nothing
+else of the engine's in the work tree, locally: Release CTest 37/37 (the 164 Classic cases
+bit-identical through engine, JUCE plugin and native CLAP on arm64), the x86_64 baseline under
+Rosetta (engine, plugin, CLAP: 164 of 164 identical), the Extended test and `oscairn-fm-test rates`
+under Rosetta, ASan/UBSan 20/20, TSan 20/20. The new tuning and bend checks were confirmed to fail
+with the change undone (`ext_note.cc` and `dx7note.cc` as at `e57145d`, with the old table): three
+of the four fixed fine values, both ratios and all 14 bend values fail; the 12 keys, fine 100 and
+the two detunes pass, as the table played them. CI on `b903c93`: `oscairn-tests` all 5 jobs
+passed; `dexed-pipeline` Linux Build and Windows Build passed, macOS Build failed at its signing
+certificate import (the fork has no signing secrets).
 
 ### Fifth session (2026-10-31): tests run
 
