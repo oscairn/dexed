@@ -830,7 +830,7 @@ int extendedTest() {
     const double rate = 48000;
     // the reference's pitch grid (extNoteSteps): A4 is step 13012 of 2048 an octave, every key
     // rounded up to the 1/1024-octave grid from it, fixed frequencies in 1/128-octave fine steps
-    // from A4's step up to coarse 21
+    // from A4's step
     auto noteSteps = [](int key) { return 13012 + 2 * (int)std::ceil((key - 69) * 1024 / 12.0 - 1e-9); };
     const double f69 = extStepsHz(13012);
     // -- envelope: decay 1 slopes (ms per dB), fitted between 3 and 35 dB below the peak
@@ -920,7 +920,15 @@ int extendedTest() {
         expect(std::fabs(cents) < 1.0, what + ": " + std::to_string(cents) + " cents");
     };
     auto noteHz = [&](int key) { return extStepsHz(noteSteps(key)); };
-    auto fixedHz = [&](int coarse, int fine) { return extStepsHz(std::min(13012 + 2048 * 5, 13012 + 2048 * (coarse - 16) + 16 * fine)); };
+    auto fixedHz = [&](int coarse, int fine) { return extStepsHz(13012 + 2048 * (coarse - 16) + 16 * fine); };
+    {
+        // past coarse 21 fine 0 (14.09 kHz): coarse 21 fine 64 at 19.92 kHz, as the reference plays it
+        // (`m15f`), at 96 kHz
+        const auto x = renderExtended({ { 1031, 1 }, { 1032, 21 }, { 1033, 64 } }, 60, 1.0, 1.0, 0.6, nullptr, 96000);
+        const double cents = 1200 * std::log2(zeroCrossingHz(x, 9600, x.size(), 96000) / fixedHz(21, 64));
+        expect(std::fabs(cents) < 1 && std::fabs(fixedHz(21, 64) - 19920) < 2,
+               "fixed coarse 21 fine 64: " + std::to_string(cents) + " cents from " + std::to_string(fixedHz(21, 64)) + " Hz");
+    }
     for (int c : { 0, 1, 2, 7, 15, 31 })
         for (int f : { 0, 37, 64, 127 })
             pitchCase({ { 1032, c }, { 1033, f } }, 57, 1.0, noteHz(57) * extRatio(c, f),

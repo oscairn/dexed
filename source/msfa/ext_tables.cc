@@ -194,7 +194,7 @@ double extDetuneCents(int detune, int midinote) {
 }
 
 double extFixedHz(int coarse, int fine) {
-    return std::min(kFixedMaxHz, kFixedBaseHz * std::pow(2.0, clampi(coarse, 0, 31) - 16 + clampi(fine, 0, 127) / 128.0));
+    return kFixedBaseHz * std::pow(2.0, clampi(coarse, 0, 31) - 16 + clampi(fine, 0, 127) / 128.0);
 }
 
 // The reference's pitch grid (fourteenth session, `m13u`, `m13t`, `m14s`, `m14b` and the earlier
@@ -227,8 +227,9 @@ int extRatioSteps(double ratio) { return 2 * (int)std::lround(1024.0 * std::log2
 int extDetuneSteps(int detune, int midinote) { return 2 * (int)std::lround(extDetuneCents(detune, midinote) * 1024.0 / 1200.0); }
 
 int extFixedSteps(int coarse, int fine) {
-    // up to the highest fixed frequency (coarse 21 fine 0), which was measured as played
-    return std::min(kA4Steps + 2048 * 5, kA4Steps + 2048 * (clampi(coarse, 0, 31) - 16) + 16 * clampi(fine, 0, 127));
+    // every coarse and fine value (the reference plays coarse 21 fine 64 at 19.92 kHz and holds
+    // higher values at 22.04 kHz, just under its Nyquist; Octet has no ceiling: `m15f`)
+    return kA4Steps + 2048 * (clampi(coarse, 0, 31) - 16) + 16 * clampi(fine, 0, 127);
 }
 
 int extCentsSteps(double cents) { return (int)std::lround(cents * 2048.0 / 1200.0); }
