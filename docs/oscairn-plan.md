@@ -597,6 +597,13 @@ of the Oscairn gate.
 Oscairn does not list CLAP presets. DX7 cartridges reach Oscairn through the converter or as
 patch text in a sound context (4.5). The cartridge manager stays in the desktop editor.
 
+**In progress (sixteenth session, 2026-11-02; not on this branch yet):** Oscairn now lists CLAP
+presets and prepares native contexts from them (RFC 0005 "Presets", `oscairn.sound-contexts/draft-5`
+`prepare_preset`). The SDK headers are vendored at Oscairn `3b58efe` (`9c4ae45`); Octet's table still
+leaves `prepare_preset` null. Cartridge voices as presets (discovery over the built-in cartridges and
+the desktop Dexed's cartridge folder, load keys `0`-`31`, `prepare_preset` and `clap.preset-load`, with
+tests) are written but not pushed; see the sixteenth session in section 11 for where this stopped.
+
 ### 4.11 Tests
 
 None exist today. The plan adds a `tests/` tree built with CTest against the headless engine and
@@ -930,6 +937,9 @@ to look at later. 40 waits on the voice-stealing decision (Oscairn RFC 0018, Q4)
 thirteenth session: 2, 3, 10, 18 and 19's time velocity (decisions 69-75); listening examples for 7,
 17 and 20 are in `forks/measurements/listen/` (renders, not committed). The others stay open.
 
+**Answer (Jacob, 2026-11-02):** 70 is decided: output clipping is left to Oscairn's mixer, not done
+inside Octet, as the reference clips after part volume and pan, at the mix. No engine change.
+
 **Notes from implementation**
 
 - The desktop Dexed, when loaded (also by `oscairn-render`), creates
@@ -1068,9 +1078,9 @@ Deliberate (decided):
   comment); `filt*`, `fm/compare_filter.py`.
 - **FEG segments straight in cents** (decision 20): the reference's bend by up to about 90 cents
   along 1200. FEG in `msfa/ext_note.cc`; `feg2`, `fm/compare_feg.py`.
-- **No output clip** (decision 70): the reference clips at full scale after Part and Performance
-  Volume (6 of the 50 copies clipped at Performance Volume 127 and were recorded at 64); Octet leaves
-  clipping to the host's mixer.
+- **No output clip** (decision 70, decided by Jacob 2026-11-02): the reference clips at full scale
+  after Part and Performance Volume (6 of the 50 copies clipped at Performance Volume 127 and were
+  recorded at 64), that is at the mix; clipping is left to Oscairn's mixer, not done inside Octet.
 - **Filter and FEG once per 64 samples** (decisions 18, 75): instant FEG segments (times 0-20) take
   1.45 ms. `msfa/ext_note.cc`.
 - **Random pitch and pan** (decisions 26, 44): uniform approximations; the reference's extra step
@@ -1741,8 +1751,9 @@ ARM64 hardware is still not measured.
     at the new level the loudest algorithms pass it (the topology test failed with the clip). The
     reference's output does clip at full scale, after part volume and pan: `m7a` fr96 and fr127 (a
     resonant peak 26 dB over thru) peak at exactly 0 dBFS in its renders and Octet's voice used to
-    clip at the same point by Dexed's per-voice clip; they now differ by 13.86 dB. For Jacob: whether
-    the output clip belongs to Octet or to the host's mixer (chosen: the mixer).
+    clip at the same point by Dexed's per-voice clip; they now differ by 13.86 dB. Decided by Jacob
+    (2026-11-02): output clipping belongs to Oscairn's mixer, not to Octet, since the reference clips
+    at the mix (after part volume and pan). No engine change.
 71. Sample rates (thirteenth session): `oscairn-fm-test rates` (CTest `oscairn-fm-rates`) checks
     Extended level, pitch, EG times, the 2nd LFO's rate and delay, the part LFO's rate, key-on delay,
     two filter types, an FEG decay and portamento at 44.1, 48 and 96 kHz against each other within
@@ -2887,6 +2898,34 @@ and passes either way; the rates commit adds rates only. CI on `166aa13`, `e3810
 `5b0c5d3` and `2b35e18`: `oscairn-tests` all 5 jobs passed on each; `dexed-pipeline` Linux Build and
 Windows Build passed on each, macOS Build failed at its signing certificate import (the fork has no
 signing secrets).
+
+### Sixteenth session (2026-11-02): presets (stopped early)
+
+Pushed with this record: `9c4ae45`, the Oscairn SDK headers (`sound-contexts.h` draft 5, `assets.h` draft 2, new
+`preset-discovery-plugin.hpp`) copied unchanged at Oscairn `3b58efe`; Octet advertises draft 5 with
+`prepare_preset` null and behaves as before. Decision 70 recorded as decided (section 10).
+
+Not pushed, stopped when the session's budget ran out: two commits on the local branch
+`oscairn-presets` (`3e3d0bb` "List cartridge voices as CLAP presets", `4b3d866` "Prepare sound contexts
+from cartridge voices"): `source/oscairn/Presets.*`, the discovery factory in the entry, the built-in
+cartridges unpacked into `Octet/Cartridges` beside the `.clap` by the build, `prepare_preset`,
+`clap.preset-load`, and `oscairn-fm-test presets` (a generated 32-voice cartridge listed with names and
+keys; each voice prepared, preset-loaded and loaded as parameter events renders bit-identically; a
+snapshot reopens with the cartridge deleted; six malformed cartridges and bad keys refused). On a local
+Release arm64 build of `4b3d866` only: the presets test passed and failed with each change undone
+(no factory; no `prepare_preset`; no preset-load; offset dropped; fine frequency unpacked wrongly;
+format byte unchecked); `oscairn-plugin-check` passed in the engine and with `OSCAIRN_PLUGIN_WORKER`
+set; a scratch probe on Oscairn's host library indexed 2,112 presets (the built-in 33 cartridges and the
+same 33 from the desktop Dexed's folder), prepared seven contexts and preset-loaded one. Left to do:
+the full gates on both commits (Release CTest, x86_64 under Rosetta, Extended, `rates`, ASan/UBSan,
+TSan), push and CI, and the plan's decision and section 4.10 text for them. Open point: the Oscairn
+plugin store installs only the `.clap`, so the built-in cartridges beside it are not listed there.
+
+**Sixteenth session: tests run.** On `9c4ae45` (its committed tree, in a separate clone): Release CTest
+37/37 (the 164 Classic cases bit-identical through engine, JUCE plugin and native CLAP on arm64, and
+Oscairn's scanner, renderer and worker tests against an Oscairn build at `3b58efe`), the x86_64
+baseline under Rosetta (engine, plugin, CLAP: 164 of 164) with the Extended test and `rates`,
+ASan/UBSan 20/20, TSan 20/20. The docs commit changes no code. CI results are in the session report.
 
 ### Fifth session (2026-10-31): tests run
 
