@@ -30,12 +30,13 @@ class Controllers;
 class ExtEnv {
 public:
     // levels and times are the 0-99 panel values; outlevel is the operator's level in the same
-    // log format (operator level, scaling and velocity); timeScale stretches every segment
+    // log format (operator level, scaling and velocity); timeScale[0] stretches the hold, [1-4]
+    // the attack, decay 1, decay 2 and release (time key follow)
     // attackScale: a factor on the attack time (held within attack times 0-99); modulator: the
     // levels follow a modulator's EG curve
-    void init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
+    void init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, const double timeScale[5],
               double sampleRate, double attackScale = 1, bool modulator = false);
-    void update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
+    void update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, const double timeScale[5],
                 double sampleRate, double attackScale = 1, bool modulator = false);
     int32_t getsample(); // one sample
     void keydown(bool down);
@@ -45,7 +46,7 @@ public:
 
 private:
     void advance(int ix);
-    void configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
+    void configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, const double timeScale[5],
                    double sampleRate, double attackScale, bool modulator);
 
     int levels_[4] = {};

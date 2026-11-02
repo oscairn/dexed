@@ -28,7 +28,8 @@ double extModLevelDb(int level);    // the same for a modulator (its modulation 
 double extModEgLevelDb(int level);  // a modulator's EG level 0-99, dB relative to level 99
 double extFeedbackScale(int feedback); // feedback 1-7, relative to the DX7's amount
 double extAlgorithmGainDb(int algorithm); // carriers' output level by algorithm 1-88, dB re algorithm 1
-double extTimeKeyFollowScale(int sensitivity, int midinote); // multiplies every segment time
+int extTimeKeyFollowSteps(int sensitivity, int midinote); // AEG time key follow 0-7: rate steps
+double extTimeKeyFollowScale(int steps, int time); // a segment of that time value: its time factor
 
 // level scaling and velocity, dB
 double extLevelScalingDb(int midinote, int breakPoint, int lowDepth, int highDepth, int lowCurve, int highCurve);

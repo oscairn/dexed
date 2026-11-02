@@ -86,12 +86,29 @@ double extOpLevelDb(int l) {
     return l < kLevelSilentBelow ? -200.0 : interpolate(kLevelX, kOpLevelDb, l);
 }
 
-// shortcut: the Classic rate scaling curve (Dx7Note's ScaleRate) as a time factor; the
-// Extended curve is not measured yet (not an M4 gate)
-double extTimeKeyFollowScale(int sensitivity, int midinote) {
-    const int x = std::min(31, std::max(0, midinote / 3 - 7));
-    const int qrateDelta = (clampi(sensitivity, 0, 7) * x) >> 3;
-    return std::pow(2.0, -qrateDelta / 4.0);
+// AEG time key follow (fifteenth session, `m15k`): every segment's rate moves by whole steps of
+// the EG's rate scale, eight to a doubling of the rate with the doublings split into eight equal
+// steps (the decay table's times sit on it: each within 0.2 %); time 0 is step 119, times 93-99
+// step 0. The move is sensitivity x (keys from the centre) / 4 steps, truncated towards 0, keys in
+// groups of three counted from note 1: notes 64-69 do not move, each group above 69 adds one, each
+// below 64 takes one, held within 15 groups (notes 21 and below, 112 and above); the moved step
+// is held within 0-127 (measured: sensitivity 7 at every note, 1-6 at six notes, every segment)
+static int egRateStep(int time) {
+    const double v = kDecayMsPerDb[99] * 8 / kDecayMsPerDb[clampi(time, 0, 99)];
+    const int e = std::max(0, (int)std::floor(std::log2(v / 8 + 1e-9)));
+    return std::min(127, 8 * e + (int)std::lround(v / std::exp2(e)) - 8);
+}
+static double egRate(int step) { return (8 + (step & 7)) * std::exp2(step >> 3); }
+
+int extTimeKeyFollowSteps(int sensitivity, int midinote) {
+    const int group = (midinote - 1 + 3) / 3 - 1; // floor((note - 1) / 3), from note 0
+    const int keys = group <= 21 ? -std::min(21 - group, 15) : std::min(group - 22, 15);
+    return clampi(sensitivity, 0, 7) * keys / 4; // (truncated towards 0)
+}
+
+double extTimeKeyFollowScale(int steps, int time) {
+    const int from = egRateStep(time);
+    return egRate(from) / egRate(clampi(from + steps, 0, 127));
 }
 
 double extLevelScalingDb(int midinote, int breakPoint, int lowDepth, int highDepth, int lowCurve, int highCurve) {

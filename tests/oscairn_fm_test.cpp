@@ -860,6 +860,44 @@ int extendedTest() {
         expect(n > 2 && std::fabs(measured / ms - 1) < 0.02,
                "decay time " + std::to_string(t) + ": " + std::to_string(measured) + " ms/dB, table " + std::to_string(ms));
     }
+    // -- AEG time key follow: a decay of time 35 (rate step 75) at sensitivity 7 moves by
+    // 7 x 12 / 4 = 21 steps 36 keys above and below the centre (notes 105 and 30: 4.19 kHz and a
+    // fixed 3.5 kHz carrier), to steps 96 and 54 (time 5, step 113, is held at step 127); notes
+    // 64-69 do not move; sensitivity 3 at note 105 moves 9 steps (`m15k`)
+    for (const auto &kc : std::vector<std::array<double, 4>>{ { 35, 7, 105, 5632.0 / 32768 }, { 35, 7, 30, 5632.0 / 896 },
+                                                             { 35, 7, 66, 1 }, { 35, 3, 105, 5632.0 / 12288 } }) {
+        const int t = (int)kc[0], key = (int)kc[2];
+        const double ms = extEgMsPerDb(t) * kc[3];
+        const double seconds = std::min(6.0, 0.05 + 40 * ms / 1000);
+        std::vector<std::pair<uint32_t, double>> p = { { 1046, t }, { 1042, 0 }, { 1043, 0 }, { 1050, kc[1] } };
+        if (key < 100) // a fixed 3.5 kHz carrier (coarse 19)
+            p.insert(p.end(), { { 1031, 1 }, { 1032, 19 } });
+        const auto x = renderExtended(p, key, 1.0, seconds, seconds);
+        const size_t w = 48;
+        const auto db = peakDb(x, w);
+        const size_t peak = (size_t)(std::max_element(db.begin(), db.end()) - db.begin());
+        double sx = 0, sy = 0, sxx = 0, sxy = 0;
+        int n = 0;
+        for (size_t i = peak; i < db.size(); i++) {
+            const double rel = db[peak] - db[i];
+            if (rel < 3)
+                continue;
+            if (rel > 35)
+                break;
+            const double tt = i * w / rate;
+            sx += tt; sy += db[i]; sxx += tt * tt; sxy += tt * db[i]; n++;
+        }
+        const double measured = -1000.0 / ((n * sxy - sx * sy) / (n * sxx - sx * sx));
+        expect(n > 2 && std::fabs(measured / ms - 1) < 0.03,
+               "time key follow " + std::to_string((int)kc[1]) + " time " + std::to_string(t) + " note " + std::to_string(key) +
+                   ": " + std::to_string(measured) + " ms/dB, expected " + std::to_string(ms));
+    }
+    expect(extTimeKeyFollowSteps(7, 21) == -26 && extTimeKeyFollowSteps(7, 22) == -24 && extTimeKeyFollowSteps(7, 63) == -1 &&
+               extTimeKeyFollowSteps(7, 64) == 0 && extTimeKeyFollowSteps(7, 69) == 0 && extTimeKeyFollowSteps(7, 70) == 1 &&
+               extTimeKeyFollowSteps(7, 112) == 26 && extTimeKeyFollowSteps(7, 0) == -26 && extTimeKeyFollowSteps(5, 101) == 13 &&
+               std::fabs(extTimeKeyFollowScale(21, 5) - 147456.0 / 491520) < 1e-12 &&
+               std::fabs(extTimeKeyFollowScale(-21, 80) - 4.5) < 1e-12,
+           "time key follow steps by note, and the rate held within steps 0-127");
     // -- hold: the step from the hold level to full level
     for (int t : { 30, 50, 70 }) {
         const double ms = extHoldMs(t);

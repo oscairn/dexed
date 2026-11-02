@@ -176,7 +176,7 @@ struct ExtKernels {
 
 // ---- envelope ----
 
-void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
+void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, int32_t outlevel, const double timeScale[5],
                        double sampleRate, double attackScale, bool modulator) {
     constexpr double q32 = 4294967296.0;
     full_ = (int64_t)outlevel << 8;
@@ -187,7 +187,7 @@ void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, in
         // segment i (attack, decay 1, decay 2, release): dB per sample
         const double msPerDb = (i == 0 ? std::clamp(extAttackMsPerDb(std::clamp(times[i], 0, 99)) * attackScale,
                                                     extAttackMsPerDb(0), extAttackMsPerDb(99))
-                                       : extEgMsPerDb(std::clamp(times[i], 0, 99))) * timeScale;
+                                       : extEgMsPerDb(std::clamp(times[i], 0, 99))) * timeScale[i + 1];
         const double dbPerSample = 1000.0 / (msPerDb * sampleRate);
         inc_[i] = std::max<int64_t>(1, std::llround(dbPerSample * kLog2PerDb * q32));
         // a rising segment approaches a point extAttackOverDb above full level exponentially in
@@ -201,10 +201,10 @@ void ExtEnv::configure(const int levels[4], const int times[4], int holdTime, in
             attackStart_ = std::llround(-extAttackStartDb() * kLog2PerDb * q32);
         }
     }
-    holdSamples_ = (int)std::lround(extHoldMs(std::clamp(holdTime, 0, 99)) * timeScale * sampleRate / 1000.0);
+    holdSamples_ = (int)std::lround(extHoldMs(std::clamp(holdTime, 0, 99)) * timeScale[0] * sampleRate / 1000.0);
 }
 
-void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
+void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t outlevel, const double timeScale[5],
                   double sampleRate, double attackScale, bool modulator) {
     configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale, modulator);
     down_ = true;
@@ -213,7 +213,7 @@ void ExtEnv::init(const int levels[4], const int times[4], int holdTime, int32_t
     ix_ = count_ > 0 ? 0 : 1;
 }
 
-void ExtEnv::update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, double timeScale,
+void ExtEnv::update(const int levels[4], const int times[4], int holdTime, int32_t outlevel, const double timeScale[5],
                     double sampleRate, double attackScale, bool modulator) {
     configure(levels, times, holdTime, outlevel, timeScale, sampleRate, attackScale, modulator);
 }
@@ -512,7 +512,11 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
             levels[k] = std::clamp(levels[k], 0, 99);
             times[k] = std::clamp(times[k], 0, 99);
         }
-        const double timeScale = extTimeKeyFollowScale(o(ext::TimeKeyFollow), midinote);
+        // time key follow moves each segment's rate; the hold does not follow the key (`m15k`)
+        const int keySteps = extTimeKeyFollowSteps(o(ext::TimeKeyFollow), midinote);
+        double timeScale[5] = { 1 };
+        for (int k = 0; k < 4; k++)
+            timeScale[k + 1] = extTimeKeyFollowScale(keySteps, times[k]);
         const double attackScale = modulator ? std::min(aegAttack, 1.0) : aegAttack;
         if (start)
             env_[i].init(levels, times, o(ext::HoldTime), outlevel, timeScale, sampleRate, attackScale, modulator);
