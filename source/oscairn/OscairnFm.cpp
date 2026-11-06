@@ -1104,7 +1104,12 @@ const clap_plugin_t *create(const clap_host_t *host) {
     };
     s->plugin.start_processing = [](const clap_plugin_t *) { return true; };
     s->plugin.stop_processing = [](const clap_plugin_t *) {};
-    s->plugin.reset = [](const clap_plugin_t *p) { self(p).engine.panic(); };
+    s->plugin.reset = [](const clap_plugin_t *p) {
+        Plugin &s = self(p);
+        s.engine.reset();
+        for (int c = 0; c < contextCount; c++)
+            s.applyAll(c); // as activate: the parameters stay as set
+    };
     s->plugin.process = process;
     s->plugin.get_extension = [](const clap_plugin_t *, const char *id) -> const void * {
         if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &paramsExt;

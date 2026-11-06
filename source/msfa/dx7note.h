@@ -73,6 +73,17 @@ public:
     void oscSync();
     // Stops the note for good: it no longer counts as playing (after a choke's fade).
     void silence() { initialised_ = false; ext_.silence(); }
+    // As new (an engine reset): not playing, every phase and the feedback history cleared.
+    void reset() {
+        silence();
+        extended_ = false;
+        ext_ = ExtNote();
+        for (int op = 0; op < 6; op++) {
+            params_[op].phase = 0;
+            params_[op].gain_out = 0;
+        }
+        fb_buf_[0] = fb_buf_[1] = 0;
+    }
     bool extended() const { return extended_; }
     // Extended notes: false when centred; otherwise the pan gains
     bool panned(float &left, float &right) const {

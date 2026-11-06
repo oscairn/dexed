@@ -323,6 +323,36 @@ int notesTest() {
     e = ends(h);
     check(e.size() == 1 && e[0].id >= 100 && e[0].id < 116 && e[0].time == 50, "one stolen note ends at frame 50");
 
+    // reset clears what a note leaves behind (free-running LFO phase, the output filter's
+    // memory, rendered-ahead samples): a note after it sounds as on a fresh instance.
+    {
+        Host played(entry), fresh(entry);
+        played.activate(48000, 256);
+        fresh.activate(48000, 256);
+        // the sound's settings come with the note, as a fresh instance gets them with its state
+        auto note = [&](Host &x, int blocks) {
+            std::vector<float> r;
+            EventList ev;
+            ev.param(0, 14, 0); // LFO key sync off, modulating the pitch
+            ev.param(0, 12, 60);
+            ev.param(0, 16, 5);
+            ev.param(0, 131, 0.3); // and the output filter with memory to keep
+            ev.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+            for (int b = 0; b < blocks; b++) {
+                x.process(256, ev);
+                ev.clear();
+                r.insert(r.end(), x.left.begin(), x.left.begin() + 256);
+            }
+            return r;
+        };
+        note(played, 30);
+        EventList off;
+        off.note(CLAP_EVENT_NOTE_OFF, 0, 1, 0, 60);
+        played.process(256, off);
+        played.plugin->reset(played.plugin);
+        check(note(played, 8) == note(fresh, 8), "after reset a note sounds as on a fresh instance");
+    }
+
     // Sustain (MIDI CC 64) holds released notes until the pedal is up.
     in.note(CLAP_EVENT_NOTE_OFF, 0, -1, -1, -1);
     run(200);

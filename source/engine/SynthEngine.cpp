@@ -132,6 +132,36 @@ void SynthEngine::setTuning(std::shared_ptr<TuningState> t) {
 void SynthEngine::prepare(double sampleRate, int maxFrames) {
     this->sampleRate = sampleRate;
     rate.init(sampleRate);
+    for (int c = 1; c < MAX_CONTEXTS; c++) {
+        contexts[c].blockRight.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
+        contexts[c].block.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
+    }
+
+    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+        delete voices[note].dx7_note; // prepared again without a release: rebuild for the new rate
+        voices[note].dx7_note = new Dx7Note(tuningState, mtsClient, &rate);
+        voices[note].noteActive = false;
+        voices[note].context = 0;
+    }
+    restart();
+}
+
+// As a fresh engine after prepare, without the allocations: voices as new, the LFOs at phase 0
+// (prepare leaves a free-running LFO's phase alone, as Dexed does), filters, buffers and
+// controllers cleared; the parameters stay as set. A note that was playing is reported ended
+// at the next render.
+void SynthEngine::reset() {
+    for (int c = 0; c < MAX_CONTEXTS; c++)
+        contexts[c].lfo = Lfo();
+    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note)
+        if ( voices[note].dx7_note != NULL )
+            voices[note].dx7_note->reset();
+    restart();
+}
+
+// The part of prepare that allocates nothing: no voice sounding, the LFOs, filters, buffers
+// and controllers as prepare leaves them.
+void SynthEngine::restart() {
     for (int c = 0; c < MAX_CONTEXTS; c++) {
         contexts[c].lfo.init(sampleRate);
         contexts[c].partLfo = ExtPartLfo();
@@ -140,23 +170,19 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
         contexts[c].noteRandom = 0x2545F491u + (uint32_t)c;
         contexts[c].noteCount = 0;
         contexts[c].fxRight.init(sampleRate);
-        if ( c > 0 )
-            contexts[c].blockRight.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
-        if ( c > 0 )
-            contexts[c].block.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
+        contexts[c].rendering = false;
+        contexts[c].tail = false;
     }
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
-        delete voices[note].dx7_note; // prepared again without a release: rebuild for the new rate
-        voices[note].dx7_note = new Dx7Note(tuningState, mtsClient, &rate);
         voices[note].midi_note = -1;
         voices[note].keydown = false;
         voices[note].sustained = false;
         voices[note].live = false;
         voices[note].keydown_seq = -1;
-        voices[note].noteActive = false;
-        voices[note].context = 0;
-        voices[note].fadeLeft = 0;
+        voices[note].fadeLeft = voices[note].fadeTotal = 0;
+        if ( voices[note].dx7_note != NULL )
+            voices[note].dx7_note->oscSync();
     }
 
     currentNote = 0;
@@ -164,10 +190,6 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
     glideTick = false;
     nextKeydownSeq = 0;
     resetControllers();
-    for (int c = 0; c < MAX_CONTEXTS; c++) {
-        contexts[c].rendering = false;
-        contexts[c].tail = false;
-    }
 
     for (int ch = 0; ch < 16; ch++)
         sustain[ch] = false;

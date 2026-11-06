@@ -169,6 +169,8 @@ public:
     // maxFrames: the largest block render() will get; contexts other than 0 can only play
     // when it is given.
     void prepare(double sampleRate, int maxFrames = 0);
+    // As after prepare, without allocating: voices, LFOs, filters, buffers and controllers cleared.
+    void reset();
     void release();
 
     // Renders numSamples mono samples into out (overwriting it), dispatching events on the
@@ -279,6 +281,7 @@ private:
     bool glideTick = false;
 
     NoteEndSink *noteEndSink = nullptr;
+    void restart();
     void keyupVoice(int note);
     void resetControllers();
     // Extended sounds: values a new note takes from its sound; starting a voice (after `wait`
