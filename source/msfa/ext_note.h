@@ -173,6 +173,7 @@ public:
     bool waiting() const { return delay_ > 0; } // in its key-on delay
     void keyup();
     bool isPlaying() const;
+    double carrierGain() const; // as Dx7Note::carrierGain
     void oscSync();            // the operators with Key On Reset start from phase 0
     void transferState(const ExtNote &src);
     void transferSignal(const ExtNote &src);

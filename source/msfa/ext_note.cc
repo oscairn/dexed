@@ -927,6 +927,17 @@ bool ExtNote::isPlaying() const {
     return false;
 }
 
+double ExtNote::carrierGain() const {
+    if (!initialised_)
+        return 0;
+    const CompiledAlgorithm &a = extCompiled(algorithm_);
+    int32_t most = 0;
+    for (int i = 0; i < ext::Ops; i++)
+        if ((a.outputs >> i) & 1)
+            most = std::max(most, params_[i].level_in);
+    return Exp2::lookup(std::min(most, 20 << 24) - (15 << 24)) / (double)(1 << 24);
+}
+
 void ExtNote::oscSync() {
     for (int i = 0; i < ext::Ops; i++)
         if ((reset_ >> i) & 1) {

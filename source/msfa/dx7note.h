@@ -62,6 +62,8 @@ public:
     void keyup();
     
     bool isPlaying();
+    // The loudest carrier's gain now, linear, 1 at an operator's full level (oscairn.voice-budget)
+    double carrierGain() const;
     
     // PG:add the update
     void update(const uint8_t patch[156], int midinote, int velocity, int channel, const ExtendedVoice *ext = nullptr);

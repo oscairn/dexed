@@ -21,8 +21,10 @@
 #include "Presets.h"
 
 #include <oscairn-clap/sound-contexts.h>
+#include <oscairn-clap/voice-budget-plugin.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -72,6 +74,7 @@ struct Slot {
     std::atomic<uint32_t> queued { 0 }; // accepted selections not yet applied
     std::atomic<uint32_t> generation { 0 }; // bumped by every preparation
     uint32_t loadedGeneration = 0;     // audio thread: which preparation the engine holds
+    uint32_t loadedId = 0;             // audio thread: that preparation's ID
     uint8_t patch[156];                // the engine's voice data once loaded
     ExtendedVoice ext;                 // the engine's Extended values once loaded
     uint8_t voiceName[10];             // main thread
@@ -80,7 +83,7 @@ struct Slot {
 
 struct Selection { int slot; int16_t channel; }; // slot -1: choke_retiring's request
 
-struct Plugin : SynthEngine::NoteEndSink {
+struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
     clap_plugin_t plugin {};
     const clap_host_t *host = nullptr;
 
@@ -112,6 +115,8 @@ struct Plugin : SynthEngine::NoteEndSink {
     // The host's ring-out buffer for the next process() (oscairn.sound-snapshots draft 3), or null.
     float *const *ringOut = nullptr;
     uint32_t now = 0;
+    // oscairn.voice-budget (audio thread): the host's limits, as set_limits last gave them
+    oscairn::voices::Limits voiceLimits;
 
     std::atomic<double> &value(int c, size_t i) { return values[(size_t)c * params().size() + i]; }
 
@@ -132,6 +137,7 @@ struct Plugin : SynthEngine::NoteEndSink {
             f.store(false, std::memory_order_relaxed);
         engine.setTuning(createStandardTuning());
         engine.setNoteEndSink(this);
+        engine.setVoiceGiver(this);
         engine.setPerChannelControllers(true); // RFC 0005: controllers act per MIDI channel
         for (int c = 0; c < contextCount; c++)
             applyAll(c);
@@ -148,6 +154,99 @@ struct Plugin : SynthEngine::NoteEndSink {
         e.key = note.key;
         e.velocity = 0;
         out->try_push(out, &e.header);
+    }
+
+    // ---- oscairn.voice-budget (audio thread): voices given up in voice-budget.h's order ----
+
+    bool sounding(int note) const {
+        const ProcessorVoice &v = engine.voice(note);
+        return v.live && v.dx7_note->isPlaying();
+    }
+    // the voices sounding and not fading out, of context c (-1: of every context)
+    uint32_t keeping(int c = -1) const {
+        uint32_t n = 0;
+        for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+            n += sounding(i) && engine.voice(i).fadeTotal == 0 && (c < 0 || engine.voice(i).context == c);
+        return n;
+    }
+    // the voice's gain now: its loudest carrier (envelope, level, velocity) on its way to the mix,
+    // through its fade-out
+    double loudness(int note) const {
+        const ProcessorVoice &v = engine.voice(note);
+        double g = v.dx7_note->carrierGain() * (v.dx7_note->extended() ? kExtendedVoiceGain : 1.0);
+        if (v.fadeTotal > 0) {
+            const double f = (double)v.fadeLeft / v.fadeTotal;
+            g *= v.fadeSquared ? f * f : f;
+        }
+        return g;
+    }
+    bool mono(int c) {
+        const SynthContext &x = engine.context(c);
+        return x.extended() ? x.ext->common(ext::MonoPoly) == 0 : x.monoMode;
+    }
+    oscairn_voice_budget_context_t settings(int c) {
+        return voiceLimits.of(slots[c].loadedId, engine.context(c).selectedChannels != 0);
+    }
+    // The voice to give up for a new voice of context `incoming` (-1: none), from context `only`
+    // alone unless -1; -1 when none may go.
+    int victim(int incoming, int only = -1) {
+        std::array<oscairn::voices::Candidate, SynthEngine::MAX_ACTIVE_NOTES> candidates {};
+        for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++) {
+            if (!sounding(i))
+                continue;
+            const ProcessorVoice &v = engine.voice(i);
+            candidates[i] = { slots[v.context].loadedId, engine.context(v.context).selectedChannels != 0, v.keydown,
+                              v.fadeTotal != 0, mono(v.context), loudness(i), (uint64_t)v.keydown_seq };
+        }
+        auto id = [&](int c) { return c < 0 ? oscairn::voices::none : slots[c].loadedId; };
+        return oscairn::voices::victim(
+            candidates.size(), [&](size_t i) { return sounding((int)i) ? &candidates[i] : nullptr; }, voiceLimits, id(incoming),
+            id(only));
+    }
+    void giveUp(int note) {
+        if (note >= 0)
+            engine.giveUpVoice(note);
+    }
+    void makeRoom(int c) override {
+        if (mono(c))
+            for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+                if (engine.voice(i).live && engine.voice(i).context == c && engine.voice(i).fadeTotal == 0)
+                    return; // the new note takes the sounding one's place
+        const auto own = settings(c);
+        if (own.limit != 0 && keeping(c) >= own.limit)
+            giveUp(victim(c, c));
+        if (voiceLimits.limit != 0 && keeping() >= voiceLimits.limit)
+            giveUp(victim(c));
+    }
+    int steal(int c) override {
+        if (voiceLimits.limit == 0 && voiceLimits.count == 0)
+            return -1; // no budget from the host: Dexed's stealing, as the Classic baseline has it
+        // a voice already fading out first, the furthest gone
+        int best = -1;
+        for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++) {
+            const ProcessorVoice &v = engine.voice(i);
+            if (v.live && v.fadeTotal > 0 && (best < 0 || v.fadeLeft < engine.voice(best).fadeLeft))
+                best = i;
+        }
+        return best >= 0 ? best : victim(c);
+    }
+    // At a block's start: voices past a limit the host lowered fade out.
+    void keepWithinLimits() {
+        for (int c = 0; c < contextCount; c++) {
+            const auto own = settings(c);
+            while (own.limit != 0 && keeping(c) > own.limit) {
+                const int i = victim(-1, c);
+                if (i < 0)
+                    break;
+                giveUp(i);
+            }
+        }
+        while (voiceLimits.limit != 0 && keeping() > voiceLimits.limit) {
+            const int i = victim(-1);
+            if (i < 0)
+                break;
+            giveUp(i);
+        }
     }
 
     // Sets parameter index i of context c on the engine (on whichever thread owns it).
@@ -245,6 +344,7 @@ struct Plugin : SynthEngine::NoteEndSink {
         if (slot.loadedGeneration == generation)
             return;
         slot.loadedGeneration = generation;
+        slot.loadedId = slot.id;
         engine.panicContext(c);
         Controllers &ctrl = engine.context(c).ctrl;
         const Controllers &now = engine.context(0).ctrl;
@@ -426,6 +526,7 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     s.out = process->out_events;
     s.now = 0;
     s.beforeEvents(); // before this call's events (RFC 0005)
+    s.keepWithinLimits();
     if (process->transport != nullptr && (process->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0)
         s.engine.setTempo(process->transport->tempo);
     const uint32_t frames = process->frames_count;
@@ -1087,6 +1188,39 @@ bool snapshotsChokeRetiring(const clap_plugin_t *plugin) { return enqueue(self(p
 
 const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare, snapshotsRingOut, snapshotsChokeRetiring };
 
+// ---- oscairn.voice-budget ----
+
+// Octet has no note expressions yet, so no voice follows CLAP_NOTE_EXPRESSION_VOLUME.
+bool voiceBudgetHonorsVolume(const clap_plugin_t *) { return false; }
+
+void voiceBudgetSetLimits(const clap_plugin_t *plugin, uint32_t limit, const oscairn_voice_budget_context_t *contexts, uint32_t count) {
+    self(plugin).voiceLimits.set(limit, contexts, count);
+}
+
+uint32_t voiceBudgetActiveVoices(const clap_plugin_t *plugin, double *voiceCost) {
+    Plugin &s = self(plugin);
+    if (voiceCost != nullptr)
+        *voiceCost = 0; // no estimate: the host measures the instance
+    uint32_t n = 0;
+    for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+        n += s.sounding(i);
+    return n;
+}
+
+uint32_t voiceBudgetNotes(const clap_plugin_t *plugin, oscairn_voice_budget_note_t *notes, uint32_t capacity) {
+    Plugin &s = self(plugin);
+    oscairn::voices::Report<SynthEngine::MAX_ACTIVE_NOTES> report;
+    for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+        if (s.sounding(i)) {
+            const NoteRef &r = s.engine.voice(i).ref;
+            report.add(r.id, r.port, r.channel, r.key, s.loudness(i));
+        }
+    return report.write(notes, capacity);
+}
+
+const oscairn_plugin_voice_budget_t voiceBudgetExt = { voiceBudgetHonorsVolume, voiceBudgetSetLimits, voiceBudgetActiveVoices,
+                                                       voiceBudgetNotes };
+
 // ---- ports ----
 
 uint32_t audioPortsCount(const clap_plugin_t *, bool isInput) { return isInput ? 0 : 1; }
@@ -1160,6 +1294,7 @@ const clap_plugin_t *create(const clap_host_t *host) {
         if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePortsExt;
         if (std::strcmp(id, OSCAIRN_EXT_SOUND_CONTEXTS) == 0) return &contextsExt;
         if (std::strcmp(id, OSCAIRN_EXT_SOUND_SNAPSHOTS) == 0) return &snapshotsExt;
+        if (std::strcmp(id, OSCAIRN_EXT_VOICE_BUDGET) == 0) return &voiceBudgetExt;
         if (std::strcmp(id, CLAP_EXT_PRESET_LOAD) == 0 || std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT) == 0) return &presetLoadExt;
         return nullptr;
     };

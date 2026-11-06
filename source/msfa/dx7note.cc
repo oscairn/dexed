@@ -511,6 +511,17 @@ void Dx7Note::oscSync() {
     }
 }
 
+double Dx7Note::carrierGain() const {
+    if (extended_)
+        return ext_.carrierGain();
+    int32_t most = 0;
+    for (int i = 0; i < 6; i++)
+        if ((dx7Compiled(algorithm_).outputs >> i) & 1)
+            most = std::max(most, params_[i].level_in);
+    // level 99 at velocity 127 comes to about 15 << 24
+    return Exp2::lookup(std::min(most, 20 << 24) - (15 << 24)) / (double)(1 << 24);
+}
+
 // a note is playing if it's been initialised and any carrier's amp
 // envelope is active
 bool Dx7Note::isPlaying() {

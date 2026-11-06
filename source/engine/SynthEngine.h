@@ -112,11 +112,9 @@ struct SynthContext {
     std::atomic<bool> silent { true }; // no voices, not selected, no tail
 };
 
-// Chooses the voice for a new note. One place, so the policy can be replaced without
-// touching context handling.
-// shortcut: Dexed's policy (+4 not playing, +2 key up, +1 same pitch, oldest key-down on ties)
-// across the whole shared pool, as a placeholder; pending the voice-stealing decision with
-// the main Oscairn agent (docs/oscairn-plan.md, section 10, question 4).
+// Chooses the voice for a new note: Dexed's policy (+4 not playing, +2 key up, +1 same pitch,
+// oldest key-down on ties) across the whole shared pool. When every voice sounds, a
+// SynthEngine::VoiceGiver (Octet's oscairn.voice-budget order) chooses instead.
 struct VoiceStealing {
     static int choose(const ProcessorVoice *voices, int count, int currentNote, int pitch);
 };
@@ -145,6 +143,15 @@ public:
         ProgramChange,          // 0xC0: the caller selects program buf[1]
         UnhandledControlChange, // a CC the engine does not use: the caller may map it
         Panic                   // CC 120: the engine panicked; the caller resets its own note state
+    };
+
+    // Gives up voices for the engine (Octet: oscairn.voice-budget); without one, Dexed's stealing.
+    struct VoiceGiver {
+        virtual ~VoiceGiver() = default;
+        // a new voice of context c is about to take a slot: fade voices out to keep within limits
+        virtual void makeRoom(int c) = 0;
+        // every voice sounds: the one to cut for a new voice of context c, or -1 for Dexed's choice
+        virtual int steal(int c) = 0;
     };
 
     SynthEngine();
@@ -208,6 +215,10 @@ public:
     // Reports, through the sink, every note whose voice is released and no longer sounding.
     void collectEndedNotes();
     void setNoteEndSink(NoteEndSink *sink) { noteEndSink = sink; }
+    void setVoiceGiver(VoiceGiver *giver) { voiceGiver = giver; }
+    const ProcessorVoice &voice(int note) const { return voices[note]; }
+    // fades the voice out as a choke does, its NOTE_END once it has ended
+    void giveUpVoice(int note) { chokeVoice(note); }
 
     // Re-reads the patch into the playing voices and the LFO (of context 0, or c).
     void refreshVoices() { refreshVoices(0); }
@@ -292,6 +303,7 @@ private:
     bool glideTick = false;
 
     NoteEndSink *noteEndSink = nullptr;
+    VoiceGiver *voiceGiver = nullptr;
     void restart();
     void keyupVoice(int note);
     void chokeVoice(int note);

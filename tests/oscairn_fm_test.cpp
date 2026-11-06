@@ -14,6 +14,7 @@
  *   oscairn-fm-test state-active                     state loads and flush while active, with contexts
  *   oscairn-fm-test snapshots                        a snapshot's sounds prepared beside the playing ones
  *   oscairn-fm-test presets                          cartridge voices through CLAP preset discovery
+ *   oscairn-fm-test voice-budget                     voice limits, the order voices go in, notes (oscairn.voice-budget)
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
@@ -40,6 +41,7 @@
 #include "msfa/lfo.h"
 #include "msfa/synth.h"
 #include <oscairn-clap/sound-contexts.h>
+#include <oscairn-clap/voice-budget.h>
 
 #include <algorithm>
 #include <array>
@@ -4006,6 +4008,314 @@ int presetsTest() {
     return 0;
 }
 
+// ---- oscairn.voice-budget ----
+
+// An instrument with the voice-budget extension, rendered in blocks of 64 frames at 48 kHz.
+struct Budgeted {
+    Host host;
+    const oscairn_plugin_voice_budget_t *vb;
+    const oscairn_plugin_sound_contexts_t *ctx;
+    EventList in;
+    std::vector<float> out;     // every frame rendered so far (left channel)
+    std::vector<NoteEnd> ended; // every NOTE_END so far, its time counted from the first frame
+    Budgeted() : host(entry) {
+        vb = static_cast<const oscairn_plugin_voice_budget_t *>(host.plugin->get_extension(host.plugin, OSCAIRN_EXT_VOICE_BUDGET));
+        check(vb != nullptr && vb->honors_volume && vb->set_limits && vb->active_voices && vb->notes, "voice-budget extension, every entry");
+        ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(host.plugin->get_extension(host.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
+        in.events.reserve(256);
+        host.activate(48000, 64);
+    }
+    void run(int blocks = 1) {
+        for (int b = 0; b < blocks; b++) {
+            host.output.clear();
+            host.process(64, in);
+            in.clear();
+            for (auto e : ends(host))
+                ended.push_back({ (uint32_t)out.size() + e.time, e.id, e.channel, e.key });
+            out.insert(out.end(), host.left.begin(), host.left.begin() + 64);
+        }
+    }
+    bool hasEnded(int32_t id) const {
+        for (auto &e : ended)
+            if (e.id == id)
+                return true;
+        return false;
+    }
+    uint32_t voices() {
+        double cost = -1;
+        const uint32_t n = vb->active_voices(host.plugin, &cost);
+        check(cost == 0, "no estimate of a voice's cost");
+        return n;
+    }
+    std::map<int32_t, oscairn_voice_budget_note_t> notes() {
+        oscairn_voice_budget_note_t n[32];
+        const uint32_t count = vb->notes(host.plugin, n, 32);
+        std::map<int32_t, oscairn_voice_budget_note_t> m;
+        for (uint32_t i = 0; i < count; i++)
+            m[n[i].note_id] = n[i];
+        check(m.size() == count, "each note once");
+        return m;
+    }
+    // set_limits, between blocks
+    void limit(uint32_t voices, std::vector<oscairn_voice_budget_context_t> contexts = {}) {
+        vb->set_limits(host.plugin, voices, contexts.data(), (uint32_t)contexts.size());
+    }
+    // a prepared sound, selected on channel 1
+    uint32_t soundOnChannel1() {
+        char message[256] = {};
+        const uint32_t id = ctx->prepare(host.plugin, "B", soundB.data(), (uint32_t)soundB.size(), nullptr, nullptr, message, sizeof message);
+        check(id != CLAP_INVALID_ID && ctx->select(host.plugin, id, 1), "sound B on channel 1");
+        run();
+        return id;
+    }
+};
+
+oscairn_voice_budget_context_t budgetFor(uint32_t context, uint32_t limit, uint32_t reserve, uint8_t priority, uint8_t flags = 0) {
+    oscairn_voice_budget_context_t c {};
+    c.context = context;
+    c.limit = limit;
+    c.reserve = reserve;
+    c.priority = priority;
+    c.flags = flags;
+    return c;
+}
+
+int voiceBudgetTest() {
+    {
+        Budgeted probe;
+        check(!probe.vb->honors_volume(probe.host.plugin), "no voice follows volume expressions (Octet has none yet)");
+    }
+
+    // A lowered limit: the voices past it fade out from the next block's start, are counted and
+    // reported while they fade, and their notes end once the fade is over.
+    {
+        Budgeted a, b; // b plays only the notes a keeps
+        const int keys[6] = { 50, 53, 56, 59, 62, 65 };
+        for (int k = 0; k < 6; k++) {
+            a.in.note(CLAP_EVENT_NOTE_ON, 0, 1 + k, 0, keys[k]);
+            if (k >= 2)
+                b.in.note(CLAP_EVENT_NOTE_ON, 0, 1 + k, 0, keys[k]);
+        }
+        a.run(16);
+        b.run(16);
+        check(a.voices() == 6 && b.voices() == 4, "active_voices counts the sounding voices");
+        const auto before = a.notes();
+        check(before.size() == 6, "notes lists each sounding note");
+        for (auto &[id, n] : before)
+            check(n.voices == 1 && n.port_index == 0 && n.channel == 0 && n.key == keys[id - 1] && n.loudness > 0.9f && n.loudness <= 1.05f,
+                  "a held note at full level: one voice, its address, loudness about 1");
+        const size_t t0 = a.out.size();
+        float level = 0, natural = 0; // the two notes a gives up: their level and largest step
+        for (size_t i = t0 - 256; i < t0; i++) {
+            level = std::max(level, std::fabs(a.out[i] - b.out[i]));
+            natural = std::max(natural, std::fabs((a.out[i] - b.out[i]) - (a.out[i - 1] - b.out[i - 1])));
+        }
+        a.limit(4);
+        a.run();
+        b.run();
+        check(a.voices() == 6, "voices fading out still count");
+        const auto fading = a.notes();
+        check(fading.size() == 6, "notes still lists the notes fading out");
+        for (int id = 1; id <= 6; id++) {
+            const float was = before.at(id).loudness, now = fading.at(id).loudness;
+            if (id <= 2)
+                check(now < 0.7f * was && now > 0, "the oldest two fade out (a lower loudness)");
+            else
+                check(now > 0.99f * was && now < 1.01f * was, "the newer four play on");
+        }
+        a.run();
+        b.run();
+        check(a.ended.empty(), "no NOTE_END while the voices fade (3 ms, 145 frames)");
+        a.run();
+        b.run();
+        check(a.ended.size() == 2 && a.hasEnded(1) && a.hasEnded(2), "NOTE_END for the two given up, once their fade is over");
+        for (auto &e : a.ended)
+            check(e.time >= t0 + 145, "NOTE_END after the voice's last sample");
+        const auto left = a.notes();
+        check(a.voices() == 4 && left.size() == 4 && !left.count(1) && !left.count(2), "four voices left");
+        a.run(150);
+        b.run(150);
+        float jump = 0, smooth = 0, tail = 0;
+        auto diff = [&](size_t i) { return a.out[i] - b.out[i]; };
+        for (size_t i = t0; i < t0 + 145; i++)
+            jump = std::max(jump, std::fabs(diff(i) - diff(i - 1)));
+        for (size_t i = t0 + 150; i < a.out.size(); i++)
+            smooth = std::max(smooth, std::fabs(diff(i) - diff(i - 1)));
+        for (size_t i = a.out.size() - 64; i < a.out.size(); i++)
+            tail = std::max(tail, std::fabs(diff(i)));
+        std::printf("limit 6 -> 4: given-up notes' level %g, largest step before %g, during the fade %g, after it %g; left 0.2 s on %g\n",
+                    level, natural, jump, smooth, tail);
+        // after the fade only the output DC filter's small, smoothly decaying offset is left (as
+        // for a choke): no step a tone of the given-up notes would make, and soon under 1 %
+        check(level > 0 && smooth < level / 1000 && tail < 0.01f * level, "the voices past the limit are gone within a block and the fade");
+        check(jump < level, "no step as large as the notes given up (no click)");
+        check(jump < natural + level / 64, "no step larger than the notes' own and the fade's (no click)");
+    }
+
+    // The order: a released voice before a held one, even a louder and newer one.
+    {
+        Budgeted t;
+        t.in.param(0, 1016, 7); // operator 1 follows velocity
+        t.in.param(0, 1004, 10); // and releases slowly
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 20, 0, 60, 0.2);
+        t.run(4);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 21, 0, 64, 1.0);
+        t.run(4);
+        t.in.note(CLAP_EVENT_NOTE_OFF, 0, 21, 0, 64);
+        t.run(4);
+        const auto n = t.notes();
+        check(n.size() == 2 && n.at(21).loudness > 2 * n.at(20).loudness, "the released note is louder than the held one, and newer");
+        t.limit(2);
+        const uint32_t at = (uint32_t)t.out.size();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 22, 0, 67);
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(21) && t.voices() == 2, "a new note past the limit takes the released voice, not the held one");
+        check(t.ended[0].time < at + 145 + 64, "at once: its fade starts with the new note");
+    }
+
+    // Decision 84: an Extended note whose carrier holds an audible release level counts as released
+    // and quiet, and goes before a held note.
+    {
+        Budgeted t;
+        t.in.param(0, 5, 1);
+        t.in.param(0, 40, 1);
+        for (int n = 1; n <= 8; n++)
+            t.in.param(0, 1000 * n + 51, n == 1 ? 99 : 0);
+        t.in.param(0, 1044, 20); // operator 1: release (hold) level 20, release time 0
+        t.in.param(0, 1048, 0);
+        t.run();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 30, 0, 60);
+        t.run(8);
+        t.in.note(CLAP_EVENT_NOTE_OFF, 0, 30, 0, 60);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 31, 0, 64);
+        t.run(375); // 0.5 s
+        const auto n = t.notes();
+        check(!t.hasEnded(30) && n.size() == 2, "the released note holds its voice at the audible release level");
+        std::printf("held release level 20: loudness %g against %g held\n", n.at(30).loudness, n.at(31).loudness);
+        check(n.at(30).loudness > 0 && n.at(30).loudness < 0.1f * n.at(31).loudness, "and is reported quiet");
+        t.limit(2);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 32, 0, 67);
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(30), "a new note past the limit takes it before the held one");
+    }
+
+    // Among held voices: the quietest, then the oldest.
+    {
+        Budgeted t;
+        t.in.param(0, 1016, 7);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 40, 0, 60, 1.0);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 41, 0, 62, 0.3);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 42, 0, 64, 1.0);
+        t.run(4);
+        t.limit(3);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 43, 0, 66, 1.0);
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(41), "the quietest held voice goes first, though not the oldest");
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 44, 0, 67, 1.0);
+        t.run(8);
+        check(t.ended.size() == 2 && t.hasEnded(40), "then, as loud as the rest, the oldest");
+    }
+
+    // Sounds (contexts): the new voice's own sound first, then the lower priority.
+    {
+        Budgeted t;
+        const uint32_t b = t.soundOnChannel1();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 50, 1, 60); // sound B, the oldest
+        t.run();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 51, 0, 62);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 52, 0, 64);
+        t.run(4);
+        t.limit(3);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 53, 0, 65);
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(51), "a new note gives up a voice of its own sound before another sound's older one");
+        t.limit(2, { budgetFor(0, 0, 0, 5), budgetFor(b, 0, 0, 2) });
+        t.run(8);
+        check(t.ended.size() == 2 && t.hasEnded(50), "a lowered limit takes the sound of lower priority first");
+    }
+
+    // A sound's reserve: never taken for another sound's voice, but for its own.
+    {
+        Budgeted t;
+        const uint32_t b = t.soundOnChannel1();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 60, 1, 60); // sound B, oldest and of lower priority
+        t.run();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 61, 0, 62);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 62, 0, 64);
+        t.run(4);
+        t.limit(2, { budgetFor(0, 0, 0, 5), budgetFor(b, 0, 1, 0) });
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(61), "a voice within its sound's reserve is kept");
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 63, 1, 65);
+        t.run(8);
+        check(t.ended.size() == 2 && t.hasEnded(60), "a new voice of that sound may take it");
+    }
+
+    // The entry for the selected sounds limits each of them; a mono sound's held voice is kept.
+    {
+        Budgeted t;
+        t.soundOnChannel1();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 70, 0, 60);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 71, 0, 62);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 72, 1, 64);
+        t.run(4);
+        t.limit(0, { budgetFor(OSCAIRN_VOICE_BUDGET_SELECTED, 1, 0, 0) });
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(70), "each selected sound keeps one voice");
+    }
+    {
+        // a sound no channel selects any more (ringing out after a change) has no entry: priority 0
+        Budgeted t;
+        const uint32_t b = t.soundOnChannel1();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 75, 1, 60);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 76, 1, 62);
+        t.run(4);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 77, 0, 64); // the default sound, the newest
+        t.run(4);
+        check(t.ctx->select(t.host.plugin, b, -1), "sound B on every channel");
+        t.run();
+        t.limit(2, { budgetFor(OSCAIRN_VOICE_BUDGET_SELECTED, 0, 0, 5) });
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(77), "the sound no channel selects gives way to the selected one's priority");
+    }
+    {
+        Budgeted t;
+        t.in.param(0, 101, 1); // the default sound plays mono
+        t.run();
+        const uint32_t b = t.soundOnChannel1();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 80, 0, 60); // its held key, the oldest
+        t.run();
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 81, 1, 62);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 82, 1, 64);
+        t.run(4);
+        t.limit(2, { budgetFor(0, 0, 0, 0), budgetFor(b, 0, 0, 5) });
+        t.run(8);
+        check(t.ended.size() == 1 && t.hasEnded(81), "a mono sound's held voice is never given up");
+    }
+
+    // A full pool with a budget: the order above; without one, Dexed's stealing (the oldest here),
+    // which the Classic baseline also covers.
+    for (const bool budget : { true, false }) {
+        Budgeted t;
+        t.in.param(0, 1016, 7);
+        if (budget)
+            t.limit(0, { budgetFor(OSCAIRN_VOICE_BUDGET_SELECTED, 0, 0, 0) });
+        for (int k = 0; k < 16; k++)
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 100 + k, 0, 40 + k, k == 5 ? 0.3 : 1.0);
+        t.run(4);
+        check(t.voices() == 16 && t.ended.empty(), "16 voices sound");
+        t.in.note(CLAP_EVENT_NOTE_ON, 10, 200, 0, 90);
+        t.run();
+        if (budget)
+            check(t.ended.size() == 1 && t.hasEnded(105), "with a budget a full pool gives up the quietest held voice, not the oldest");
+        else
+            check(t.ended.size() == 1 && t.hasEnded(100), "without one, Dexed's stealing: the oldest");
+    }
+
+    std::printf("voice budget: limits, the order, notes and NOTE_END as the extension says\n");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -4063,6 +4373,8 @@ int main(int argc, char **argv) {
         return snapshotsTest();
     if (cmd == "presets")
         return presetsTest();
+    if (cmd == "voice-budget")
+        return voiceBudgetTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }

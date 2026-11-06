@@ -674,7 +674,14 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     if ( x.extended() )
         x.partLfo.keydown(triggerLfo);
 
+    if ( voiceGiver != nullptr )
+        voiceGiver->makeRoom(c);
     int note = VoiceStealing::choose(voices, MAX_ACTIVE_NOTES, currentNote, pitch);
+    if ( voiceGiver != nullptr && voices[note].dx7_note->isPlaying() ) { // no free voice
+        const int given = voiceGiver->steal(c);
+        if ( given >= 0 )
+            note = given;
+    }
 
     if ( voices[note].noteActive )
         endNote(note); // stolen
