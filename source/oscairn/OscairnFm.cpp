@@ -77,6 +77,7 @@ struct Slot {
     std::atomic<uint32_t> queued { 0 }; // accepted selections not yet applied
     std::atomic<uint32_t> generation { 0 }; // bumped by every preparation
     uint32_t loadedGeneration = 0;     // audio thread: which preparation the engine holds
+    std::atomic<uint32_t> loadedShown { 0 }; // loadedGeneration, for the main thread (sound_values)
     uint32_t loadedId = 0;             // audio thread: that preparation's ID
     uint8_t patch[156];                // the engine's voice data once loaded
     ExtendedVoice ext;                 // the engine's Extended values once loaded
@@ -365,6 +366,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         for (size_t i = 0; i < params().size(); i++)
             apply(c, i, slot.prepared[i]);
         engine.resetLfo(c);
+        slot.loadedShown.store(generation, std::memory_order_release); // its values are in value(c, i) now
     }
 
     // Applies the queued selections (audio thread, at the start of a process call).
@@ -1033,6 +1035,21 @@ bool contextsDiscard(const clap_plugin_t *plugin, uint32_t id) {
     return true;
 }
 
+// A snapshot's context line and patch text: slot c's sound, written as context `as`.
+void snapshotContext(std::ostringstream &out, Plugin &s, int c, int as, const std::function<double(size_t)> &valueOf) {
+    const std::string text = patchText(s.slots[c].voiceName, valueOf);
+    std::string hexName;
+    char hex[3];
+    for (const char *n = s.slots[c].name; *n; n++) {
+        std::snprintf(hex, sizeof hex, "%02x", (unsigned char)*n);
+        hexName += hex;
+    }
+    size_t lines = 0;
+    for (char ch : text)
+        lines += ch == '\n';
+    out << "context " << as << " " << (hexName.empty() ? "-" : hexName) << " " << lines << "\n" << text;
+}
+
 // The exclusive snapshot: every sound, and the sound each channel plays.
 bool snapshotSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
     Plugin &s = self(plugin);
@@ -1040,26 +1057,54 @@ bool snapshotSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out << snapshotHeader << "\n";
-    for (int c = 0; c < contextCount; c++) {
-        if (!s.slots[c].ready.load(std::memory_order_acquire))
-            continue;
-        const std::string text = patchText(s.slots[c].voiceName, [&](size_t i) { return s.value(c, i).load(std::memory_order_relaxed); });
-        std::string hexName;
-        char hex[3];
-        for (const char *n = s.slots[c].name; *n; n++) {
-            std::snprintf(hex, sizeof hex, "%02x", (unsigned char)*n);
-            hexName += hex;
-        }
-        size_t lines = 0;
-        for (char ch : text)
-            lines += ch == '\n';
-        out << "context " << c << " " << (hexName.empty() ? "-" : hexName) << " " << lines << "\n" << text;
-    }
+    for (int c = 0; c < contextCount; c++)
+        if (s.slots[c].ready.load(std::memory_order_acquire))
+            snapshotContext(out, s, c, c, [&](size_t i) { return s.value(c, i).load(std::memory_order_relaxed); });
     out << "channels";
     for (int ch = 0; ch < 16; ch++)
         out << " " << s.engine.selectedContext(ch);
     out << "\n";
     return writeAll(stream, out.str());
+}
+
+// A sound's values (main thread): as prepared until it is loaded, then as the engine has them;
+// the audio thread changes neither while no channel selects the sound.
+double soundValue(Plugin &s, int c, size_t i) {
+    const Slot &slot = s.slots[c];
+    return slot.loadedShown.load(std::memory_order_acquire) == slot.generation.load(std::memory_order_acquire)
+               ? s.value(c, i).load(std::memory_order_relaxed)
+               : slot.prepared[i];
+}
+
+// save_sound (draft 4): the sound alone, as a snapshot whose Default it is, on every channel and Main
+// (rendering excluded).
+bool snapshotsSaveSound(const clap_plugin_t *plugin, uint32_t id, const clap_ostream_t *stream) {
+    Plugin &s = self(plugin);
+    s.takeSelections();
+    const int c = slotOf(s, id);
+    if (c < 0 || stream == nullptr)
+        return false;
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << snapshotHeader << "\n";
+    snapshotContext(out, s, c, 0, [&](size_t i) { return params()[i].id == outputBusParam ? 0.0 : soundValue(s, c, i); });
+    out << "channels";
+    for (int ch = 0; ch < 16; ch++)
+        out << " 0";
+    out << "\n";
+    return writeAll(stream, out.str());
+}
+
+// sound_values (draft 4): every parameter's value of a sound no channel selects (main thread).
+uint32_t snapshotsSoundValues(const clap_plugin_t *plugin, uint32_t id, oscairn_sound_parameter_t *values, uint32_t capacity) {
+    Plugin &s = self(plugin);
+    const int c = slotOf(s, id);
+    if (c < 0 || s.engine.context(c).selectedMask.load(std::memory_order_relaxed) != 0 ||
+        s.slots[c].queued.load(std::memory_order_acquire) != 0)
+        return 0;
+    for (uint32_t i = 0; i < params().size() && i < capacity && values != nullptr; i++)
+        values[i] = { params()[i].id, soundValue(s, c, i) };
+    return (uint32_t)params().size();
 }
 
 // A snapshot's sounds, read and validated: touches nothing of the plugin, so it is safe on the
@@ -1201,7 +1246,8 @@ void snapshotsRingOut(const clap_plugin_t *plugin, const clap_audio_buffer_t *bu
 // retiring then fades out, into the ring-out buffer's last two channels until it is silent.
 bool snapshotsChokeRetiring(const clap_plugin_t *plugin) { return enqueue(self(plugin), -1, -1); }
 
-const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare, snapshotsRingOut, snapshotsChokeRetiring };
+const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare, snapshotsRingOut, snapshotsChokeRetiring, snapshotsSaveSound,
+                                                        snapshotsSoundValues };
 
 // ---- oscairn.voice-budget ----
 

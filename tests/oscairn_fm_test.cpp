@@ -4576,6 +4576,60 @@ int busesTest() {
         }
     }
 
+    // Draft 4, for sharing: a sound's values while no channel selects it, and the sound saved alone.
+    {
+        Instrument t(true, 9);
+        auto *x = static_cast<const oscairn_plugin_sound_snapshots_t *>(t.host.plugin->get_extension(t.host.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+        check(x != nullptr && x->save_sound != nullptr && x->sound_values != nullptr, "save_sound and sound_values offered");
+        std::vector<oscairn_sound_parameter_t> onBus3 = soundB;
+        onBus3.push_back({ busParam, 3 });
+        const uint32_t y = t.prepare("B", onBus3);
+        std::vector<oscairn_sound_parameter_t> got(oscairn_fm::params().size() + 4);
+        auto valuesOf = [&](uint32_t id) {
+            std::map<clap_id, double> m;
+            const uint32_t n = x->sound_values(t.host.plugin, id, got.data(), (uint32_t)got.size());
+            for (uint32_t k = 0; k < n && k < got.size(); k++)
+                m[got[k].id] = got[k].value;
+            return m;
+        };
+        auto v = valuesOf(y);
+        check(v.size() == oscairn_fm::params().size() && v[busParam] == 3 && v[1017] == 90 && v[1019] == 2 && v[1] == 1, "an unselected sound's values, as prepared");
+        check(x->sound_values(t.host.plugin, 12345, got.data(), (uint32_t)got.size()) == 0, "none for an unknown sound");
+        check(t.select(y, 1), "select it");
+        t.run();
+        check(x->sound_values(t.host.plugin, y, got.data(), (uint32_t)got.size()) == 0, "none while a channel selects it");
+        paramOn(t.in, 0, 1, 1017, 70);
+        t.run();
+        check(t.select(0, 1), "and away again");
+        t.run();
+        v = valuesOf(y);
+        check(v[1017] == 70 && v[busParam] == 3, "its values with the edit made while it was selected");
+        check(valuesOf(0).empty(), "none for the Default, which the other channels select");
+        std::string alone;
+        clap_ostream_t os { &alone, [](const clap_ostream_t *st, const void *buf, uint64_t size) -> int64_t {
+                               static_cast<std::string *>(st->ctx)->append(static_cast<const char *>(buf), size);
+                               return (int64_t)size;
+                           } };
+        check(!x->save_sound(t.host.plugin, 12345, &os) && alone.empty(), "save_sound refuses an unknown sound");
+        check(x->save_sound(t.host.plugin, y, &os), "save_sound");
+        Instrument u(true, 9), ref(true, 9);
+        check(loadSnapshot(u, alone) && preparedCount(u) == 1 && u.info(0).selected_channels == 0xffff, "the sound alone, its Default on every channel");
+        std::vector<oscairn_sound_parameter_t> edited = soundB;
+        for (auto &p : edited)
+            if (p.id == 1017)
+                p.value = 70;
+        check(ref.select(ref.prepare("B", edited)), "the same sound prepared on its own");
+        u.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        ref.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        for (int k = 0; k < 10; k++) {
+            u.run();
+            ref.run();
+            check(sameFor(u.host.left, ref.host.left, 512) && sameFor(u.host.right, ref.host.right, 512) && !silentFor(ref.host.left, 512) &&
+                      silentFor(u.host.buses[4], 512),
+                  "it plays on the main output as the same sound in an instance of its own");
+        }
+    }
+
     // Saved and restored: a sound's bus in its state, in the snapshot and in patch text.
     {
         Instrument t(true, 9);
