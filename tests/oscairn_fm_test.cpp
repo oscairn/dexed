@@ -477,12 +477,14 @@ int stateTest() {
         Host h(entry);
         const std::string before = h.saveState();
         std::string wrongVersion = saved;
-        wrongVersion.replace(0, std::strlen("oscairn-fm-state 1"), "oscairn-fm-state 9");
+        wrongVersion.replace(0, std::strlen("oscairn-fm-state 2"), "oscairn-fm-state 9");
+        std::string older = saved; // format 1 (before the Output Bus): no reader, pre-release
+        older.replace(0, std::strlen("oscairn-fm-state 2"), "oscairn-fm-state 1");
         std::string outOfRange = saved;
         outOfRange += "p 1 33\n";
         std::string unknownId = saved + "p 999 1\n";
-        std::string notStepped = "oscairn-fm-state 1\np 2 1.5\n";
-        for (const std::string *bad : { &wrongVersion, &outOfRange, &unknownId, &notStepped })
+        std::string notStepped = "oscairn-fm-state 2\np 2 1.5\n";
+        for (const std::string *bad : { &wrongVersion, &older, &outOfRange, &unknownId, &notStepped })
             check(!h.loadState(*bad), "bad state refused");
         check(!h.loadState(""), "empty state refused");
         check(h.saveState() == before, "refused states change nothing");
@@ -3598,7 +3600,7 @@ int snapshotsTest() {
         Instrument full;
         uint32_t selected[16];
         char message[128] = "";
-        check(!prepareSnapshot(full.host.plugin, "octet-contexts 1\nnonsense\n", selected, message, sizeof message) && *message, "a bad snapshot is refused");
+        check(!prepareSnapshot(full.host.plugin, "octet-contexts 2\nnonsense\n", selected, message, sizeof message) && *message, "a bad snapshot is refused");
         std::string missingDefault = S;
         missingDefault.replace(missingDefault.find("context 0 "), 10, "context 7 ");
         check(!prepareSnapshot(full.host.plugin, missingDefault, selected), "a snapshot without its Default is refused");
@@ -4578,6 +4580,12 @@ int busesTest() {
         t.run();
         const std::string snapshot = saveSnapshot(t);
         check(snapshot.find("\np 134 2\n") != std::string::npos, "the snapshot holds the bus");
+        std::string older = snapshot; // format 1, before the Output Bus: no reader (pre-release)
+        older.replace(0, std::strlen("octet-contexts 2"), "octet-contexts 1");
+        {
+            Instrument w(true, 9);
+            check(!loadSnapshot(w, older), "an octet-contexts 1 snapshot is refused");
+        }
         Instrument u(true, 9);
         check(loadSnapshot(u, snapshot), "load the snapshot");
         for (Instrument *i : { &t, &u })

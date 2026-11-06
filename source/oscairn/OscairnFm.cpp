@@ -58,8 +58,8 @@ const clap_plugin_descriptor_t descriptor = {
     features,
 };
 
-constexpr const char *stateHeader = "oscairn-fm-state 1";
-constexpr const char *snapshotHeader = "octet-contexts 1";
+constexpr const char *stateHeader = "oscairn-fm-state 2"; // 2: the Output Bus (134); no reader for 1 (pre-release)
+constexpr const char *snapshotHeader = "octet-contexts 2"; // 2: its sounds in state format 2
 constexpr size_t maxStateBytes = 1 << 16;
 constexpr int contextCount = SynthEngine::MAX_CONTEXTS;
 constexpr int queueSize = 32;
@@ -931,7 +931,7 @@ uint32_t contextsPrepare(const clap_plugin_t *plugin, const char *name, const os
         values[i] = params()[i].def;
     std::memcpy(voiceName, initVoice + 145, 10);
     if (patch != nullptr && !parseState(patch, values, voiceName)) {
-        diagnostic(message, capacity, "patch text is not an oscairn-fm-state 1 patch, or has a bad line");
+        diagnostic(message, capacity, "patch text is not an oscairn-fm-state 2 patch, or has a bad line");
         return CLAP_INVALID_ID;
     }
     std::vector<bool> seen(values.size(), false);
@@ -1166,7 +1166,7 @@ bool snapshotsPrepare(const clap_plugin_t *plugin, const clap_istream_t *stream,
     Loaded loaded[contextCount];
     int channels[16];
     if (!readSnapshot(stream, loaded, channels)) {
-        diagnostic(message, capacity, "not an octet-contexts 1 snapshot, or a bad line");
+        diagnostic(message, capacity, "not an octet-contexts 2 snapshot, or a bad line");
         return false;
     }
     int slot[contextCount], found = -1;
