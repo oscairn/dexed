@@ -172,6 +172,8 @@ void SynthEngine::restart() {
         contexts[c].fxRight.init(sampleRate);
         contexts[c].rendering = false;
         contexts[c].tail = false;
+        contexts[c].chokeLeft = contexts[c].chokeTotal = 0;
+        contexts[c].choked = false;
     }
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
@@ -253,6 +255,8 @@ void SynthEngine::resetLfo(int c) {
 }
 
 void SynthEngine::panicContext(int c) {
+    contexts[c].chokeLeft = contexts[c].chokeTotal = 0;
+    contexts[c].choked = false;
     for(int i=0;i<MAX_ACTIVE_NOTES;i++) {
         if ( voices[i].context != c )
             continue;
@@ -338,7 +342,9 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
         for (int offset = 0; offset < numSamples; offset += maxBlock) {
             const int n = numSamples - offset < maxBlock ? numSamples - offset : maxBlock;
             OffsetEvents part(events, offset);
-            float *ringPart[2] = { ring != nullptr ? ring[0] + offset : nullptr, ring != nullptr ? ring[1] + offset : nullptr };
+            float *ringPart[4] = { nullptr, nullptr, nullptr, nullptr };
+            for (int k = 0; ring != nullptr && k < 4; k++)
+                ringPart[k] = ring[k] + offset;
             render(channelData + offset, right != nullptr ? right + offset : nullptr, n, part, ring != nullptr ? ringPart : nullptr);
         }
         return;
@@ -351,7 +357,6 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     bool active[MAX_CONTEXTS] = { true };
     float *outputs[MAX_CONTEXTS] = { channelData };
     float *outputsRight[MAX_CONTEXTS] = { right };
-    int activeCount = 1;
     bool hasVoice[MAX_CONTEXTS] = {};
     for (int n = 0; n < MAX_ACTIVE_NOTES; n++)
         if ( voices[n].live || voices[n].noteActive )
@@ -369,7 +374,6 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
         active[c] = true;
         outputs[c] = x.block.data();
         outputsRight[c] = x.blockRight.data();
-        activeCount++;
     }
 
     // flush first events
@@ -531,54 +535,66 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     }
 
     events.dispatchUntil(numSamples);
+    // Each context through its own output filter, then summed (RFC 0005): context 0 in place,
+    // the others added to it, a retiring one into the ring-out buffer instead.
     for (int c = 0; c < MAX_CONTEXTS; c++) {
-        contexts[c].fx.setExtendedDc(contexts[c].extended());
-        contexts[c].fxRight.setExtendedDc(contexts[c].extended());
-    }
-    contexts[0].fx.process(channelData, numSamples);
-    if ( right != nullptr )
-        processRight(contexts[0], right, numSamples);
-    if ( ring != nullptr && contexts[0].selectedChannels == 0 ) { // retiring: into the ring-out buffer
-        for (int j = 0; j < numSamples; j++) {
-            ring[0][j] += channelData[j];
-            ring[1][j] += right != nullptr ? right[j] : channelData[j];
-            channelData[j] = 0;
-            if ( right != nullptr )
-                right[j] = 0;
+        if ( !active[c] )
+            continue;
+        SynthContext &x = contexts[c];
+        float *out = outputs[c], *outRight = outputsRight[c];
+        x.fx.setExtendedDc(x.extended());
+        x.fxRight.setExtendedDc(x.extended());
+        x.fx.process(out, numSamples);
+        if ( right != nullptr )
+            processRight(x, outRight, numSamples);
+        if ( x.selectedChannels != 0 ) { // selected again: plays on in full
+            x.chokeLeft = x.chokeTotal = 0;
+            x.choked = false;
         }
-    }
-
-    // Each context through its own output filter, then summed (RFC 0005).
-    if ( activeCount > 1 ) {
-        for (int c = 1; c < MAX_CONTEXTS; c++) {
-            if ( !active[c] )
-                continue;
-            float *out = outputs[c];
-            contexts[c].fx.process(out, numSamples);
-            const bool retiring = ring != nullptr && contexts[c].selectedChannels == 0;
-            float *toLeft = retiring ? ring[0] : channelData, *toRight = retiring ? ring[1] : right;
-            bool sound = false;
+        if ( x.chokeTotal > 0 ) { // choked: fading out (its filter's tail with its voices), then silent
             for (int j = 0; j < numSamples; j++) {
-                toLeft[j] += out[j];
-                sound = sound || out[j] != 0;
+                const float g = (float)x.chokeLeft / (float)x.chokeTotal;
+                out[j] *= g;
+                if ( right != nullptr )
+                    outRight[j] *= g;
+                if ( x.chokeLeft > 0 )
+                    x.chokeLeft--;
             }
-            if ( right == nullptr && retiring )
-                for (int j = 0; j < numSamples; j++)
-                    toRight[j] += out[j];
-            if ( right != nullptr ) {
-                float *outRight = outputsRight[c];
-                processRight(contexts[c], outRight, numSamples);
+        }
+        const bool retiring = ring != nullptr && x.selectedChannels == 0;
+        if ( c == 0 ) {
+            if ( retiring ) {
+                float *toLeft = ring[x.choked ? 2 : 0], *toRight = ring[x.choked ? 3 : 1];
                 for (int j = 0; j < numSamples; j++) {
-                    toRight[j] += outRight[j];
-                    sound = sound || outRight[j] != 0;
+                    toLeft[j] += channelData[j];
+                    toRight[j] += right != nullptr ? right[j] : channelData[j];
+                    channelData[j] = 0;
+                    if ( right != nullptr )
+                        right[j] = 0;
                 }
-                for (int j = 0; j < extra_buf_size && !sound; j++)
-                    sound = contexts[c].extra_bufRight[j] != 0;
+            }
+            continue; // (its tail is not tracked: the default sound is never discarded)
+        }
+        float *toLeft = retiring ? ring[x.choked ? 2 : 0] : channelData, *toRight = retiring ? ring[x.choked ? 3 : 1] : right;
+        bool sound = false;
+        for (int j = 0; j < numSamples; j++) {
+            toLeft[j] += out[j];
+            sound = sound || out[j] != 0;
+        }
+        if ( right == nullptr && retiring )
+            for (int j = 0; j < numSamples; j++)
+                toRight[j] += out[j];
+        if ( right != nullptr ) {
+            for (int j = 0; j < numSamples; j++) {
+                toRight[j] += outRight[j];
+                sound = sound || outRight[j] != 0;
             }
             for (int j = 0; j < extra_buf_size && !sound; j++)
-                sound = contexts[c].extra_buf[j] != 0;
-            contexts[c].tail = sound;
+                sound = x.extra_bufRight[j] != 0;
         }
+        for (int j = 0; j < extra_buf_size && !sound; j++)
+            sound = x.extra_buf[j] != 0;
+        x.tail = sound;
     }
 }
 
@@ -961,20 +977,39 @@ void SynthEngine::releaseNotes(const NoteRef &match) {
 }
 
 void SynthEngine::chokeNotes(const NoteRef &match) {
-    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
-        ProcessorVoice &v = voices[note];
-        if ( v.noteActive && matches(v.ref, match) ) {
-            v.keydown = false;
-            v.sustained = false;
-            if ( v.live && v.fadeLeft == 0 ) {
-                // a short fade-out instead of a click; the voice is freed (and its NOTE_END
-                // sent by collectEndedNotes) when it ends
-                v.fadeTotal = v.fadeLeft = (int)(0.003 * sampleRate) + 1;
-                v.fadeSquared = false;
-            } else if ( !v.live ) {
-                endNote(note);
-            }
-        }
+    for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+        if ( voices[note].noteActive && matches(voices[note].ref, match) )
+            chokeVoice(note);
+}
+
+void SynthEngine::chokeVoice(int note) {
+    ProcessorVoice &v = voices[note];
+    v.keydown = false;
+    v.sustained = false;
+    if ( v.live && v.fadeLeft == 0 ) {
+        // a short fade-out instead of a click; the voice is freed (and its NOTE_END
+        // sent by collectEndedNotes) when it ends
+        v.fadeTotal = v.fadeLeft = (int)(0.003 * sampleRate) + 1;
+        v.fadeSquared = false;
+    } else if ( !v.live ) {
+        endNote(note);
+    }
+}
+
+void SynthEngine::chokeRetiring() {
+    bool sounds[MAX_CONTEXTS] = {};
+    for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+        if ( voices[note].live || voices[note].noteActive )
+            sounds[voices[note].context] = true;
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        SynthContext &x = contexts[c];
+        if ( x.selectedChannels != 0 || !(sounds[c] || x.tail) || x.choked )
+            continue;
+        x.choked = true;
+        x.chokeTotal = x.chokeLeft = (int)(0.003 * sampleRate) + 1;
+        for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+            if ( voices[note].context == c && (voices[note].live || voices[note].noteActive) )
+                chokeVoice(note);
     }
 }
 

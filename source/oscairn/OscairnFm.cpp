@@ -78,7 +78,7 @@ struct Slot {
     std::vector<double> prepared;      // values from prepare, loaded by the audio thread
 };
 
-struct Selection { int slot; int16_t channel; };
+struct Selection { int slot; int16_t channel; }; // slot -1: choke_retiring's request
 
 struct Plugin : SynthEngine::NoteEndSink {
     clap_plugin_t plugin {};
@@ -105,7 +105,7 @@ struct Plugin : SynthEngine::NoteEndSink {
 
     // During process: where NOTE_END and parameter feedback go, and at which frame.
     const clap_output_events_t *out = nullptr;
-    // The host's ring-out buffer for the next process() (oscairn.sound-snapshots draft 2), or null.
+    // The host's ring-out buffer for the next process() (oscairn.sound-snapshots draft 3), or null.
     float *const *ringOut = nullptr;
     uint32_t now = 0;
 
@@ -267,6 +267,10 @@ struct Plugin : SynthEngine::NoteEndSink {
             return;
         for (uint32_t t = tail; t != head; t++) {
             const Selection &s = queue[t % queueSize];
+            if (s.slot < 0) { // before the selections queued after it (draft 3)
+                engine.chokeRetiring();
+                continue;
+            }
             load(s.slot);
             engine.selectContext(s.slot, s.channel);
         }
@@ -274,7 +278,8 @@ struct Plugin : SynthEngine::NoteEndSink {
         // sees no pin also sees the selection
         engine.publishContextState();
         for (; tail != head; tail++)
-            slots[queue[tail % queueSize].slot].queued.fetch_sub(1, std::memory_order_release);
+            if (queue[tail % queueSize].slot >= 0)
+                slots[queue[tail % queueSize].slot].queued.fetch_sub(1, std::memory_order_release);
         queueTail.store(tail, std::memory_order_release);
         const int after = engine.selectedContext(0);
         if (after != before) {
@@ -845,15 +850,14 @@ int slotOf(Plugin &s, uint32_t id) {
     return -1;
 }
 
-bool contextsSelect(const clap_plugin_t *plugin, uint32_t id, int16_t channel) {
-    Plugin &s = self(plugin);
-    const int c = slotOf(s, id);
-    if (c < 0 || channel < -1 || channel > 15)
-        return false;
+// Queues a selection (main thread), or choke_retiring's request as slot -1; false when the
+// queue is full.
+bool enqueue(Plugin &s, int c, int16_t channel) {
     const uint32_t head = s.queueHead.load(std::memory_order_relaxed);
     if (head - s.queueTail.load(std::memory_order_acquire) >= (uint32_t)queueSize)
         return false; // queue full
-    s.slots[c].queued.fetch_add(1, std::memory_order_relaxed);
+    if (c >= 0)
+        s.slots[c].queued.fetch_add(1, std::memory_order_relaxed);
     s.queue[head % queueSize] = { c, channel };
     s.queueHead.store(head + 1, std::memory_order_release);
     if (!s.active) {
@@ -864,6 +868,14 @@ bool contextsSelect(const clap_plugin_t *plugin, uint32_t id, int16_t channel) {
         s.host->request_process(s.host);
     }
     return true;
+}
+
+bool contextsSelect(const clap_plugin_t *plugin, uint32_t id, int16_t channel) {
+    Plugin &s = self(plugin);
+    const int c = slotOf(s, id);
+    if (c < 0 || channel < -1 || channel > 15)
+        return false;
+    return enqueue(s, c, channel);
 }
 
 bool contextsDiscard(const clap_plugin_t *plugin, uint32_t id) {
@@ -1037,15 +1049,20 @@ bool snapshotsPrepare(const clap_plugin_t *plugin, const clap_istream_t *stream,
 const clap_plugin_state_t snapshotExt = { snapshotSave, snapshotLoad };
 const oscairn_plugin_sound_contexts_t contextsExt = { contextsCapacity, contextsGet, contextsPrepare, contextsSelect, contextsDiscard, &snapshotExt,
                                                     contextsPreparePreset };
-// ring_out (draft 2): audio thread, just before a process(); sounds no channel selects render there.
+// ring_out (draft 3): audio thread, just before a process(); sounds no channel selects render into
+// its first two channels, those choke_retiring is fading out into its last two.
 void snapshotsRingOut(const clap_plugin_t *plugin, const clap_audio_buffer_t *buffer) {
-    self(plugin).ringOut = buffer != nullptr && buffer->channel_count >= 2 && buffer->data32 != nullptr && buffer->data32[0] != nullptr &&
-                                   buffer->data32[1] != nullptr
-                               ? buffer->data32
-                               : nullptr;
+    bool valid = buffer != nullptr && buffer->channel_count >= 4 && buffer->data32 != nullptr;
+    for (int k = 0; valid && k < 4; k++)
+        valid = buffer->data32[k] != nullptr;
+    self(plugin).ringOut = valid ? buffer->data32 : nullptr;
 }
 
-const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare, snapshotsRingOut };
+// choke_retiring (draft 3): main thread, queued like a selection; at that boundary every sound
+// retiring then fades out, into the ring-out buffer's last two channels until it is silent.
+bool snapshotsChokeRetiring(const clap_plugin_t *plugin) { return enqueue(self(plugin), -1, -1); }
+
+const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare, snapshotsRingOut, snapshotsChokeRetiring };
 
 // ---- ports ----
 

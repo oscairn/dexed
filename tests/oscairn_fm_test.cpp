@@ -3385,16 +3385,16 @@ int snapshotsTest() {
         check(mixed.info(selected[0]).active_voices == 1, "the incoming sound plays on");
     }
     {
-        // With a ring-out buffer (draft 2) the retiring sound plays there, not in the main output:
-        // the main output is the incoming sound alone, the buffer the outgoing alone.
+        // With a ring-out buffer (draft 3) the retiring sound plays there, not in the main output:
+        // the main output is the incoming sound alone, the buffer's first pair the outgoing alone.
         Instrument mixed, old, fresh;
         auto *x = static_cast<const oscairn_plugin_sound_snapshots_t *>(mixed.host.plugin->get_extension(mixed.host.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
         check(x != nullptr && x->ring_out != nullptr, "ring_out offered");
-        std::vector<float> ringLeft(512), ringRight(512);
-        float *ring[2] = { ringLeft.data(), ringRight.data() };
+        std::vector<float> ringLeft(512), ringRight(512), choked(512), chokedRight(512);
+        float *ring[4] = { ringLeft.data(), ringRight.data(), choked.data(), chokedRight.data() };
         clap_audio_buffer_t buffer {};
         buffer.data32 = ring;
-        buffer.channel_count = 2;
+        buffer.channel_count = 4;
         auto runRinging = [&]() -> const std::vector<float> & {
             std::fill(ringLeft.begin(), ringLeft.end(), 0.0f);
             std::fill(ringRight.begin(), ringRight.end(), 0.0f);
@@ -3421,9 +3421,70 @@ int snapshotsTest() {
             }
             check(runRinging() == fresh.run(), "after the cue the main output is the incoming sound alone");
             check(ringLeft == old.run() && ringRight == ringLeft, "and the ring-out buffer the outgoing sound alone");
+            check(std::all_of(choked.begin(), choked.end(), [](float v) { return v == 0; }), "nothing is being choked");
             tail = tail || (k > 4 && audible(old.out));
         }
         check(tail && audible(fresh.out), "its release rings in the buffer");
+    }
+    {
+        // Only one change's tail carries over (draft 3): at a second change while the first's
+        // tail still rings, choke_retiring fades that tail out within the choke time into
+        // channels 2 and 3, the second change's outgoing sounds take channels 0 and 1, and the
+        // main output is the incoming sound alone.
+        Instrument mixed, first, second;
+        auto *x = static_cast<const oscairn_plugin_sound_snapshots_t *>(mixed.host.plugin->get_extension(mixed.host.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+        check(x != nullptr && x->choke_retiring != nullptr, "choke_retiring offered");
+        std::vector<float> ring[4] = { std::vector<float>(512), std::vector<float>(512), std::vector<float>(512), std::vector<float>(512) };
+        float *channels[4] = { ring[0].data(), ring[1].data(), ring[2].data(), ring[3].data() };
+        clap_audio_buffer_t buffer {};
+        buffer.data32 = channels;
+        buffer.channel_count = 4;
+        auto runRinging = [&]() -> const std::vector<float> & {
+            for (auto &r : ring)
+                std::fill(r.begin(), r.end(), 0.0f);
+            x->ring_out(mixed.host.plugin, &buffer);
+            return mixed.run();
+        };
+        auto zero = [](const std::vector<float> &r, size_t from = 0) { return std::all_of(r.begin() + from, r.end(), [](float v) { return v == 0; }); };
+        const std::vector<oscairn_sound_parameter_t> slow = { { 1019, 2 }, { 1004, 40 } };
+        const uint32_t a = mixed.prepare("slow", slow);
+        check(mixed.select(a) && loadSnapshot(first, S) && loadSnapshot(second, S), "the outgoing sound, and S twice");
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 9, 0, 48);
+        runRinging();
+        first.run();
+        second.run();
+        // the first change: S beside the held note
+        uint32_t selected[16];
+        check(prepareSnapshot(mixed.host.plugin, S, selected), "S prepared beside a held note");
+        cue(mixed, selected);
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 10, 0, 72);
+        first.in.note(CLAP_EVENT_NOTE_ON, 0, 10, 0, 72);
+        for (int k = 0; k < 4; k++) {
+            check(runRinging() == first.run(), "after the first change the main output is S alone");
+            check(!zero(ring[0]) && zero(ring[2]), "the held note rings out in channels 0 and 1");
+        }
+        // the second change, S again, while the first's tail rings: choke it, then cue
+        uint32_t again[16];
+        check(prepareSnapshot(mixed.host.plugin, S, again), "S prepared beside again");
+        check(x->choke_retiring(mixed.host.plugin), "choke_retiring queued");
+        cue(mixed, again);
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 11, 0, 76);
+        second.in.note(CLAP_EVENT_NOTE_ON, 0, 11, 0, 76);
+        const int chokeFrames = (int)(0.003 * 48000) + 1;
+        for (int k = 0; k < 8; k++) {
+            check(runRinging() == second.run(), "after the second change the main output is the incoming S alone");
+            check(ring[0] == first.run() && ring[1] == ring[0], "the first change's sounds ring out in channels 0 and 1");
+            if (k == 0) {
+                check(!zero(ring[2]) && ring[3] == ring[2], "the older tail fades in channels 2 and 3");
+                check(zero(ring[2], chokeFrames + 64), "and is silent after the choke time");
+            } else {
+                check(zero(ring[2]), "the choked tail stays silent");
+            }
+        }
+        for (int k = 0; k < 20 && !mixed.info(a).idle; k++)
+            runRinging();
+        check(mixed.info(a).idle && mixed.discard(a), "the choked sound goes idle and is discarded");
+        std::printf("a second change chokes the first change's tail within %d frames\n", chokeFrames);
     }
     {
         // All or nothing: a bad snapshot, or too few free contexts, adds nothing and says why.

@@ -101,6 +101,10 @@ struct SynthContext {
     bool rendering = false;    // rendered in the current block
     bool tail = false;         // the last block was not silent
     uint16_t selectedChannels = 0;
+    // choked while retiring (chokeRetiring): fading out over chokeTotal samples, then silent, and
+    // rendering into the ring-out buffer's second pair until it goes silent
+    int chokeLeft = 0, chokeTotal = 0;
+    bool choked = false;
 
     // published by publishContextState() for the main thread
     std::atomic<uint32_t> activeVoices { 0 };
@@ -179,9 +183,10 @@ public:
     // The same in stereo when right is not null: voices that are not panned (every Classic
     // voice) go to both channels alike, so the left channel is the mono output and the right
     // one the same wherever nothing is panned.
-    // With ring (two channels of numSamples, added to, not overwritten), every context no channel
-    // selects is added there instead of to left and right: Oscairn's ring-out buffer for sounds
-    // retiring after a Performance change.
+    // With ring (four channels of numSamples, added to, not overwritten), every context no channel
+    // selects is added to its first two channels instead of to left and right, or to its last two
+    // once chokeRetiring choked it: Oscairn's ring-out buffer for sounds retiring after a
+    // Performance change.
     void render(float *left, float *right, int numSamples, EventSource &events, float *const *ring = nullptr);
 
     // A short MIDI channel message (not SysEx). channel is 1-16.
@@ -196,6 +201,10 @@ public:
     // matches; a note ID >= 0 matches by ID alone, otherwise -1 fields match anything.
     void releaseNotes(const NoteRef &match);
     void chokeNotes(const NoteRef &match);
+    // Oscairn's choke_retiring: every context no channel selects that still sounds fades out over
+    // the choke time (its voices as a choke, its output filter's tail with them) and rings out
+    // through the ring-out buffer's second pair until it is silent.
+    void chokeRetiring();
     // Reports, through the sink, every note whose voice is released and no longer sounding.
     void collectEndedNotes();
     void setNoteEndSink(NoteEndSink *sink) { noteEndSink = sink; }
@@ -283,6 +292,7 @@ private:
     NoteEndSink *noteEndSink = nullptr;
     void restart();
     void keyupVoice(int note);
+    void chokeVoice(int note);
     void resetControllers();
     // Extended sounds: values a new note takes from its sound; starting a voice (after `wait`
     // samples), mono and key assign, and portamento
