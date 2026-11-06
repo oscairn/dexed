@@ -3443,6 +3443,24 @@ int snapshotsTest() {
         std::printf("refused: %s\n", message);
         check(full.discard(ids.back()) && prepareSnapshot(full.host.plugin, S, selected) && preparedCount(full) == 8, "two free contexts are enough");
     }
+    {
+        // A snapshot load replaces every sound: a voice of a sound the snapshot does not have
+        // ends with it, instead of playing on from a slot no longer prepared.
+        Instrument t;
+        t.prepare("A", soundA);
+        const uint32_t b = t.prepare("B", soundB); // the third slot, which S (two sounds) leaves out
+        check(t.select(b), "B selected");
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 5, 0, 60);
+        t.run();
+        check(audible(t.out), "B plays");
+        check(loadSnapshot(t, S), "S loads over the playing sound");
+        t.host.output.clear();
+        t.run();
+        bool ended = false;
+        for (auto e : ends(t.host))
+            ended = ended || e.id == 5;
+        check(!audible(t.out) && ended, "the voice of the sound S replaced is gone, and its note ended");
+    }
     std::printf("prepared beside equals loaded, held notes ring out on the outgoing sound, all or nothing\n");
     return 0;
 }

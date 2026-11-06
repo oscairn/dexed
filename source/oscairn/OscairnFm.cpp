@@ -979,7 +979,9 @@ bool snapshotLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     int channels[16];
     if (!readSnapshot(stream, loaded, channels))
         return false;
-    // replace: exclusive, so this thread owns the engine; fresh IDs
+    // replace: exclusive, so this thread owns the engine; every voice ends (reported at the next
+    // process), every sound is new, with a fresh ID
+    s.engine.panic();
     for (int c = 0; c < contextCount; c++) {
         Slot &slot = s.slots[c];
         slot.ready.store(false, std::memory_order_release);
