@@ -40,7 +40,8 @@ public:
                 double sampleRate, double attackScale = 1, bool modulator = false);
     int32_t getsample(); // one sample
     void keydown(bool down);
-    bool isActive() const { return ix_ < 5 || levels_[3] > 0; }
+    // playing until the release has reached its level, or for good when that level is audible
+    bool isActive() const { return ix_ < 5 || targets_[3] > 0; }
     int segment() const { return ix_; }
     void transfer(const ExtEnv &src) { *this = src; }
 

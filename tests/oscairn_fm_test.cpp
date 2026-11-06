@@ -2423,6 +2423,35 @@ int extendedTest() {
         expect(db(sg, 0.515, 0.525) < db(sg, 0.45, 0.49) - 20 && db(mu, 0.515, 0.525) > db(mu, 0.45, 0.49) - 1,
                "single: a key played again starts again; multi: it adds a voice");
     }
+    {
+        // A carrier's release (hold) level below the audible range (1-11 play as silence) ends the
+        // note once the release reaches it: NOTE_END, and the voice is free again.
+        Host h(entry);
+        h.activate(48000, 512);
+        EventList in;
+        in.events.reserve(512);
+        in.param(0, 5, 1);
+        in.param(0, 40, 1);
+        for (int n = 1; n <= 8; n++)
+            in.param(0, 1000 * n + 51, n == 1 ? 99 : 0);
+        in.param(0, 1044, 1); // operator 1: release level 1, release time 0
+        in.param(0, 1048, 0);
+        h.process(512, in);
+        in.clear();
+        in.note(CLAP_EVENT_NOTE_ON, 0, 3, 0, 60);
+        h.process(512, in);
+        in.clear();
+        in.note(CLAP_EVENT_NOTE_OFF, 0, 3, 0, 60);
+        bool ended = false;
+        for (int b = 0; b < 200 && !ended; b++) {
+            h.output.clear();
+            h.process(512, in);
+            in.clear();
+            for (auto e : ends(h))
+                ended = ended || e.id == 3;
+        }
+        expect(ended, "a note whose carrier holds a silent release level ends");
+    }
     std::printf("Extended profile: envelope, pitch and LFO rates against the tables, init sound, conversion %s\n",
                 failures ? "FAILED" : "pass");
     return failures == 0 ? 0 : 1;
