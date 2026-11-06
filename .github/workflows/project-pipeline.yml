@@ -145,7 +145,7 @@ jobs:
   publish-nightly:
     name: "Publish Nightly"
     runs-on: ubuntu-latest
-    if: github.ref_type == 'branch'
+    if: github.ref_type == 'branch' && github.repository == 'asb2m10/dexed'
     needs: [ build-linux, build-windows, build-macos ]
     steps:
       - name: "Upload to nightly"
