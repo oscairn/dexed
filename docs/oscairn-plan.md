@@ -548,7 +548,7 @@ Plan:
 - Reuse the rules and tests of Oscairn's `plugins/common/SoundContexts.h` and
   `core/engine/tests/sound_contexts.cpp`; copy with licence care (section 9).
 - **Instant Performance changes (seventeenth session, decision 82):** Octet offers
-  `oscairn.sound-snapshots/draft-2`. Its `prepare` reads a whole `octet-contexts 1` snapshot (the
+  `oscairn.sound-snapshots/draft-3`. Its `prepare` reads a whole `octet-contexts 1` snapshot (the
   reading is split out of the snapshot load and touches nothing of the plugin, so it is safe on
   the main thread while rendering), then makes every sound in it, the Default included, a new
   context through the same free-slot path as `prepare`, all or nothing, selecting nothing. A
@@ -559,6 +559,9 @@ Plan:
   `process()`), the engine adds every context no channel selects into it, after that context's own
   output filter, instead of the main output (`SynthEngine::render`'s optional `ring` argument; the
   desktop Dexed passes none), so Oscairn rings outgoing sounds out through the outgoing chain.
+  Draft 3 (Octet 0.2.2): the buffer has four channels, and `choke_retiring`, queued like a
+  selection, fades every sound retiring at that boundary out over the choke time (its voices as a
+  choke, its filter's tail with them) into the last two, so only one change's tail carries over.
 
 ### 4.6 Real-time safety
 
@@ -1890,7 +1893,7 @@ ARM64 hardware is still not measured.
 81. The `rates` check runs at 44.1, 48, 88.2, 96 and 192 kHz (fifteenth session); all 14 measurements
     met their tolerances at the new rates without an engine change.
 82. Instant Performance changes (seventeenth session; proposed, for Jacob to confirm): Octet offers
-    `oscairn.sound-snapshots/draft-2` with the ring-out buffer (section 4.5), so Oscairn prepares the next Performance's Octet
+    `oscairn.sound-snapshots/draft-3` with the ring-out buffer (section 4.5), so Oscairn prepares the next Performance's Octet
     sounds beside the playing ones in the same instance instead of loading another. The context
     count stays eight (decision 4 holds the pool and count on hold): a part's snapshot is its
     Default and its prepared sounds (two for a part playing one prepared sound); after a switch the
