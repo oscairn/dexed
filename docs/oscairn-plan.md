@@ -590,6 +590,22 @@ Plan:
   sounding, a new note takes a voice in the same order (one already fading first) while the host
   has set any limit; without limits it keeps Dexed's stealing (known differences register). Oscairn
   carries the extension only in-process so far: a plugin in a worker is budgeted as one without it.
+- **Parts sharing one instance (twentieth session, decisions 86-88):** Octet 0.4.0 has what Oscairn's
+  RFC 0021 slice 3 asks of a plugin parts can share: native sound contexts and their snapshot, no audio
+  input or note output, eight stereo sound buses beside Main (`Bus 1` to `Bus 8`, one for each of its
+  eight sounds, as the Basic Synth has), and the Output Bus (parameter 134, `Amp`, 0 for Main to 8),
+  a per-sound setting tagged `OSCAIRN_ROLE_OUTPUT_BUS` through `oscairn.ui/draft-3`, which the host
+  sets on each part's channel. A change applies at the start of the next `process()`
+  (`SynthEngine::applyOutputBuses`). A voice keeps the bus it started on: each sound has a second lane
+  (`SynthContext::previous`, with an output filter of its own) for the voices still on its bus before
+  a change, so the held notes play on untouched and the new ones start on the new bus. A third bus
+  while both lanes sound fades the older lane's voices out as a choke (3 ms) and waits until they and
+  their filter's tail are gone (a shortcut in the code). Only the main output rings out into the
+  ring-out buffer; a retiring sound on a bus plays on through its port, as draft 3 says. Unused buses
+  are written silent and render nothing; the desktop Dexed passes no buses and is unchanged. The
+  per-part voice budget entries (one per part, its sound, reserve and priority, limit 0) needed no
+  change. State and snapshot formats are 2 (`oscairn-fm-state 2`, `octet-contexts 2`); format 1 is
+  refused (pre-release). MPE is now scoped to the channels playing channel 1's sound (decision 87).
 
 ### 4.6 Real-time safety
 
@@ -1968,6 +1984,25 @@ ARM64 hardware is still not measured.
     for the pool size, the context count and mono hand-over: a held mono key is now kept from
     another sound's new voice under a budget, but without one Dexed's stealing can still take it.
 
+86. Parts sharing one instance (twentieth session; proposed, for Jacob to confirm): eight sound buses,
+    the Basic Synth's count, since Octet holds eight sounds (the Default and seven) and a fresh instance
+    can then take a part for every sound. A voice keeps its bus through a change by a second lane per
+    sound, not by a lane per bus (nine filters per sound), since the host sets a sound's bus when it
+    joins and rarely again; a third bus while both lanes sound chokes the older lane instead. The bus
+    applies at a process boundary, so a note in the same block as the change still starts on the old
+    bus. No output clipping per bus: as the main output (decision 70), Octet does not clip.
+87. MPE scoped to channel 1's sound (twentieth session; proposed): while MPE detection is on (until
+    two notes share a channel), a channel that selects another sound than channel 1 is a part of its
+    own: its bend is a channel bend, and channel 1's controllers reach only the channels playing
+    channel 1's sound. Before, two parts playing one note each on channels 1 and 2 made channel 2's
+    bend an MPE per-note bend (range 24) and channel 1's bend reach both parts. One sound on every
+    channel, and the desktop Dexed, behave as before.
+88. `oscairn.ui` roles (twentieth session; proposed): a plugin declaring any role gets none from its
+    parameter names in Oscairn, so with the Output Bus's role Octet now also declares the roles
+    Oscairn took from its names until then (both cutoffs and resonances, Part LFO Hold, the four
+    envelope macros, and every operator's Level as the instrument's level). These are Oscairn's
+    guesses kept as they were, not chosen roles; choosing them is left for later.
+
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
 - **Operator waves** (the spectral forms, section 3.7; neutral names: Wave, Spread, Formant;
@@ -3131,6 +3166,59 @@ PASSED in-process against Oscairn `2f05937` (whose host checks every entry of th
 loads a plugin). Oscairn's worker protocol does not carry the extension yet, so in a worker Octet is
 budgeted as a plugin without it; nothing here tests that path with the extension. The version commit's
 gates and CI are in the session report.
+
+### Twentieth session (2026-11-06): parts sharing one instance
+
+Oscairn read at `b22173f` (`oscairn/oscairn` main; the local clone was there): RFC 0021's "Parts sharing
+one engine", the porting guide's sharing, voice budget and ring-out sections, `ui.h`, the Basic Synth's
+Output bus (`7a6da47`, `2e8cb59`, `173fc35`) and `47f33f1` (the SDK's audio thread kept off a context's
+main-thread fields; Octet's budget reads only the audio thread's `loadedId`, so nothing to carry over).
+Section 4.5 and decisions 86-88. Octet 0.4.0.
+
+Commits: `43619f7` (headers at `b22173f`: `ui.h` added, a comment in `voice-budget.h`), `94dcc73` (MPE
+scoped to channel 1's sound), `c7adf33` (output buses, the Output Bus and `oscairn.ui`), `39afbfd` (a
+voice budget test with an entry per part), `1f574e9` (formats 2), then the version and this entry.
+
+**Tests** (each new one shown failing with its change undone, unless said): `contexts` (two parts, one
+note each, a bend on channel 1 and then on channel 2 against each part alone; fails with either half
+of the MPE change undone). `oscairn-fm-test buses` (CTest `oscairn-fm-buses`): nine stereo ports, the
+Output Bus's range and every declared role (fails without the kept roles); two parts on one instance,
+sound A on channel 1 and Main, sound B on channel 2 and bus 1, against an instance each, sample for
+sample over 60 blocks (one of 37 frames) with a bend and a level edit on channel 2 only, the other
+buses silent (fails with every lane on Main); a change of bus while a note is held: the main output
+stays the note alone sample for sample, the next note plays on bus 1 within 1e-5 of what it adds on
+one output (fails when the whole sound moves); a change back, and a third bus (the older lane fades,
+largest step 0.0051 against the note's own 0.0135, then a new note plays on bus 2); a retiring sound on
+bus 1 plays on there, the ring-out buffer silent (fails when it rings out); the bus in a sound's state,
+in the snapshot and in patch text (fails with 134 not saved); formats 1 refused (fails with a reader
+that takes format 1). `voice-budget`: two sounds on two channels with an entry each (reserve 2 and
+priority 3, reserve 1 and priority 7) at a limit of 4 give up one voice each; this passes on the plugin
+before this work too (no change was needed), and with every voice given to one context it fails, but at
+an earlier check of the same test. `no-alloc` changes buses while sounds play.
+
+**Oscairn's own tests.** Neither `shared-engine` nor `control-shared-parts` loads Octet as they are: both
+set the Basic Synth's parameter IDs. Copies with Octet's IDs, built against an Oscairn `b22173f` build
+outside its repository (not committed anywhere), pass on `c7adf33`'s plugin: two parts on one instance
+against two instances, largest difference 0, with the meters, notes heard, channels taken and an entry
+per part; three parts through the Session against three instances, largest difference 0, the save and
+reopen, the spill past eight sounds, undo and redo, and changes into and out of the shared layout. On
+`a4e1f06`'s plugin both stop at the start (no output bus parameter). `oscairn-plugin-check ...
+org.oscairn.fm synth --param 1017=70` PASSED in-process and with `OSCAIRN_PLUGIN_WORKER` on `c7adf33`.
+
+**Tests run.** On each committed tree (Oscairn's host tests against the `b22173f` build): Release CTest
+40/40 on `94dcc73`, 41/41 on `c7adf33`, `39afbfd` and `1f574e9` (the 164 Classic cases bit-identical
+through engine, JUCE plugin and native CLAP on arm64); ASan/UBSan 23/23, then 24/24; TSan
+(`engine-two-rates`, `fm-threads`) 2/2 on each; under Rosetta the x86_64 baseline (engine, plugin,
+CLAP: 164 of 164) and the Extended test on each. A first gate run of `1f574e9` failed the Extended
+test (the init sounds in `assets/octet` were still format 1); they were moved to format 2 in the same
+commit before it was pushed and every gate run again. The version commit's gates and CI are in the
+session report.
+
+**The converter** (not changed): `perfconv/fmx.py` writes `oscairn-fm-state 1` and `octet-contexts 1`,
+which Octet 0.4.0 refuses; it needs format 2 headers (the Output Bus can be left out, defaulting to
+Main). Performances converted before this are refused by 0.4.0 until converted again. Writing shared
+nodes would need Performance format 12's `sound` per node and the engine's snapshot in its first
+node's folder, once Oscairn forms shared engines when opening a Performance.
 
 ### Fifth session (2026-10-31): tests run
 

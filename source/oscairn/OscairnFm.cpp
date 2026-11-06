@@ -53,7 +53,7 @@ const clap_plugin_descriptor_t descriptor = {
     "https://github.com/oscairn/dexed",
     "",
     "",
-    "0.3.0",
+    "0.4.0",
     "FM synthesizer based on Dexed",
     features,
 };
