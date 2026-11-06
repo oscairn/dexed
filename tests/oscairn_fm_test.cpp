@@ -3268,6 +3268,39 @@ int contextsTest() {
         check(t.host.output.events.empty() && got == std::map<clap_id, double>{ { 2, 0 }, { 131, 1 }, { 132, 0 } },
               "feedback held back by a full queue arrives in the next blocks");
     }
+    {
+        // process() sleeps once nothing sounds, the default sound's ringing output filter
+        // included, and a note wakes it
+        Host h(entry);
+        h.activate(48000, 512);
+        EventList ev;
+        // below a 24-bit step: the filter can settle on a tiny value instead of 0
+        auto zero = [&] {
+            auto quiet = [](float v) { return std::fabs(v) < 1.0f / (1 << 24); };
+            return std::all_of(h.left.begin(), h.left.end(), quiet) && std::all_of(h.right.begin(), h.right.end(), quiet);
+        };
+        check(h.process(512, ev) == CLAP_PROCESS_SLEEP && zero(), "a fresh instance sleeps");
+        ev.param(0, 131, 0.1); // a low, resonant output filter, which rings on after the note
+        ev.param(0, 132, 0.5);
+        ev.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        check(h.process(512, ev) == CLAP_PROCESS_CONTINUE && !zero(), "a note wakes it");
+        ev.clear();
+        for (int k = 0; k < 20; k++)
+            h.process(512, ev);
+        ev.note(CLAP_EVENT_NOTE_CHOKE, 0, 1, 0, 60);
+        int slept = -1;
+        bool ringing = false; // the filter still sounded after the voice was gone
+        for (int k = 0; k < 2000 && slept < 0; k++) {
+            if (h.process(512, ev) == CLAP_PROCESS_SLEEP)
+                slept = k;
+            ev.clear();
+            ringing = ringing || (k > 0 && !zero());
+        }
+        check(ringing && slept > 0, "sleeps once the note and the filter's ringing have ended");
+        check(h.process(512, ev) == CLAP_PROCESS_SLEEP && zero(), "silent after sleeping");
+        ev.note(CLAP_EVENT_NOTE_ON, 0, 2, 0, 64);
+        check(h.process(512, ev) == CLAP_PROCESS_CONTINUE && !zero(), "a note after sleeping wakes it");
+    }
     std::printf("held sounds, parts, note ownership, sustain, capacity, queue, reclamation, patch text, block sizes, snapshots, per-channel controllers, CC 120, CC 123 and note-off matching\n");
     return 0;
 }

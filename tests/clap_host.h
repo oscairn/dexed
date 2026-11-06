@@ -172,7 +172,8 @@ struct Host {
     }
 
     // Renders frames (<= maxFrames) with the given input events; output events go to output.
-    void process(uint32_t frames, const EventList &in) {
+    // Returns the status: continue, or sleep when nothing sounds.
+    clap_process_status process(uint32_t frames, const EventList &in) {
         float *channels[2] = { left.data(), right.data() };
         clap_audio_buffer_t out {};
         out.data32 = channels;
@@ -186,7 +187,9 @@ struct Host {
         const clap_output_events_t outEvents = output.output();
         p.in_events = &input;
         p.out_events = &outEvents;
-        check(plugin->process(plugin, &p) == CLAP_PROCESS_CONTINUE, "process");
+        const clap_process_status status = plugin->process(plugin, &p);
+        check(status == CLAP_PROCESS_CONTINUE || status == CLAP_PROCESS_SLEEP, "process");
+        return status;
     }
 
     std::string saveState() {

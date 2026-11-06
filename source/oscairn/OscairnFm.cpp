@@ -446,7 +446,8 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     s.engine.publishContextState();
     s.out = nullptr;
     s.ringOut = nullptr; // given for one process() only
-    return CLAP_PROCESS_CONTINUE;
+    // nothing sounds and no feedback waits: the host may stop calling until the next event
+    return s.feedbackCount == 0 && s.engine.silent() ? CLAP_PROCESS_SLEEP : CLAP_PROCESS_CONTINUE;
 }
 
 // ---- params ----

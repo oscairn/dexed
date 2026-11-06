@@ -324,6 +324,16 @@ void SynthEngine::publishContextState() {
     }
 }
 
+bool SynthEngine::silent() const {
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        if ( voices[i].live || voices[i].noteActive )
+            return false;
+    for (const SynthContext &x : contexts)
+        if ( x.tail )
+            return false;
+    return true;
+}
+
 namespace {
     // The events of a longer block, seen from a part of it that starts at offset.
     struct OffsetEvents : SynthEngine::EventSource {
@@ -561,6 +571,15 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     x.chokeLeft--;
             }
         }
+        // the context still sounds (its filter rings on), here or in what is rendered ahead; below
+        // a 24-bit step is silence, as the output filter can settle on a tiny value instead of 0
+        const float silence = 1.0f / (1 << 24);
+        bool sound = false;
+        for (int j = 0; j < numSamples && !sound; j++)
+            sound = std::fabs(out[j]) >= silence || (right != nullptr && std::fabs(outRight[j]) >= silence);
+        for (int j = 0; j < extra_buf_size && !sound; j++)
+            sound = std::fabs(x.extra_buf[j]) >= silence || (right != nullptr && std::fabs(x.extra_bufRight[j]) >= silence);
+        x.tail = sound;
         const bool retiring = ring != nullptr && x.selectedChannels == 0;
         if ( c == 0 ) {
             if ( retiring ) {
@@ -573,28 +592,17 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                         right[j] = 0;
                 }
             }
-            continue; // (its tail is not tracked: the default sound is never discarded)
+            continue;
         }
         float *toLeft = retiring ? ring[x.choked ? 2 : 0] : channelData, *toRight = retiring ? ring[x.choked ? 3 : 1] : right;
-        bool sound = false;
-        for (int j = 0; j < numSamples; j++) {
+        for (int j = 0; j < numSamples; j++)
             toLeft[j] += out[j];
-            sound = sound || out[j] != 0;
-        }
         if ( right == nullptr && retiring )
             for (int j = 0; j < numSamples; j++)
                 toRight[j] += out[j];
-        if ( right != nullptr ) {
-            for (int j = 0; j < numSamples; j++) {
+        if ( right != nullptr )
+            for (int j = 0; j < numSamples; j++)
                 toRight[j] += outRight[j];
-                sound = sound || outRight[j] != 0;
-            }
-            for (int j = 0; j < extra_buf_size && !sound; j++)
-                sound = x.extra_bufRight[j] != 0;
-        }
-        for (int j = 0; j < extra_buf_size && !sound; j++)
-            sound = x.extra_buf[j] != 0;
-        x.tail = sound;
     }
 }
 

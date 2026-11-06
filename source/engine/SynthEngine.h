@@ -235,6 +235,8 @@ public:
     int selectedContext(int channel) const { return selected[channel]; }
     // After a block (and collectEndedNotes): publishes voice counts, selections and silence.
     void publishContextState();
+    // Nothing sounds: no voice, and no context's output filter still ringing (audio thread).
+    bool silent() const;
 
     SynthContext contexts[MAX_CONTEXTS];
 
