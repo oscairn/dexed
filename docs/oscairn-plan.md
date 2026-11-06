@@ -750,6 +750,14 @@ requests are reserved for targeted fixes whose scope and behaviour are fully und
 - CLAP note-ID handling and `NOTE_END` through clap-juce-extensions' capabilities (if done
   without the headless split, or after it is accepted).
 - State fixes found by the round-trip tests (for example the voice name), if confirmed.
+- All Notes Off with a transpose: upstream's CC 123 passes each held voice's `midi_note`, which
+  already includes the transpose, to `keyup`, which adds it again, so with any transpose but 0 it
+  releases nothing. The fork's fix (`0325a55`) sits on the headless split and per-channel
+  controllers (it releases by channel) and re-records the baselines, so it does not apply to
+  upstream as it is; the local branch `upstream-cc123` (`74f8d1a`, on upstream `fea2f0f`) holds
+  the transpose part of it as a one-line change to upstream's `source/midi/PluginMidi.cpp` (undo
+  the shift before `keyup`), ready to offer later. Jacob wants it
+  upstreamed eventually, not yet: no pull request has been opened and the branch is not pushed.
 
 **Should go to asb2m10/dexed as issues first**
 
@@ -1904,6 +1912,11 @@ ARM64 hardware is still not measured.
     recommends for Octet, files of the cartridge folders, type `syx`, load key the voice `0` to `31`,
     named from the cartridge (section 4.10). A file that is not a 32-voice bulk dump lists nothing;
     a checksum that does not match is accepted, as Dexed does.
+84. Audible release levels (eighteenth session, Jacob's decision): an Extended note whose carrier's
+    release (hold) level is audible (12 or more) holds its voice after the key is up, as the
+    reference does; nothing changes (levels 1-11 play as silence and end the note, `7f59025`).
+    Oscairn's ring-out cut-offs and its voice stealing, still to come, deal with such voices; to be
+    revisited if they turn out not to.
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
