@@ -105,6 +105,8 @@ struct Plugin : SynthEngine::NoteEndSink {
 
     // During process: where NOTE_END and parameter feedback go, and at which frame.
     const clap_output_events_t *out = nullptr;
+    // The host's ring-out buffer for the next process() (oscairn.sound-snapshots draft 2), or null.
+    float *const *ringOut = nullptr;
     uint32_t now = 0;
 
     std::atomic<double> &value(int c, size_t i) { return values[(size_t)c * params().size() + i]; }
@@ -408,7 +410,7 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
         right = bus.channel_count > 1 ? bus.data32[1] : nullptr;
     }
     if (left != nullptr && frames > 0) {
-        s.engine.render(left, right, (int)frames, events);
+        s.engine.render(left, right, (int)frames, events, s.ringOut);
     } else {
         events.dispatchUntil(INT32_MAX);
     }
@@ -416,6 +418,7 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     s.engine.collectEndedNotes();
     s.engine.publishContextState();
     s.out = nullptr;
+    s.ringOut = nullptr; // given for one process() only
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -1032,7 +1035,15 @@ bool snapshotsPrepare(const clap_plugin_t *plugin, const clap_istream_t *stream,
 const clap_plugin_state_t snapshotExt = { snapshotSave, snapshotLoad };
 const oscairn_plugin_sound_contexts_t contextsExt = { contextsCapacity, contextsGet, contextsPrepare, contextsSelect, contextsDiscard, &snapshotExt,
                                                     contextsPreparePreset };
-const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare };
+// ring_out (draft 2): audio thread, just before a process(); sounds no channel selects render there.
+void snapshotsRingOut(const clap_plugin_t *plugin, const clap_audio_buffer_t *buffer) {
+    self(plugin).ringOut = buffer != nullptr && buffer->channel_count >= 2 && buffer->data32 != nullptr && buffer->data32[0] != nullptr &&
+                                   buffer->data32[1] != nullptr
+                               ? buffer->data32
+                               : nullptr;
+}
+
+const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare, snapshotsRingOut };
 
 // ---- ports ----
 

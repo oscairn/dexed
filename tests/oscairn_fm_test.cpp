@@ -3313,6 +3313,47 @@ int snapshotsTest() {
         check(mixed.info(selected[0]).active_voices == 1, "the incoming sound plays on");
     }
     {
+        // With a ring-out buffer (draft 2) the retiring sound plays there, not in the main output:
+        // the main output is the incoming sound alone, the buffer the outgoing alone.
+        Instrument mixed, old, fresh;
+        auto *x = static_cast<const oscairn_plugin_sound_snapshots_t *>(mixed.host.plugin->get_extension(mixed.host.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+        check(x != nullptr && x->ring_out != nullptr, "ring_out offered");
+        std::vector<float> ringLeft(512), ringRight(512);
+        float *ring[2] = { ringLeft.data(), ringRight.data() };
+        clap_audio_buffer_t buffer {};
+        buffer.data32 = ring;
+        buffer.channel_count = 2;
+        auto runRinging = [&]() -> const std::vector<float> & {
+            std::fill(ringLeft.begin(), ringLeft.end(), 0.0f);
+            std::fill(ringRight.begin(), ringRight.end(), 0.0f);
+            x->ring_out(mixed.host.plugin, &buffer);
+            return mixed.run();
+        };
+        const std::vector<oscairn_sound_parameter_t> slow = { { 1019, 2 }, { 1004, 40 } };
+        check(mixed.select(mixed.prepare("slow", slow)) && old.select(old.prepare("slow", slow)) && loadSnapshot(fresh, S), "outgoing sound");
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 9, 0, 48);
+        old.in.note(CLAP_EVENT_NOTE_ON, 0, 9, 0, 48);
+        check(runRinging() == old.run() && audible(old.out), "before the cue the sound plays in the main output");
+        check(std::all_of(ringLeft.begin(), ringLeft.end(), [](float v) { return v == 0; }), "and nothing in the ring-out buffer");
+        fresh.run();
+        uint32_t selected[16];
+        check(prepareSnapshot(mixed.host.plugin, S, selected), "S prepared beside a held note");
+        cue(mixed, selected);
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 10, 0, 72);
+        fresh.in.note(CLAP_EVENT_NOTE_ON, 0, 10, 0, 72);
+        bool tail = false;
+        for (int k = 0; k < 60; k++) {
+            if (k == 4) {
+                mixed.in.note(CLAP_EVENT_NOTE_OFF, 0, 9, 0, 48);
+                old.in.note(CLAP_EVENT_NOTE_OFF, 0, 9, 0, 48);
+            }
+            check(runRinging() == fresh.run(), "after the cue the main output is the incoming sound alone");
+            check(ringLeft == old.run() && ringRight == ringLeft, "and the ring-out buffer the outgoing sound alone");
+            tail = tail || (k > 4 && audible(old.out));
+        }
+        check(tail && audible(fresh.out), "its release rings in the buffer");
+    }
+    {
         // All or nothing: a bad snapshot, or too few free contexts, adds nothing and says why.
         Instrument full;
         uint32_t selected[16];

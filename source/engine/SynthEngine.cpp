@@ -308,7 +308,7 @@ namespace {
     };
 }
 
-void SynthEngine::render(float *channelData, float *right, int numSamples, EventSource &events) {
+void SynthEngine::render(float *channelData, float *right, int numSamples, EventSource &events, float *const *ring) {
     // A block longer than the contexts' buffers (prepare's maxFrames): render it in parts,
     // so every sound keeps playing. Output does not depend on block size.
     const int maxBlock = (int)contexts[1].block.size();
@@ -316,7 +316,8 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
         for (int offset = 0; offset < numSamples; offset += maxBlock) {
             const int n = numSamples - offset < maxBlock ? numSamples - offset : maxBlock;
             OffsetEvents part(events, offset);
-            render(channelData + offset, right != nullptr ? right + offset : nullptr, n, part);
+            float *ringPart[2] = { ring != nullptr ? ring[0] + offset : nullptr, ring != nullptr ? ring[1] + offset : nullptr };
+            render(channelData + offset, right != nullptr ? right + offset : nullptr, n, part, ring != nullptr ? ringPart : nullptr);
         }
         return;
     }
@@ -515,6 +516,15 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     contexts[0].fx.process(channelData, numSamples);
     if ( right != nullptr )
         processRight(contexts[0], right, numSamples);
+    if ( ring != nullptr && contexts[0].selectedChannels == 0 ) { // retiring: into the ring-out buffer
+        for (int j = 0; j < numSamples; j++) {
+            ring[0][j] += channelData[j];
+            ring[1][j] += right != nullptr ? right[j] : channelData[j];
+            channelData[j] = 0;
+            if ( right != nullptr )
+                right[j] = 0;
+        }
+    }
 
     // Each context through its own output filter, then summed (RFC 0005).
     if ( activeCount > 1 ) {
@@ -523,16 +533,21 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                 continue;
             float *out = outputs[c];
             contexts[c].fx.process(out, numSamples);
+            const bool retiring = ring != nullptr && contexts[c].selectedChannels == 0;
+            float *toLeft = retiring ? ring[0] : channelData, *toRight = retiring ? ring[1] : right;
             bool sound = false;
             for (int j = 0; j < numSamples; j++) {
-                channelData[j] += out[j];
+                toLeft[j] += out[j];
                 sound = sound || out[j] != 0;
             }
+            if ( right == nullptr && retiring )
+                for (int j = 0; j < numSamples; j++)
+                    toRight[j] += out[j];
             if ( right != nullptr ) {
                 float *outRight = outputsRight[c];
                 processRight(contexts[c], outRight, numSamples);
                 for (int j = 0; j < numSamples; j++) {
-                    right[j] += outRight[j];
+                    toRight[j] += outRight[j];
                     sound = sound || outRight[j] != 0;
                 }
                 for (int j = 0; j < extra_buf_size && !sound; j++)

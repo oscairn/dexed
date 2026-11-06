@@ -177,7 +177,10 @@ public:
     // The same in stereo when right is not null: voices that are not panned (every Classic
     // voice) go to both channels alike, so the left channel is the mono output and the right
     // one the same wherever nothing is panned.
-    void render(float *left, float *right, int numSamples, EventSource &events);
+    // With ring (two channels of numSamples, added to, not overwritten), every context no channel
+    // selects is added there instead of to left and right: Oscairn's ring-out buffer for sounds
+    // retiring after a Performance change.
+    void render(float *left, float *right, int numSamples, EventSource &events, float *const *ring = nullptr);
 
     // A short MIDI channel message (not SysEx). channel is 1-16.
     MidiResult processMidiMessage(const uint8_t *buf, int channel);
