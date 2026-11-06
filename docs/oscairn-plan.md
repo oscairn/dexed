@@ -562,6 +562,12 @@ Plan:
   Draft 3 (Octet 0.2.2): the buffer has four channels, and `choke_retiring`, queued like a
   selection, fades every sound retiring at that boundary out over the choke time (its voices as a
   choke, its filter's tail with them) into the last two, so only one change's tail carries over.
+  Octet 0.2.3: `process()` returns `CLAP_PROCESS_SLEEP` once no voice is live, no context's output
+  filter rings (every context's tail is tracked now, the default's too, and a tail ends below a
+  24-bit step, since the engaged filter can settle on a tiny constant instead of 0) and no parameter
+  feedback waits. The feedback for a new sound on channel 1 carries only the values that differ
+  from the sound shown before, and what a full output queue refuses goes at the next process or
+  flush.
 
 ### 4.6 Real-time safety
 
