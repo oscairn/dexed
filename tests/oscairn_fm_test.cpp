@@ -4341,6 +4341,24 @@ int voiceBudgetTest() {
             check(t.ended.size() == 1 && t.hasEnded(100), "without one, Dexed's stealing: the oldest");
     }
 
+    // Parts sharing one instance (Oscairn RFC 0021): an entry per part, the sound its channel
+    // selects with the part's reserve and priority and limit 0. The default sound on channel 1 has
+    // three older notes, sound B on channel 2 three newer ones; at a limit of four, the default
+    // sound (priority 3) gives up one, down to its reserve of 2, and then B (priority 7) its oldest.
+    {
+        Budgeted t;
+        const uint32_t b = t.soundOnChannel1();
+        for (int k = 0; k < 3; k++)
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 1 + k, 0, 50 + 3 * k);
+        t.run();
+        for (int k = 0; k < 3; k++)
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 4 + k, 1, 62 + 3 * k);
+        t.run(4);
+        t.limit(4, { budgetFor(0, 0, 2, 3), budgetFor(b, 0, 1, 7) });
+        t.run(4);
+        check(t.ended.size() == 2 && t.hasEnded(1) && t.hasEnded(4), "each part's reserve and priority: notes 1 and 4 given up");
+    }
+
     std::printf("voice budget: limits, the order, notes and NOTE_END as the extension says\n");
     return 0;
 }
