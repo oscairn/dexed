@@ -706,6 +706,28 @@ void diagnostic(char *message, uint32_t capacity, const char *text) {
         std::snprintf(message, capacity, "%s", text);
 }
 
+int freeSlot(Plugin &s, int after = 0) {
+    for (int c = after + 1; c < contextCount; c++)
+        if (!s.slots[c].ready.load(std::memory_order_acquire))
+            return c;
+    return -1;
+}
+
+// Makes free slot c a prepared sound with a new ID (main thread).
+uint32_t publish(Plugin &s, int c, const char *name, const std::vector<double> &values, const uint8_t voiceName[10]) {
+    Slot &slot = s.slots[c];
+    // free: the audio thread does not touch this slot until it is selected
+    slot.prepared = values; // same size: no allocation
+    std::memcpy(slot.voiceName, voiceName, 10);
+    std::snprintf(slot.name, sizeof slot.name, "%s", name);
+    slot.id = s.nextId++;
+    slot.generation.fetch_add(1, std::memory_order_release);
+    slot.ready.store(true, std::memory_order_release);
+    if (!s.active) // nothing renders: load now, so get_value and state see it at once
+        s.load(c);
+    return slot.id;
+}
+
 uint32_t contextsPrepare(const clap_plugin_t *plugin, const char *name, const oscairn_sound_parameter_t *supplied, uint32_t count,
                          const char *patch, const oscairn_asset_ref_t *base, char *message, uint32_t capacity) {
     Plugin &s = self(plugin);
@@ -746,23 +768,12 @@ uint32_t contextsPrepare(const clap_plugin_t *plugin, const char *name, const os
         seen[i] = true;
         values[i] = v;
     }
-    for (int c = 1; c < contextCount; c++) {
-        Slot &slot = s.slots[c];
-        if (slot.ready.load(std::memory_order_acquire))
-            continue;
-        // free: the audio thread does not touch this slot until it is selected
-        slot.prepared = values; // same size: no allocation
-        std::memcpy(slot.voiceName, voiceName, 10);
-        std::snprintf(slot.name, sizeof slot.name, "%s", name);
-        slot.id = s.nextId++;
-        slot.generation.fetch_add(1, std::memory_order_release);
-        slot.ready.store(true, std::memory_order_release);
-        if (!s.active) // nothing renders: load now, so get_value and state see it at once
-            s.load(c);
-        return slot.id;
+    const int c = freeSlot(s);
+    if (c < 0) {
+        diagnostic(message, capacity, "no free sound context");
+        return CLAP_INVALID_ID;
     }
-    diagnostic(message, capacity, "no free sound context");
-    return CLAP_INVALID_ID;
+    return publish(s, c, name, values, voiceName);
 }
 
 int slotOf(Plugin &s, uint32_t id) {
@@ -838,15 +849,14 @@ bool snapshotSave(const clap_plugin_t *plugin, const clap_ostream_t *stream) {
     return writeAll(stream, out.str());
 }
 
-bool snapshotLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
-    Plugin &s = self(plugin);
+// A snapshot's sounds, read and validated: touches nothing of the plugin, so it is safe on the
+// main thread while rendering.
+struct Loaded { bool used = false; std::string name; std::vector<double> values; uint8_t voiceName[10]; };
+
+bool readSnapshot(const clap_istream_t *stream, Loaded (&loaded)[contextCount], int (&channels)[16]) {
     std::string text;
     if (!readAll(stream, text, maxStateBytes * contextCount))
         return false;
-    // validate everything first
-    struct Loaded { bool used = false; std::string name; std::vector<double> values; uint8_t voiceName[10]; };
-    Loaded loaded[contextCount];
-    int channels[16];
     std::istringstream in(text);
     in.imbue(std::locale::classic());
     std::string line;
@@ -898,6 +908,15 @@ bool snapshotLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     for (int ch = 0; ch < 16; ch++)
         if (!loaded[channels[ch]].used)
             return false;
+    return true;
+}
+
+bool snapshotLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
+    Plugin &s = self(plugin);
+    Loaded loaded[contextCount];
+    int channels[16];
+    if (!readSnapshot(stream, loaded, channels))
+        return false;
     // replace: exclusive, so this thread owns the engine; fresh IDs
     for (int c = 0; c < contextCount; c++) {
         Slot &slot = s.slots[c];
@@ -921,8 +940,39 @@ bool snapshotLoad(const clap_plugin_t *plugin, const clap_istream_t *stream) {
     return true;
 }
 
+// oscairn.sound-snapshots: every sound of a snapshot prepared as a new context beside the playing
+// ones (main thread, while rendering), all or nothing; nothing is selected. A sound's engine state is
+// loaded at its selection, as for prepare; the engine's tables are shared by every context already.
+bool snapshotsPrepare(const clap_plugin_t *plugin, const clap_istream_t *stream, uint32_t *selected, char *message, uint32_t capacity) {
+    Plugin &s = self(plugin);
+    if (stream == nullptr || selected == nullptr) {
+        diagnostic(message, capacity, "invalid arguments");
+        return false;
+    }
+    Loaded loaded[contextCount];
+    int channels[16];
+    if (!readSnapshot(stream, loaded, channels)) {
+        diagnostic(message, capacity, "not an octet-contexts 1 snapshot, or a bad line");
+        return false;
+    }
+    int slot[contextCount], found = -1;
+    for (int c = 0; c < contextCount; c++)
+        if (loaded[c].used && (slot[c] = found = freeSlot(s, found)) < 0) {
+            diagnostic(message, capacity, "no free sound contexts for the snapshot");
+            return false;
+        }
+    uint32_t ids[contextCount] = {};
+    for (int c = 0; c < contextCount; c++)
+        if (loaded[c].used)
+            ids[c] = publish(s, slot[c], loaded[c].name.c_str(), loaded[c].values, loaded[c].voiceName);
+    for (int ch = 0; ch < 16; ch++)
+        selected[ch] = ids[channels[ch]];
+    return true;
+}
+
 const clap_plugin_state_t snapshotExt = { snapshotSave, snapshotLoad };
 const oscairn_plugin_sound_contexts_t contextsExt = { contextsCapacity, contextsGet, contextsPrepare, contextsSelect, contextsDiscard, &snapshotExt };
+const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare };
 
 // ---- ports ----
 
@@ -991,6 +1041,7 @@ const clap_plugin_t *create(const clap_host_t *host) {
         if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audioPortsExt;
         if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &notePortsExt;
         if (std::strcmp(id, OSCAIRN_EXT_SOUND_CONTEXTS) == 0) return &contextsExt;
+        if (std::strcmp(id, OSCAIRN_EXT_SOUND_SNAPSHOTS) == 0) return &snapshotsExt;
         return nullptr;
     };
     s->plugin.on_main_thread = [](const clap_plugin_t *) {};

@@ -12,6 +12,7 @@
  *   oscairn-fm-test topology                         the 32 algorithm graphs, against renders
  *   oscairn-fm-test contexts                         native sound contexts (RFC 0005)
  *   oscairn-fm-test state-active                     state loads and flush while active, with contexts
+ *   oscairn-fm-test snapshots                        a snapshot's sounds prepared beside the playing ones
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
@@ -546,7 +547,15 @@ int threadsTest() {
     });
     // concurrent prepare, select and discard (RFC 0005: main thread, during processing)
     auto *ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
-    uint32_t prepared = 0;
+    auto *snapshots = static_cast<const oscairn_plugin_sound_snapshots_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+    check(snapshots != nullptr, "oscairn.sound-snapshots offered");
+    std::string snapshot; // one sound, prepared beside while processing
+    clap_ostream_t os { &snapshot, [](const clap_ostream_t *st, const void *buf, uint64_t size) -> int64_t {
+                           static_cast<std::string *>(st->ctx)->append(static_cast<const char *>(buf), size);
+                           return (int64_t)size;
+                       } };
+    check(ctx->state->save(h.plugin, &os), "snapshot save");
+    uint32_t prepared = 0, beside = 0;
     for (int i = 0; i < 300; i++) {
         for (uint32_t k = 1; k < ctx->capacity(h.plugin); k++) {
             oscairn_sound_context_info_t info;
@@ -554,6 +563,22 @@ int threadsTest() {
                 ctx->discard(h.plugin, info.id);
         }
         const oscairn_sound_parameter_t p[] = { { 1019, (double)(i % 4) } };
+        if (i % 10 == 5) {
+            struct Reader { const std::string *d; size_t pos; } r { &snapshot, 0 };
+            clap_istream_t is { &r, [](const clap_istream_t *st, void *buf, uint64_t size) -> int64_t {
+                                   auto *rr = static_cast<Reader *>(st->ctx);
+                                   const size_t n = std::min<size_t>(size, rr->d->size() - rr->pos);
+                                   std::memcpy(buf, rr->d->data() + rr->pos, n);
+                                   rr->pos += n;
+                                   return (int64_t)n;
+                               } };
+            uint32_t selected[16];
+            if (snapshots->prepare(h.plugin, &is, selected, nullptr, 0)) {
+                beside++;
+                ctx->select(h.plugin, selected[0], -1);
+            }
+            continue;
+        }
         const uint32_t id = ctx->prepare(h.plugin, "Concurrent", p, 1, nullptr, nullptr, nullptr, 0);
         if (id != CLAP_INVALID_ID) {
             prepared++;
@@ -564,6 +589,7 @@ int threadsTest() {
         std::this_thread::sleep_for(std::chrono::microseconds(200));
     }
     check(prepared > 7, "concurrent preparation reuses discarded contexts");
+    check(beside > 0, "snapshots prepared beside while processing");
     for (int i = 0; i < 200; i++) {
         double v;
         h.params->get_value(h.plugin, 1017, &v);
@@ -574,7 +600,7 @@ int threadsTest() {
     }
     done = true;
     audio.join();
-    std::printf("main-thread parameter reads, saves, loads and context prepare/select/discard while processing (%u prepared)\n", prepared);
+    std::printf("main-thread parameter reads, saves, loads and context prepare/select/discard while processing (%u prepared, %u snapshots beside)\n", prepared, beside);
     return 0;
 }
 
@@ -3129,6 +3155,183 @@ int contextsTest() {
     return 0;
 }
 
+// ---- snapshots prepared beside the playing sounds (oscairn.sound-snapshots) ----
+
+std::string saveSnapshot(Instrument &t) {
+    std::string saved;
+    clap_ostream_t os { &saved, [](const clap_ostream_t *st, const void *buf, uint64_t size) -> int64_t {
+                           static_cast<std::string *>(st->ctx)->append(static_cast<const char *>(buf), size);
+                           return (int64_t)size;
+                       } };
+    check(t.ctx->state->save(t.host.plugin, &os), "snapshot save");
+    return saved;
+}
+
+struct SnapshotReader {
+    const std::string *data;
+    size_t pos = 0;
+    clap_istream_t stream { this, [](const clap_istream_t *st, void *buf, uint64_t size) -> int64_t {
+                               auto *r = static_cast<SnapshotReader *>(st->ctx);
+                               const size_t n = std::min<size_t>(size, r->data->size() - r->pos);
+                               std::memcpy(buf, r->data->data() + r->pos, n);
+                               r->pos += n;
+                               return (int64_t)n;
+                           } };
+    explicit SnapshotReader(const std::string &d) : data(&d) {}
+};
+
+bool loadSnapshot(Instrument &t, const std::string &snapshot) {
+    SnapshotReader r(snapshot);
+    return t.ctx->state->load(t.host.plugin, &r.stream);
+}
+
+bool prepareSnapshot(const clap_plugin_t *plugin, const std::string &snapshot, uint32_t *selected, char *message = nullptr, uint32_t capacity = 0) {
+    auto *x = static_cast<const oscairn_plugin_sound_snapshots_t *>(plugin->get_extension(plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+    SnapshotReader r(snapshot);
+    return x != nullptr && x->prepare(plugin, &r.stream, selected, message, capacity);
+}
+
+uint32_t preparedCount(Instrument &t) {
+    oscairn_sound_context_info_t i;
+    uint32_t n = 0;
+    for (uint32_t k = 0; k < t.ctx->capacity(t.host.plugin); k++)
+        n += t.ctx->get(t.host.plugin, k, &i);
+    return n;
+}
+
+// Selects a prepared snapshot's sounds as the host does at the cue.
+void cue(Instrument &t, const uint32_t *selected) {
+    if (std::all_of(selected, selected + 16, [&](uint32_t id) { return id == selected[0]; }))
+        check(t.select(selected[0]), "select at the cue");
+    else
+        for (int16_t ch = 0; ch < 16; ch++)
+            check(t.select(selected[ch], ch), "select at the cue");
+}
+
+int snapshotsTest() {
+    {
+        Instrument t;
+        auto *x = static_cast<const oscairn_plugin_sound_snapshots_t *>(t.host.plugin->get_extension(t.host.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+        check(x != nullptr && x->prepare != nullptr, "oscairn.sound-snapshots offered");
+    }
+    // S: a brighter Default (all channels but 2) and sound B on channel 2.
+    std::string S;
+    {
+        Instrument s;
+        s.in.param(0, 1017, 70);
+        s.in.param(0, 1001, 40);
+        s.run();
+        check(s.select(s.prepare("B", soundB), 1), "S's second sound");
+        s.run();
+        S = saveSnapshot(s);
+    }
+    auto play = [](Instrument &t) {
+        std::vector<float> r;
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        t.in.note(CLAP_EVENT_NOTE_ON, 5, 2, 1, 67);
+        for (int k = 0; k < 40; k++) {
+            if (k == 20)
+                t.in.note(CLAP_EVENT_NOTE_OFF, 30, 1, 0, 60);
+            const auto &o = t.run();
+            r.insert(r.end(), o.begin(), o.end());
+        }
+        return r;
+    };
+    {
+        // Prepared beside the default sound and selected, S plays as S loaded.
+        Instrument loaded, beside;
+        check(loadSnapshot(loaded, S), "S loads");
+        loaded.run();
+        beside.run();
+        uint32_t selected[16];
+        const auto t0 = std::chrono::steady_clock::now();
+        check(prepareSnapshot(beside.host.plugin, S, selected), "S prepared beside");
+        const double prepareMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        check(preparedCount(beside) == 3, "two sounds added");
+        check(selected[0] != 0 && selected[1] != 0 && selected[0] != selected[1], "fresh IDs, one per sound");
+        for (int ch = 2; ch < 16; ch++)
+            check(selected[ch] == selected[0], "the Default's channels");
+        check(beside.info(selected[0]).selected_channels == 0 && beside.info(selected[1]).selected_channels == 0, "nothing selected");
+        cue(beside, selected);
+        // the cue's block, against a block that changes nothing (median of 25 each)
+        std::vector<double> cueUs, plainUs;
+        for (int k = 0; k < 25; k++) {
+            Instrument a, b;
+            uint32_t sel[16];
+            check(prepareSnapshot(a.host.plugin, S, sel), "S prepared beside");
+            a.run();
+            b.run();
+            cue(a, sel);
+            for (auto [t, us] : { std::pair{ &a, &cueUs }, std::pair{ &b, &plainUs } }) {
+                const auto t1 = std::chrono::steady_clock::now();
+                t->run();
+                us->push_back(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t1).count());
+            }
+        }
+        std::sort(cueUs.begin(), cueUs.end());
+        std::sort(plainUs.begin(), plainUs.end());
+        beside.run();
+        loaded.run();
+        const auto a = play(loaded), b = play(beside);
+        check(a == b && audible(a), "a snapshot prepared beside and selected plays as the snapshot loaded");
+        std::printf("2 sounds prepared beside in %.3f ms; the cue's 512-frame block %.1f us, a block without one %.1f us (medians)\n", prepareMs,
+                    cueUs[12], plainUs[12]);
+    }
+    {
+        // A note held on the outgoing sound rings out beside the incoming one, which plays as alone.
+        Instrument mixed, old, fresh;
+        const std::vector<oscairn_sound_parameter_t> slow = { { 1019, 2 }, { 1004, 40 } }; // a release of about a second
+        const uint32_t x = mixed.prepare("slow", slow);
+        check(mixed.select(x) && old.select(old.prepare("slow", slow)) && loadSnapshot(fresh, S), "outgoing sound");
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 9, 0, 48);
+        old.in.note(CLAP_EVENT_NOTE_ON, 0, 9, 0, 48);
+        mixed.run();
+        old.run();
+        fresh.run();
+        uint32_t selected[16];
+        check(prepareSnapshot(mixed.host.plugin, S, selected), "S prepared beside a held note");
+        cue(mixed, selected);
+        mixed.in.note(CLAP_EVENT_NOTE_ON, 0, 10, 0, 72);
+        fresh.in.note(CLAP_EVENT_NOTE_ON, 0, 10, 0, 72);
+        for (int k = 0; k < 8; k++)
+            same(mixed.run(), old.run(), fresh.run(), "the held note keeps the outgoing sound; the new one plays the incoming");
+        check(audible(old.out) && audible(fresh.out), "both are heard");
+        check(!mixed.discard(x), "a sounding outgoing sound cannot be discarded");
+        mixed.in.note(CLAP_EVENT_NOTE_OFF, 0, 9, 0, 48);
+        old.in.note(CLAP_EVENT_NOTE_OFF, 0, 9, 0, 48);
+        same(mixed.run(), old.run(), fresh.run(), "the outgoing note is released");
+        check(mixed.info(x).active_voices == 1 && !mixed.info(x).idle && !mixed.discard(x), "its release rings and pins it");
+        int blocks = 1;
+        while (!mixed.info(x).idle && blocks < 2000) {
+            same(mixed.run(), old.run(), fresh.run(), "the outgoing release rings out");
+            blocks++;
+        }
+        std::printf("the outgoing sound rang out for %.2f s after its note-off\n", blocks * 512 / 48000.0);
+        check(mixed.info(x).idle && mixed.discard(x), "then it is discarded");
+        check(mixed.info(selected[0]).active_voices == 1, "the incoming sound plays on");
+    }
+    {
+        // All or nothing: a bad snapshot, or too few free contexts, adds nothing and says why.
+        Instrument full;
+        uint32_t selected[16];
+        char message[128] = "";
+        check(!prepareSnapshot(full.host.plugin, "octet-contexts 1\nnonsense\n", selected, message, sizeof message) && *message, "a bad snapshot is refused");
+        std::string missingDefault = S;
+        missingDefault.replace(missingDefault.find("context 0 "), 10, "context 7 ");
+        check(!prepareSnapshot(full.host.plugin, missingDefault, selected), "a snapshot without its Default is refused");
+        std::vector<uint32_t> ids;
+        for (int k = 0; k < 6; k++)
+            ids.push_back(full.prepare("filler", {}));
+        *message = 0;
+        check(!prepareSnapshot(full.host.plugin, S, selected, message, sizeof message) && *message && preparedCount(full) == 7,
+              "too few free contexts: nothing added");
+        std::printf("refused: %s\n", message);
+        check(full.discard(ids.back()) && prepareSnapshot(full.host.plugin, S, selected) && preparedCount(full) == 8, "two free contexts are enough");
+    }
+    std::printf("prepared beside equals loaded, held notes ring out on the outgoing sound, all or nothing\n");
+    return 0;
+}
+
 // ---- state and flush while active ----
 
 std::string stateWith(Host &h, clap_id id, double v) {
@@ -3280,6 +3483,8 @@ int main(int argc, char **argv) {
         return contextsTest();
     if (cmd == "state-active")
         return stateActiveTest();
+    if (cmd == "snapshots")
+        return snapshotsTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }
