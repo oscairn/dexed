@@ -568,6 +568,28 @@ Plan:
   feedback waits. The feedback for a new sound on channel 1 carries only the values that differ
   from the sound shown before, and what a full output queue refuses goes at the next process or
   flush.
+- **Voice budget (nineteenth session, decision 85):** Octet 0.3.0 offers
+  `oscairn.voice-budget/draft-1` (Oscairn RFC 0018 step 4). The engine is not the SDK's
+  sound-contexts Engine, so Octet keeps its own pool and uses the SDK's `voices::Limits`,
+  `voices::Candidate`, `voices::victim()` and `voices::Report` (`voice-budget-plugin.hpp`, vendored),
+  through one hook in the engine (`SynthEngine::VoiceGiver`; without one, as in the desktop Dexed,
+  nothing changes). At the start of each block, voices past a lowered limit (the instance's, or a
+  sound's own, a sound found by the ID of the preparation its slot holds or as one a channel selects)
+  fade out over the choke time, 3 ms; a new note past a limit makes room the same way first. The
+  order is the SDK's: never a held voice of a mono sound (Octet's own Mono, or an Extended sound's
+  Mono/Poly at mono) or of a host entry marked mono or legato, nor a held voice within its sound's
+  reserve unless the new voice is that sound's; released before held (a key up counts as released,
+  pedal or not); the new voice's own sound first; lower priority, quieter, older. `NOTE_END` comes
+  once a given-up voice's fade is over (each note has one voice). `active_voices` counts the voices
+  sounding, fading ones included, with no cost estimate (0; the host measures the instance);
+  `notes` gives each sounding note by the address the host gave it, with its loudness: the loudest
+  carrier's gain now (envelope, operator level and velocity: about 1 at level 99 without velocity
+  sensitivity, more with it; an Extended voice times its mix gain), through any fade. A released voice holding an audible
+  release level (decision 84) counts as released and is as quiet as that level (level 20 reads
+  about 0.001). `honors_volume` is false: Octet has no note expressions yet. With every voice
+  sounding, a new note takes a voice in the same order (one already fading first) while the host
+  has set any limit; without limits it keeps Dexed's stealing (known differences register). Oscairn
+  carries the extension only in-process so far: a plugin in a worker is budgeted as one without it.
 
 ### 4.6 Real-time safety
 
@@ -1124,6 +1146,18 @@ Deliberate (decided):
   at coarse 31 with fine above 100 is not stable (13.0 in one campaign, 6.658 in another; c31f100
   3660 cents from the documented ratio in `m14s`); Octet plays the documented ratio. `extRatio`,
   `extRatioSteps` (`msfa/ext_tables.cc`); `pitch2`, `m14s`, `fm/compare.py`.
+
+- **Voice stealing under a voice budget** (decision 85, proposed): while Oscairn has set voice
+  limits (`oscairn.voice-budget`), a full pool of 16 and voices past a limit go in the SDK's order
+  (released before held, the new voice's own sound, lower priority, quieter, older; never a held
+  mono key or a sound's reserve), where Dexed takes, among voices that all sound, a released one
+  before a held one, then the same key, then the oldest. Without limits Dexed's stealing is
+  unchanged (the 164 Classic cases are bit-identical). The reference's own stealing order is not
+  measured. Why: Oscairn RFC 0018's order, so the host and Octet agree on what is least audible.
+  Reproduce: `oscairn-fm-test voice-budget`, last case (16 held notes, the sixth at velocity 0.3:
+  with a budget it is the one given up; the same case without limits gives up the oldest, checked
+  once by hand in the nineteenth session, not by a test). Code `Plugin::steal`, `Plugin::victim` (`oscairn/OscairnFm.cpp`), the hook in
+  `SynthEngine::keydown`.
 
 Pitch ranges past the reference's (Jacob: no ceiling on pitch shift or transpose, even where the
 reference has one; deliberate):
@@ -1923,6 +1957,16 @@ ARM64 hardware is still not measured.
     reference does; nothing changes (levels 1-11 play as silence and end the note, `7f59025`).
     Oscairn's ring-out cut-offs and its voice stealing, still to come, deal with such voices; to be
     revisited if they turn out not to.
+85. Voice budget (nineteenth session; proposed, for Jacob to confirm): Octet offers
+    `oscairn.voice-budget/draft-1` with the SDK's order (section 4.5). Choices: the full pool uses
+    that order only while Oscairn has set a limit, because the Classic baseline's poly scenario
+    steals (18 notes on 16 voices) and the SDK's order (quietest before oldest among released
+    voices) changed 106 of its 164 cases; without limits Dexed's stealing is unchanged. Loudness is
+    the loudest carrier's gain, no cost estimate is given, and `honors_volume` is false. Decision
+    84's voices go first once a budget is set (released, and quiet at their hold level); without
+    one Dexed's +2 for a key up already prefers them to held voices. Questions 4 and 40 stay open
+    for the pool size, the context count and mono hand-over: a held mono key is now kept from
+    another sound's new voice under a budget, but without one Dexed's stealing can still take it.
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
@@ -3042,6 +3086,51 @@ for those three the x86_64 cases are covered only by CI's Linux x86_64 job.
 CI on `610df88`, `8c70eee`, `cb8d3b6`, `2b967b7`, `a8ad4e7`, `2c32a8c`, `5f78f85` and `d92947b`:
 `oscairn-tests` all 5 jobs passed on each; `dexed-pipeline` Linux Build and Windows Build passed on
 each, and its macOS Build was cancelled about a second after it started on each (not looked into).
+
+### Nineteenth session (2026-11-06): voice budget
+
+Oscairn read at `2f05937` (`oscairn/oscairn` main, "Add oscairn.voice-budget/draft-1"; the local
+clone could not pull over SSH and was already there): `voice-budget.h`, the SDK's
+`voice-budget-plugin.hpp`, the porting guide's voice budget section and RFC 0018 step 4. Both headers
+were vendored unchanged; the other three had not changed since `b9e90c7`. Octet's engine has its own
+pool, not the SDK's sound-contexts Engine, so it uses the SDK's `voices::` helpers (section 4.5,
+decision 85, the register's voice stealing entry). Octet 0.3.0.
+
+Commits: `cd0628b` (headers), `02034a8` (the extension, the engine hook and the test), then the
+version and this entry.
+
+**Test** `oscairn-fm-test voice-budget` (CTest `oscairn-fm-voice-budget`), in blocks of 64 frames at
+48 kHz: six held notes, the limit lowered to four: from that block's start the oldest two fade out (3
+ms), are still counted and listed (more quietly) while they fade, get `NOTE_END` only in the block in
+which the fade ends, and are gone after it but for the output DC filter's smoothly decaying offset
+(compared with an instance playing only the four kept notes; largest step during the fade 0.0016
+against the notes' own 0.0012 and their level 0.048); then the order: a released note before a held
+one that is quieter and older, an Extended note holding release level 20 (loudness about 0.001 against
+1.05 held) before a held one, the quietest held note and then the oldest, the new note's own sound
+before another's older note, the lower priority, a sound's reserve (kept for another sound's note,
+given up for its own), a sound no channel selects (no entry, priority 0) before the selected one, a
+mono sound's held key kept, and a full pool: the quietest held voice with a budget, Dexed's oldest
+without. Each part was checked to fail with its change undone: without the block-start check (the
+oldest do not fade), with a cut instead of the fade (the voices stop being counted at once; with that
+check bypassed, the step check fails at 0.032; the older `jump < level` threshold of the choke test
+would not have caught it, so the test adds a step limit of the notes' own steps plus level / 64),
+with `NOTE_END` sent at the give-up, with every voice taken as held, without loudness, with every
+voice in context 0, without the mono flag, without the selected flag, without room made for a new
+note (the fade then starts a block late), with Dexed's choice for a full pool under a budget, with the
+order for a full pool without one, with fading voices left out of `active_voices` or `notes`, and
+without the `get_extension` line.
+
+**Tests run.** On `cd0628b` and `02034a8`, each on its committed tree (the headers commit in a worktree;
+Oscairn's host tests against an Oscairn build of `2f05937` outside its repo): Release CTest 39/39 and
+40/40 (the 164 Classic cases bit-identical through engine, JUCE plugin and native CLAP on arm64);
+ASan/UBSan 22/22 and 23/23; TSan (`engine-two-rates`, `fm-threads`, as CI) 2/2 on each; under Rosetta
+the x86_64 baseline (engine, plugin, CLAP: 164 of 164), the Extended test, and on `02034a8` the voice
+budget test. The sanitizer builds were checked to link the ASan and TSan runtimes and to carry their
+instrumentation in Octet's objects. `oscairn-plugin-check … org.oscairn.fm synth --param 1017=70`
+PASSED in-process against Oscairn `2f05937` (whose host checks every entry of the extension when it
+loads a plugin). Oscairn's worker protocol does not carry the extension yet, so in a worker Octet is
+budgeted as a plugin without it; nothing here tests that path with the extension. The version commit's
+gates and CI are in the session report.
 
 ### Fifth session (2026-10-31): tests run
 
