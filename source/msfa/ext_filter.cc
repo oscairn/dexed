@@ -111,7 +111,8 @@ void ExtFilter::set(const Setting &st, double sampleRate, bool jump) {
     // where the filter would turn unstable
     // shortcut: the reference's limit above F = 1 is unmeasured except at LPF18s resonance 64
     const float F2 = std::min(F * (float)st.ratio2, 1.75f);
-    const float d2 = F2 > 1 ? std::min((float)(1 / std::max(st.q, 0.01)), 0.9f * (2 / F2 - F2 / 2)) : d;
+    const float d2 = F2 > 1 ? std::min((float)(1 / std::max(st.q, 0.01)), 0.9f * (2 / F2 - F2 / 2))
+                            : std::min(d, 0.95f * (2 / F2 - F2 / 2)); // (d's own limit is for F, not F2)
     switch (type) {
     case Lpf24A: // a Q-1 section, then the resonant one
         s_[0].target(F1, d1, n_, jump);

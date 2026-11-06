@@ -2452,6 +2452,19 @@ int extendedTest() {
         }
         expect(ended, "a note whose carrier holds a silent release level ends");
     }
+    {
+        // The dual types' second section stays stable where its F (the first's times the
+        // distance ratio) is still below 1: at 3 kHz with distance +20 its damping had to be
+        // limited as the first section's is.
+        int cutoff = 0;
+        while (cutoff < 1023 && extFilterCutoffHz(cutoff) < 3000)
+            cutoff++;
+        const auto x = renderExtended({ { 60, extfilter::DualLpf }, { 61, cutoff }, { 63, 0 }, { 66, 20 }, { 1048, 0 } }, 60, 1.0, 0.1, 1.5);
+        float late = 0;
+        for (size_t i = 48000; i < x.size(); i++)
+            late = std::max(late, std::fabs(x[i]));
+        expect(late < 1e-4f, "a dual filter below F = 1 decays after the note (largest sample after 1 s: " + std::to_string(late) + ")");
+    }
     std::printf("Extended profile: envelope, pitch and LFO rates against the tables, init sound, conversion %s\n",
                 failures ? "FAILED" : "pass");
     return failures == 0 ? 0 : 1;
