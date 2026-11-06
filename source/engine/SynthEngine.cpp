@@ -280,8 +280,10 @@ void SynthEngine::selectContext(int c, int channel) {
 }
 
 unsigned SynthEngine::controllerTargets(int ch) {
-    if ( !perChannel || (contexts[0].ctrl.mpeEnabled && ch == 1) )
+    if ( !perChannel )
         return 0xffff;
+    if ( contexts[0].ctrl.mpeEnabled && ch == 1 ) // the MPE master: every channel playing its sound
+        return contexts[selected[0]].selectedChannels;
     return 1u << ((ch - 1) & 15);
 }
 
@@ -1134,7 +1136,8 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
     uint8_t cmd = buf[0];
     uint8_t cf0 = cmd & 0xf0;
 
-    if( controllers.mpeEnabled && channel != 1 &&
+    // (MPE members: the channels playing channel 1's sound; others are parts of their own)
+    if( controllers.mpeEnabled && channel != 1 && selected[(channel - 1) & 15] == selected[0] &&
         (
             (cf0 == 0xb0 && buf[1] == 74 ) || //timbre
             (cf0 == 0xd0 ) || // aftertouch

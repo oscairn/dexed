@@ -3006,6 +3006,30 @@ int contextsTest() {
         check(audible(a.out) && audible(b.out), "both parts are heard");
     }
     {
+        // Each part's pitch bend reaches only that part, though MPE detection is still on (one note
+        // per channel): MPE's master and member channels are those playing channel 1's sound.
+        Instrument parts, a, b;
+        parts.select(parts.prepare("A", soundA), 0);
+        parts.select(parts.prepare("B", soundB), 1);
+        a.select(a.prepare("A", soundA));
+        b.select(b.prepare("B", soundB));
+        parts.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        parts.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 1, 67);
+        a.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        b.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 0, 67);
+        same(parts.run(), a.run(), b.run(), "channel parts equal independent instances");
+        const uint8_t up1[] = { 0xE0, 0, 110 }, down2[] = { 0xE1, 0, 20 }, down1[] = { 0xE0, 0, 20 };
+        parts.in.midi(0, up1, 3);
+        a.in.midi(0, up1, 3);
+        for (int k = 0; k < 5; k++)
+            same(parts.run(), a.run(), b.run(), "channel 1's bend reaches its part alone");
+        parts.in.midi(0, down2, 3);
+        b.in.midi(0, down1, 3);
+        for (int k = 0; k < 5; k++)
+            same(parts.run(), a.run(), b.run(), "channel 2's bend reaches its part alone, as a channel bend");
+        check(audible(a.out) && audible(b.out), "both parts are heard");
+    }
+    {
         Instrument bounded;
         std::vector<uint32_t> ids;
         for (int k = 0; k < 7; k++)
