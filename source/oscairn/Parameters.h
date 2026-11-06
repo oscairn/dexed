@@ -33,7 +33,7 @@ enum class Setting {
     None, Engine, Mono, PortamentoTime, Glissando, PitchBendUp, PitchBendDown, PitchBendStep,
     WheelRange, WheelPitch, WheelAmp, WheelEg, FootRange, FootPitch, FootAmp, FootEg,
     BreathRange, BreathPitch, BreathAmp, BreathEg, AftertouchRange, AftertouchPitch, AftertouchAmp,
-    AftertouchEg, MasterTune, Cutoff, Resonance, Output
+    AftertouchEg, MasterTune, Cutoff, Resonance, Output, OutputBus
 };
 
 enum class Text { Number, Signed, Choice, Note, Switch, Percent, Tune, Key };

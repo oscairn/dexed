@@ -115,6 +115,7 @@
 131 | Filter | Cutoff | 0 | 1 | 1 | continuous
 132 | Filter | Resonance | 0 | 1 | 0 | continuous
 133 | Amp | Output | 0 | 1 | 1 | continuous
+134 | Amp | Output Bus | 0 | 8 | 0 | stepped enum
 200 | Extended/Part LFO | Phase | 0 | 5 | 0 | stepped enum
 201 | Extended/Part LFO | Wave | 0 | 12 | 0 | stepped enum
 202 | Extended/Part LFO | Speed | 0 | 63 | 32 | stepped

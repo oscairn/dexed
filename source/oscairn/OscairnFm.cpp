@@ -21,6 +21,7 @@
 #include "Presets.h"
 
 #include <oscairn-clap/sound-contexts.h>
+#include <oscairn-clap/ui.h>
 #include <oscairn-clap/voice-budget-plugin.hpp>
 
 #include <algorithm>
@@ -62,6 +63,8 @@ constexpr const char *snapshotHeader = "octet-contexts 1";
 constexpr size_t maxStateBytes = 1 << 16;
 constexpr int contextCount = SynthEngine::MAX_CONTEXTS;
 constexpr int queueSize = 32;
+constexpr uint32_t busCount = 8; // sound buses beside Main, one for each sound (Oscairn parts sharing one instance)
+constexpr clap_id outputBusParam = 134;
 
 struct Plugin;
 Plugin &self(const clap_plugin_t *p);
@@ -321,6 +324,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         case Setting::Cutoff: x.fx.uiCutoff = f; break;
         case Setting::Resonance: x.fx.uiReso = f; break;
         case Setting::Output: x.fx.uiGain = f; break;
+        case Setting::OutputBus: x.nextBus = (int)f; return; // applied between blocks (applyOutputBuses)
         case Setting::None: break;
         default: {
             const int k = (int)s - (int)Setting::WheelRange;
@@ -527,6 +531,7 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     s.now = 0;
     s.beforeEvents(); // before this call's events (RFC 0005)
     s.keepWithinLimits();
+    s.engine.applyOutputBuses();
     if (process->transport != nullptr && (process->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) != 0)
         s.engine.setTempo(process->transport->tempo);
     const uint32_t frames = process->frames_count;
@@ -537,8 +542,17 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
         left = bus.channel_count > 0 ? bus.data32[0] : nullptr;
         right = bus.channel_count > 1 ? bus.data32[1] : nullptr;
     }
+    // the sound buses: silent unless a sound plays there
+    float *buses[2 * busCount] = {};
+    const uint32_t ports = std::min(process->audio_outputs_count, busCount + 1);
+    for (uint32_t b = 1; b < ports; b++) {
+        const auto &bus = process->audio_outputs[b];
+        for (uint32_t ch = 0; ch < 2 && bus.data32 != nullptr && ch < bus.channel_count; ch++)
+            if ((buses[2 * (b - 1) + ch] = bus.data32[ch]) != nullptr)
+                std::memset(bus.data32[ch], 0, sizeof(float) * frames);
+    }
     if (left != nullptr && frames > 0) {
-        s.engine.render(left, right, (int)frames, events, s.ringOut);
+        s.engine.render(left, right, (int)frames, events, s.ringOut, buses, (int)(ports > 0 ? ports - 1 : 0));
     } else {
         events.dispatchUntil(INT32_MAX);
     }
@@ -1223,15 +1237,19 @@ const oscairn_plugin_voice_budget_t voiceBudgetExt = { voiceBudgetHonorsVolume, 
 
 // ---- ports ----
 
-uint32_t audioPortsCount(const clap_plugin_t *, bool isInput) { return isInput ? 0 : 1; }
+// Main, then a bus for each sound (the Output Bus parameter, by port index)
+uint32_t audioPortsCount(const clap_plugin_t *, bool isInput) { return isInput ? 0 : 1 + busCount; }
 
 bool audioPortsGet(const clap_plugin_t *, uint32_t index, bool isInput, clap_audio_port_info_t *info) {
-    if (isInput || index != 0)
+    if (isInput || index > busCount)
         return false;
     *info = {};
-    info->id = 0;
-    std::snprintf(info->name, sizeof info->name, "Main");
-    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+    info->id = index;
+    if (index == 0)
+        std::snprintf(info->name, sizeof info->name, "Main");
+    else
+        std::snprintf(info->name, sizeof info->name, "Bus %u", index);
+    info->flags = index == 0 ? CLAP_AUDIO_PORT_IS_MAIN : 0;
     info->channel_count = 2;
     info->port_type = CLAP_PORT_STEREO;
     info->in_place_pair = CLAP_INVALID_ID;
@@ -1239,6 +1257,27 @@ bool audioPortsGet(const clap_plugin_t *, uint32_t index, bool isInput, clap_aud
 }
 
 const clap_plugin_audio_ports_t audioPortsExt = { audioPortsCount, audioPortsGet };
+
+// ---- oscairn.ui ----
+
+// The Output Bus's role; and, since a plugin declaring any role gets no roles from its names, the
+// roles Oscairn took from these parameters' names before Octet declared one.
+bool paramHint(const clap_plugin_t *, clap_id id, oscairn_param_hint_t *hint) {
+    uint32_t role = OSCAIRN_ROLE_NONE;
+    const uint32_t n = id % 1000;
+    if (id == outputBusParam) role = OSCAIRN_ROLE_OUTPUT_BUS;
+    else if (id == 61 || id == 131) role = OSCAIRN_ROLE_CUTOFF;
+    else if (id == 63 || id == 132) role = OSCAIRN_ROLE_RESONANCE;
+    else if (id == 207) role = OSCAIRN_ROLE_HOLD;
+    else if (id >= 248 && id <= 251) role = OSCAIRN_ROLE_ATTACK + (id - 248);
+    else if (id >= 1000 && id < 9000 && (n == 51 || (n == 17 && id < 7000))) role = OSCAIRN_ROLE_LEVEL;
+    if (role == OSCAIRN_ROLE_NONE || indexOf(id) < 0)
+        return false;
+    *hint = { id == outputBusParam ? (uint32_t)OSCAIRN_WIDGET_LIST : (uint32_t)OSCAIRN_WIDGET_AUTO, 0, CLAP_INVALID_ID, 0, role };
+    return true;
+}
+
+const oscairn_plugin_ui_t uiExt = { paramHint };
 
 uint32_t notePortsCount(const clap_plugin_t *, bool isInput) { return isInput ? 1 : 0; }
 
@@ -1295,6 +1334,7 @@ const clap_plugin_t *create(const clap_host_t *host) {
         if (std::strcmp(id, OSCAIRN_EXT_SOUND_CONTEXTS) == 0) return &contextsExt;
         if (std::strcmp(id, OSCAIRN_EXT_SOUND_SNAPSHOTS) == 0) return &snapshotsExt;
         if (std::strcmp(id, OSCAIRN_EXT_VOICE_BUDGET) == 0) return &voiceBudgetExt;
+        if (std::strcmp(id, OSCAIRN_EXT_UI) == 0) return &uiExt;
         if (std::strcmp(id, CLAP_EXT_PRESET_LOAD) == 0 || std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT) == 0) return &presetLoadExt;
         return nullptr;
     };

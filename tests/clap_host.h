@@ -131,6 +131,8 @@ struct Host {
     uint32_t maxFrames = 0;
     bool active = false;
     std::vector<float> left, right;
+    uint32_t ports = 1;                     // stereo output ports given to process: the main one, then buses
+    std::vector<std::vector<float>> buses;  // ports after the main one, left and right of each
     EventList output;
 
     Host(const clap_plugin_entry_t *entry, const char *id = "org.oscairn.fm") {
@@ -165,6 +167,7 @@ struct Host {
         maxFrames = frames;
         left.assign(frames, 0.0f);
         right.assign(frames, 0.0f);
+        buses.assign(2 * (ports - 1), std::vector<float>(frames, 0.0f));
         output.events.reserve(4096);
         check(plugin->activate(plugin, sampleRate, 1, frames), "activate");
         check(plugin->start_processing(plugin), "start processing");
@@ -174,15 +177,21 @@ struct Host {
     // Renders frames (<= maxFrames) with the given input events; output events go to output.
     // Returns the status: continue, or sleep when nothing sounds.
     clap_process_status process(uint32_t frames, const EventList &in) {
-        float *channels[2] = { left.data(), right.data() };
-        clap_audio_buffer_t out {};
-        out.data32 = channels;
-        out.channel_count = 2;
+        float *channels[2 * 16] = { left.data(), right.data() };
+        clap_audio_buffer_t out[16] {};
+        for (uint32_t b = 0; b < ports && b < 16; b++) {
+            if (b > 0) {
+                channels[2 * b] = buses[2 * (b - 1)].data();
+                channels[2 * b + 1] = buses[2 * (b - 1) + 1].data();
+            }
+            out[b].data32 = channels + 2 * b;
+            out[b].channel_count = 2;
+        }
         clap_process_t p {};
         p.steady_time = -1;
         p.frames_count = frames;
-        p.audio_outputs = &out;
-        p.audio_outputs_count = 1;
+        p.audio_outputs = out;
+        p.audio_outputs_count = ports;
         const clap_input_events_t input = in.input();
         const clap_output_events_t outEvents = output.output();
         p.in_events = &input;

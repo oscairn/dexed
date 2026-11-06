@@ -62,6 +62,7 @@ struct ProcessorVoice {
     NoteRef ref;             // the note that started this voice
     bool noteActive = false; // the host has not been told the note ended
     int context = 0;         // the sound (SynthContext) the voice plays
+    int bus = 0;             // the output bus its sound had when it started (SynthContext::bus)
     int fadeLeft = 0;        // choked: samples left of the fade-out (of fadeTotal)
     int fadeTotal = 0;
     bool fadeSquared = false; // the fade's gain is (left / total) squared (a note started again)
@@ -105,6 +106,19 @@ struct SynthContext {
     // rendering into the ring-out buffer's second pair until it goes silent
     int chokeLeft = 0, chokeTotal = 0;
     bool choked = false;
+
+    // Output buses (Octet: parts sharing one instance). New voices play on `bus`; a voice keeps the
+    // bus it started on, so after a change the voices still on the bus before play through
+    // `previous`, with an output filter of its own. nextBus is the setting, applied by
+    // applyOutputBuses() between blocks. Bus 0 is the main output.
+    int bus = 0, nextBus = 0;
+    struct Lane {
+        int bus = 0;
+        PluginFx fx, fxRight; // fx's settings are the context's
+        float extra_buf[N], extra_bufRight[N];
+        std::vector<float> block, blockRight;
+        bool rendering = false, tail = false;
+    } previous;
 
     // published by publishContextState() for the main thread
     std::atomic<uint32_t> activeVoices { 0 };
@@ -194,7 +208,13 @@ public:
     // selects is added to its first two channels instead of to left and right, or to its last two
     // once chokeRetiring choked it: Oscairn's ring-out buffer for sounds retiring after a
     // Performance change.
-    void render(float *left, float *right, int numSamples, EventSource &events, float *const *ring = nullptr);
+    // With buses (busCount stereo pairs, left and right, for buses 1 to busCount, added to; a pointer
+    // may be null), a context on bus b > 0 plays there instead of on left and right; a voice on a bus
+    // past busCount is not heard. Only bus 0 rings out into ring.
+    void render(float *left, float *right, int numSamples, EventSource &events, float *const *ring = nullptr,
+                float *const *buses = nullptr, int busCount = 0);
+    // Between blocks: each context's nextBus becomes the bus its new voices play on.
+    void applyOutputBuses();
 
     // A short MIDI channel message (not SysEx). channel is 1-16.
     MidiResult processMidiMessage(const uint8_t *buf, int channel);
@@ -280,7 +300,7 @@ private:
     Controllers &voiceCtrl(int c, int ch) { return perChannel ? channelCtrl[c][(ch - 1) & 15] : contexts[c].ctrl; }
     // the channels (bit mask) a controller message on channel ch (1-16) reaches
     unsigned controllerTargets(int ch);
-    void processRight(SynthContext &x, float *right, int numSamples);
+    void processRight(const PluginFx &settings, PluginFx &fxRight, float *right, int numSamples);
 
     // Extra buffering for when GetSamples wants a buffer not a multiple of N (the samples
     // are per context; the count is shared, so every context keeps the same 64-sample grid)

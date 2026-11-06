@@ -41,6 +41,7 @@
 #include "msfa/lfo.h"
 #include "msfa/synth.h"
 #include <oscairn-clap/sound-contexts.h>
+#include <oscairn-clap/ui.h>
 #include <oscairn-clap/voice-budget.h>
 
 #include <algorithm>
@@ -537,8 +538,10 @@ int noAllocTest() {
         }
     }
     {
-        // sound contexts: selections loaded and applied inside process, several sounds playing
+        // sound contexts: selections loaded and applied inside process, several sounds playing, on
+        // output buses that change as they play
         Host h(entry);
+        h.ports = 9;
         h.activate(48000, 512);
         auto *ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
         const oscairn_sound_parameter_t b[] = { { 1019, 2 }, { 1017, 90 } };
@@ -552,6 +555,7 @@ int noAllocTest() {
             in.note(CLAP_EVENT_NOTE_ON, 0, k, (int16_t)(k % 16), 40 + k);
             in.note(CLAP_EVENT_NOTE_OFF, 300, k - 3, -1, -1);
             in.param(10, 1017, 50 + k);
+            in.param(20, 134, k % 9);
             h.output.clear();
             forbidAllocation = true;
             h.process(512, in);
@@ -2884,10 +2888,11 @@ struct Instrument {
     const oscairn_plugin_sound_contexts_t *ctx;
     EventList in;
     std::vector<float> out;
-    explicit Instrument(bool activate = true) : host(entry) {
+    explicit Instrument(bool activate = true, uint32_t ports = 1) : host(entry) {
         ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(host.plugin->get_extension(host.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
         check(ctx != nullptr, "sound contexts extension");
         in.events.reserve(64);
+        host.ports = ports;
         if (activate)
             host.activate(48000, 512);
     }
@@ -4340,6 +4345,249 @@ int voiceBudgetTest() {
     return 0;
 }
 
+
+// ---- output buses: parts sharing one instance (Oscairn RFC 0021) ----
+
+void paramOn(EventList &e, uint32_t time, int16_t channel, clap_id id, double value) {
+    clap_event_param_value_t p {};
+    p.header = { sizeof p, time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 };
+    p.param_id = id;
+    p.note_id = -1;
+    p.port_index = -1;
+    p.channel = channel;
+    p.key = -1;
+    p.value = value;
+    e.push(p);
+}
+
+// the first `frames` samples of x and y are equal (within `within`)
+bool sameFor(const std::vector<float> &x, const std::vector<float> &y, uint32_t frames, double within = 0) {
+    for (uint32_t i = 0; i < frames; i++)
+        if (std::fabs((double)x[i] - y[i]) > within)
+            return false;
+    return true;
+}
+
+bool silentFor(const std::vector<float> &x, uint32_t frames) {
+    return std::all_of(x.begin(), x.begin() + frames, [](float v) { return v == 0; });
+}
+
+int busesTest() {
+    constexpr clap_id busParam = 134;
+    {
+        Host h(entry);
+        auto *ports = static_cast<const clap_plugin_audio_ports_t *>(h.plugin->get_extension(h.plugin, CLAP_EXT_AUDIO_PORTS));
+        check(ports != nullptr && ports->count(h.plugin, false) == 9 && ports->count(h.plugin, true) == 0, "Main and eight buses, no input");
+        clap_audio_port_info_t info {};
+        for (uint32_t b = 0; b < 9; b++)
+            check(ports->get(h.plugin, b, false, &info) && info.id == b && info.channel_count == 2 &&
+                      ((info.flags & CLAP_AUDIO_PORT_IS_MAIN) != 0) == (b == 0),
+                  "port " + std::to_string(b) + ": stereo, the first the main one");
+        check(!ports->get(h.plugin, 9, false, &info), "no tenth port");
+        bool found = false;
+        for (uint32_t i = 0; i < h.params->count(h.plugin); i++) {
+            clap_param_info_t p {};
+            check(h.params->get_info(h.plugin, i, &p), "param info");
+            if (p.id == busParam)
+                found = (p.flags & CLAP_PARAM_IS_STEPPED) && !(p.flags & CLAP_PARAM_IS_READONLY) && p.min_value == 0 && p.max_value == 8 &&
+                        p.default_value == 0;
+        }
+        check(found, "the Output Bus: stepped, 0 (Main) to 8");
+        auto *ui = static_cast<const oscairn_plugin_ui_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_UI));
+        check(ui != nullptr && ui->param_hint != nullptr, "oscairn.ui");
+        // every role: the Output Bus's, and those Oscairn took from the names before Octet declared any
+        std::map<clap_id, uint32_t> roles = { { busParam, OSCAIRN_ROLE_OUTPUT_BUS }, { 61, OSCAIRN_ROLE_CUTOFF },  { 131, OSCAIRN_ROLE_CUTOFF },
+                                              { 63, OSCAIRN_ROLE_RESONANCE },     { 132, OSCAIRN_ROLE_RESONANCE }, { 207, OSCAIRN_ROLE_HOLD },
+                                              { 248, OSCAIRN_ROLE_ATTACK },       { 249, OSCAIRN_ROLE_DECAY },    { 250, OSCAIRN_ROLE_SUSTAIN },
+                                              { 251, OSCAIRN_ROLE_RELEASE } };
+        for (uint32_t n = 1; n <= 8; n++) {
+            if (n <= 6)
+                roles[1000 * n + 17] = OSCAIRN_ROLE_LEVEL;
+            roles[1000 * n + 51] = OSCAIRN_ROLE_LEVEL;
+        }
+        for (uint32_t i = 0; i < h.params->count(h.plugin); i++) {
+            clap_param_info_t p {};
+            h.params->get_info(h.plugin, i, &p);
+            oscairn_param_hint_t hint {};
+            const bool has = ui->param_hint(h.plugin, p.id, &hint);
+            check(has == (roles.count(p.id) > 0) && (!has || hint.role == roles[p.id]), "the role of parameter " + std::to_string(p.id));
+        }
+        oscairn_param_hint_t hint {};
+        ui->param_hint(h.plugin, busParam, &hint);
+        check(hint.widget == OSCAIRN_WIDGET_LIST, "the Output Bus as a list");
+    }
+
+    // Two parts on one instance, each its sound, channel and bus, play as two instances of their
+    // own, sample for sample, with a pitch bend and an edit on the second part's channel only.
+    std::vector<oscairn_sound_parameter_t> onBus1 = soundB;
+    onBus1.push_back({ busParam, 1 });
+    {
+        Instrument shared(true, 9), a, b;
+        const uint32_t x = shared.prepare("A", soundA), y = shared.prepare("B", onBus1);
+        check(x != CLAP_INVALID_ID && y != CLAP_INVALID_ID && shared.select(x, 0) && shared.select(y, 1), "A on channel 1, B on channel 2 and bus 1");
+        check(a.select(a.prepare("A", soundA)) && b.select(b.prepare("B", soundB)), "each sound alone");
+        bool heardA = false, heardB = false;
+        for (int block = 0; block < 60; block++) {
+            const uint32_t frames = block == 7 ? 37 : 512;
+            if (block == 1) {
+                shared.in.note(CLAP_EVENT_NOTE_ON, 5, 1, 0, 60);
+                shared.in.note(CLAP_EVENT_NOTE_ON, 9, 2, 1, 64);
+                a.in.note(CLAP_EVENT_NOTE_ON, 5, 1, 0, 60);
+                b.in.note(CLAP_EVENT_NOTE_ON, 9, 2, 0, 64);
+            }
+            if (block == 4) {
+                const uint8_t bend1[] = { 0xE1, 0, 100 }, bend0[] = { 0xE0, 0, 100 };
+                shared.in.midi(30, bend1, 3);
+                b.in.midi(30, bend0, 3);
+            }
+            if (block == 9) {
+                paramOn(shared.in, 0, 1, 1017, 70);
+                paramOn(b.in, 0, 0, 1017, 70);
+            }
+            if (block == 20) {
+                shared.in.note(CLAP_EVENT_NOTE_OFF, 3, 1, 0, 60);
+                shared.in.note(CLAP_EVENT_NOTE_OFF, 3, 2, 1, 64);
+                a.in.note(CLAP_EVENT_NOTE_OFF, 3, 1, 0, 60);
+                b.in.note(CLAP_EVENT_NOTE_OFF, 3, 2, 0, 64);
+            }
+            shared.run(frames);
+            a.run(frames);
+            b.run(frames);
+            const Host &s = shared.host;
+            check(sameFor(s.left, a.host.left, frames) && sameFor(s.right, a.host.right, frames), "the main output is part A's instance, block " + std::to_string(block));
+            check(sameFor(s.buses[0], b.host.left, frames) && sameFor(s.buses[1], b.host.right, frames), "bus 1 is part B's instance, block " + std::to_string(block));
+            for (size_t k = 2; k < s.buses.size(); k++)
+                check(silentFor(s.buses[k], frames), "the other buses are silent");
+            heardA = heardA || !silentFor(a.host.left, frames);
+            heardB = heardB || !silentFor(b.host.left, frames);
+        }
+        check(heardA && heardB && a.host.left != b.host.left, "both parts sound");
+    }
+
+    // A sound's bus changing while it plays: its held note plays on where it started, untouched,
+    // and the next note starts on the new bus (no click on either); a change back and a third bus
+    // follow.
+    {
+        Instrument t(true, 9), r, u; // r: the first note alone; u: every note on the main output
+        auto all = [&](auto f) { f(t); f(r); f(u); };
+        all([](Instrument &i) { i.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60); });
+        double before = 0; // the held note's largest step
+        for (int k = 0; k < 4; k++) {
+            all([](Instrument &i) { i.run(); });
+            for (int j = 1; j < 512; j++)
+                before = std::max(before, (double)std::fabs(t.host.left[j] - t.host.left[j - 1]));
+        }
+        paramOn(t.in, 100, 0, busParam, 1);
+        all([](Instrument &i) { i.run(); });
+        check(sameFor(t.host.left, r.host.left, 512) && silentFor(t.host.buses[0], 512), "the change: the held note plays on, alone");
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 0, 67);
+        u.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 0, 67);
+        double onset = 0;
+        for (int k = 0; k < 10; k++) {
+            all([](Instrument &i) { i.run(); });
+            check(sameFor(t.host.left, r.host.left, 512), "the held note on the main output as before, alone");
+            std::vector<float> second(512);
+            for (int j = 0; j < 512; j++)
+                second[j] = u.host.left[j] - r.host.left[j];
+            check(sameFor(t.host.buses[0], second, 512, 1e-5) && sameFor(t.host.buses[1], second, 512, 1e-5), "the new note on bus 1, as it plays beside the first");
+            for (int j = 1; k == 0 && j < 512; j++)
+                onset = std::max(onset, (double)std::fabs(t.host.buses[0][j] - t.host.buses[0][j - 1]));
+        }
+        check(onset > 0 && onset < 2 * before, "bus 1 starts as a note does");
+        // back to Main: both notes keep their buses; a third note joins the first on Main
+        paramOn(t.in, 0, 0, busParam, 0);
+        all([](Instrument &i) { i.run(); });
+        check(sameFor(t.host.left, r.host.left, 512) && !silentFor(t.host.buses[0], 512), "back to Main: each note where it started");
+        // a third bus while both still sound: the older notes fade out instead (as a choke), then it applies
+        paramOn(t.in, 0, 0, busParam, 2);
+        t.run(); // applied from the next block
+        check(!silentFor(t.host.buses[0], 512), "until the next block, as before");
+        t.run();
+        double fade = 0;
+        for (int j = 1; j < 512; j++)
+            fade = std::max(fade, (double)std::fabs(t.host.buses[0][j] - t.host.buses[0][j - 1]));
+        t.run();
+        float rest = 0;
+        for (int j = 0; j < 512; j++)
+            rest = std::max(rest, std::fabs(t.host.buses[0][j]));
+        std::printf("a third bus: largest step in the fade %g (the note's own %g), left after it %g\n", fade, before, rest);
+        check(rest < 1e-4f, "the notes on bus 1, the older bus, have faded out (the output filter's tail left)");
+        for (int k = 0; k < 40; k++) // and the change waits for their filter's tail
+            t.run();
+        check(fade < 2 * before, "without a click");
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 3, 0, 72);
+        t.run();
+        check(!silentFor(t.host.buses[2], 512), "then a new note plays on bus 2");
+    }
+
+    // Ringing out after a change (sound-snapshots draft 3): only the main output goes to the ring-out
+    // buffer; a retiring sound on a bus plays on there.
+    {
+        Instrument t(true, 9), r(true, 9); // r: the sound stays selected
+        auto *x = static_cast<const oscairn_plugin_sound_snapshots_t *>(t.host.plugin->get_extension(t.host.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+        std::vector<float> ringBuf[4];
+        float *ring[4];
+        for (int k = 0; k < 4; k++)
+            ring[k] = (ringBuf[k] = std::vector<float>(512, 0.0f)).data();
+        clap_audio_buffer_t buffer {};
+        buffer.data32 = ring;
+        buffer.channel_count = 4;
+        check(t.select(t.prepare("B", onBus1)) && r.select(r.prepare("B", onBus1)), "B on bus 1");
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        r.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        t.run();
+        r.run();
+        check(t.select(0), "the Default selected: B retires");
+        for (int k = 0; k < 8; k++) {
+            for (auto &b : ringBuf)
+                std::fill(b.begin(), b.end(), 0.0f);
+            x->ring_out(t.host.plugin, &buffer);
+            t.run();
+            r.run();
+            check(sameFor(t.host.buses[0], r.host.buses[0], 512) && !silentFor(t.host.buses[0], 512), "the retiring sound plays on on its bus");
+            for (auto &b : ringBuf)
+                check(silentFor(b, 512), "and not in the ring-out buffer");
+        }
+    }
+
+    // Saved and restored: a sound's bus in its state, in the snapshot and in patch text.
+    {
+        Instrument t(true, 9);
+        std::vector<oscairn_sound_parameter_t> onBus2 = soundB;
+        onBus2.push_back({ busParam, 2 });
+        const uint32_t y = t.prepare("B", onBus2);
+        check(t.select(y, 1), "B on channel 2 and bus 2");
+        t.run();
+        const std::string snapshot = saveSnapshot(t);
+        check(snapshot.find("\np 134 2\n") != std::string::npos, "the snapshot holds the bus");
+        Instrument u(true, 9);
+        check(loadSnapshot(u, snapshot), "load the snapshot");
+        for (Instrument *i : { &t, &u })
+            i->in.note(CLAP_EVENT_NOTE_ON, 0, 1, 1, 62);
+        for (int k = 0; k < 4; k++) {
+            t.run();
+            u.run();
+            check(silentFor(u.host.left, 512) && !silentFor(u.host.buses[2], 512), "restored, the note plays on bus 2");
+            for (size_t c = 0; c < t.host.buses.size(); c++)
+                check(sameFor(t.host.buses[c], u.host.buses[c], 512), "as before the save");
+        }
+        Host h(entry);
+        h.activate(48000, 64);
+        flushParam(h, busParam, 5);
+        const std::string state = h.saveState();
+        check(state.find("\np 134 5\n") != std::string::npos, "a sound's state holds its bus");
+        Host g(entry);
+        check(g.loadState(state) && valueOf(g, busParam) == 5, "and loading it restores the bus");
+        Instrument v(true, 9);
+        check(v.select(v.prepare("from text", {}, state.c_str())), "patch text");
+        v.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        v.run();
+        check(silentFor(v.host.left, 512) && !silentFor(v.host.buses[8], 512), "a sound from patch text plays on its bus");
+    }
+    std::printf("output buses: ports, the Output Bus and its role, two parts as two instances, a change while playing, ring-out, saved and restored\n");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -4399,6 +4647,8 @@ int main(int argc, char **argv) {
         return presetsTest();
     if (cmd == "voice-budget")
         return voiceBudgetTest();
+    if (cmd == "buses")
+        return busesTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }

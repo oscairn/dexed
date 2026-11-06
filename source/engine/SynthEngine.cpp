@@ -132,9 +132,14 @@ void SynthEngine::setTuning(std::shared_ptr<TuningState> t) {
 void SynthEngine::prepare(double sampleRate, int maxFrames) {
     this->sampleRate = sampleRate;
     rate.init(sampleRate);
-    for (int c = 1; c < MAX_CONTEXTS; c++) {
-        contexts[c].blockRight.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
-        contexts[c].block.assign((size_t)(maxFrames > 0 ? maxFrames : 0), 0.0f);
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        const size_t frames = (size_t)(maxFrames > 0 ? maxFrames : 0);
+        if ( c > 0 || frames > 0 ) { // context 0 renders in place unless it is on a bus
+            contexts[c].blockRight.assign(frames, 0.0f);
+            contexts[c].block.assign(frames, 0.0f);
+        }
+        contexts[c].previous.block.assign(frames, 0.0f);
+        contexts[c].previous.blockRight.assign(frames, 0.0f);
     }
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
@@ -174,6 +179,11 @@ void SynthEngine::restart() {
         contexts[c].tail = false;
         contexts[c].chokeLeft = contexts[c].chokeTotal = 0;
         contexts[c].choked = false;
+        SynthContext::Lane &p = contexts[c].previous;
+        p.fx.init(sampleRate);
+        p.fxRight.init(sampleRate);
+        p.rendering = p.tail = false;
+        contexts[c].bus = p.bus = contexts[c].nextBus;
     }
 
     for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
@@ -322,7 +332,7 @@ void SynthEngine::publishContextState() {
         SynthContext &x = contexts[c];
         x.activeVoices.store(count[c], std::memory_order_relaxed);
         x.selectedMask.store(x.selectedChannels, std::memory_order_relaxed);
-        x.silent.store(count[c] == 0 && x.selectedChannels == 0 && !x.tail, std::memory_order_release);
+        x.silent.store(count[c] == 0 && x.selectedChannels == 0 && !x.tail && !x.previous.tail, std::memory_order_release);
     }
 }
 
@@ -331,7 +341,7 @@ bool SynthEngine::silent() const {
         if ( voices[i].live || voices[i].noteActive )
             return false;
     for (const SynthContext &x : contexts)
-        if ( x.tail )
+        if ( x.tail || x.previous.tail )
             return false;
     return true;
 }
@@ -346,7 +356,8 @@ namespace {
     };
 }
 
-void SynthEngine::render(float *channelData, float *right, int numSamples, EventSource &events, float *const *ring) {
+void SynthEngine::render(float *channelData, float *right, int numSamples, EventSource &events, float *const *ring,
+                         float *const *buses, int busCount) {
     // A block longer than the contexts' buffers (prepare's maxFrames): render it in parts,
     // so every sound keeps playing. Output does not depend on block size.
     const int maxBlock = (int)contexts[1].block.size();
@@ -357,24 +368,62 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             float *ringPart[4] = { nullptr, nullptr, nullptr, nullptr };
             for (int k = 0; ring != nullptr && k < 4; k++)
                 ringPart[k] = ring[k] + offset;
-            render(channelData + offset, right != nullptr ? right + offset : nullptr, n, part, ring != nullptr ? ringPart : nullptr);
+            float *busPart[2 * MAX_CONTEXTS + 2] = {};
+            const int pairs = busCount < MAX_CONTEXTS + 1 ? busCount : MAX_CONTEXTS + 1;
+            for (int k = 0; buses != nullptr && k < 2 * pairs; k++)
+                busPart[k] = buses[k] != nullptr ? buses[k] + offset : nullptr;
+            render(channelData + offset, right != nullptr ? right + offset : nullptr, n, part, ring != nullptr ? ringPart : nullptr,
+                   buses != nullptr ? busPart : nullptr, pairs);
         }
         return;
     }
     ScopedFlushDenormals noDenormals;
     int i;
 
-    // Contexts that play this block: the default one (as the single-sound engine always
-    // did), and any other that is selected, has voices or has not yet gone silent.
-    bool active[MAX_CONTEXTS] = { true };
-    float *outputs[MAX_CONTEXTS] = { channelData };
-    float *outputsRight[MAX_CONTEXTS] = { right };
-    bool hasVoice[MAX_CONTEXTS] = {};
+    // Lanes: lane c is context c on its bus, lane MAX_CONTEXTS + c the same context's voices still
+    // on the bus before (SynthContext::previous). Lanes that play this block: context 0's (as the
+    // single-sound engine always did), any other context's that is selected, has voices or has not
+    // yet gone silent, and a previous lane with voices or a tail.
+    const int L = 2 * MAX_CONTEXTS;
+    bool active[L] = { true };
+    // context 0 renders in place on the main output, as the single-sound engine did, unless it is
+    // on another bus
+    const bool inPlace = contexts[0].bus == 0 || (int)contexts[0].block.size() < numSamples;
+    float *outputs[L] = { inPlace ? channelData : contexts[0].block.data() };
+    float *outputsRight[L] = { inPlace ? right : contexts[0].blockRight.data() };
+    float *extra[L], *extraRight[L];
+    bool hasVoice[MAX_CONTEXTS] = {}, hasPrevious[MAX_CONTEXTS] = {};
     for (int n = 0; n < MAX_ACTIVE_NOTES; n++)
-        if ( voices[n].live || voices[n].noteActive )
+        if ( voices[n].live || voices[n].noteActive ) {
             hasVoice[voices[n].context] = true;
-    for (int c = 1; c < MAX_CONTEXTS; c++) {
+            if ( voices[n].bus != contexts[voices[n].context].bus )
+                hasPrevious[voices[n].context] = true;
+        }
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
         SynthContext &x = contexts[c];
+        extra[c] = x.extra_buf;
+        extraRight[c] = x.extra_bufRight;
+        extra[MAX_CONTEXTS + c] = x.previous.extra_buf;
+        extraRight[MAX_CONTEXTS + c] = x.previous.extra_bufRight;
+        SynthContext::Lane &p = x.previous;
+        if ( (int)p.block.size() < numSamples || !(hasPrevious[c] || p.tail) ) {
+            p.rendering = false;
+        } else {
+            if ( !p.rendering )
+                for (int j = 0; j < N; j++)
+                    p.extra_buf[j] = p.extra_bufRight[j] = 0;
+            p.rendering = true;
+            active[MAX_CONTEXTS + c] = true;
+            outputs[MAX_CONTEXTS + c] = p.block.data();
+            outputsRight[MAX_CONTEXTS + c] = p.blockRight.data();
+        }
+        if ( c == 0 ) {
+            if ( !x.rendering ) // after a lane change (applyOutputBuses): nothing rendered ahead
+                for (int j = 0; j < N; j++)
+                    x.extra_buf[j] = x.extra_bufRight[j] = 0;
+            x.rendering = true;
+            continue;
+        }
         if ( (int)x.block.size() < numSamples || !(x.selectedChannels || hasVoice[c] || x.tail) ) {
             x.rendering = false;
             continue;
@@ -389,24 +438,24 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     }
 
     // flush first events
-    for (int c = 0; c < MAX_CONTEXTS; c++) {
-        if ( !active[c] )
+    for (int k = 0; k < L; k++) {
+        if ( !active[k] )
             continue;
         for (i=0; i < numSamples && i < extra_buf_size; i++) {
-            outputs[c][i] = contexts[c].extra_buf[i];
+            outputs[k][i] = extra[k][i];
             if ( right != nullptr )
-                outputsRight[c][i] = contexts[c].extra_bufRight[i];
+                outputsRight[k][i] = extraRight[k][i];
         }
     }
     i = numSamples < extra_buf_size ? numSamples : extra_buf_size;
 
     // remaining buffer is still to be processed
     if (extra_buf_size > numSamples) {
-        for (int c = 0; c < MAX_CONTEXTS; c++) {
-            if ( !active[c] )
+        for (int k = 0; k < L; k++) {
+            if ( !active[k] )
                 continue;
-            float *extra_buf = contexts[c].extra_buf;
-            float *extra_bufRight = contexts[c].extra_bufRight;
+            float *extra_buf = extra[k];
+            float *extra_bufRight = extraRight[k];
             for (int j = 0; j < extra_buf_size - numSamples; j++) {
                 extra_buf[j] = extra_buf[j + numSamples];
                 extra_bufRight[j] = extra_bufRight[j + numSamples];
@@ -419,8 +468,8 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     } else {
         for (; i < numSamples; i += N) {
             AlignedBuf<int32_t, N> audiobuf;
-            float sumbuf[MAX_CONTEXTS][N];
-            float sumbufRight[MAX_CONTEXTS][N]; // (stereo rendering)
+            float sumbuf[L][N];
+            float sumbufRight[L][N]; // (stereo rendering)
 
             events.dispatchUntil(i);
 
@@ -434,6 +483,10 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             for (int j = 0; j < N; ++j) {
                 audiobuf.get()[j] = 0;
             }
+            for (int k = MAX_CONTEXTS; k < L; k++)
+                if ( active[k] )
+                    for (int j = 0; j < N; ++j)
+                        sumbuf[k][j] = sumbufRight[k][j] = 0;
             int32_t lfovalue[MAX_CONTEXTS], lfodelay[MAX_CONTEXTS];
             float partlfo[MAX_CONTEXTS][N];      // Extended sounds: the part LFO per sample
             bool partActive[MAX_CONTEXTS] = {};
@@ -468,6 +521,8 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
                 const int c = voices[note].context;
                 if (voices[note].live && active[c]) {
+                    // the voice's lane: its sound's, or the one still on the bus it started on
+                    const int k = voices[note].bus != contexts[c].bus && active[MAX_CONTEXTS + c] ? MAX_CONTEXTS + c : c;
 
                     if (checkMTSESPRetuning)
                         voices[note].dx7_note->updateBasePitches();
@@ -502,11 +557,11 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                                 v.fadeLeft--;
                         }
                         if ( panned ) {
-                            sumbuf[c][j] += f * gainLeft;
-                            sumbufRight[c][j] += f * gainRight;
+                            sumbuf[k][j] += f * gainLeft;
+                            sumbufRight[k][j] += f * gainRight;
                         } else {
-                            sumbuf[c][j] += f;
-                            sumbufRight[c][j] += f;
+                            sumbuf[k][j] += f;
+                            sumbufRight[k][j] += f;
                         }
                         audiobuf.get()[j] = 0;
                     }
@@ -520,26 +575,25 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             }
 
             int jmax = numSamples - i;
-            for (int c = 0; c < MAX_CONTEXTS; c++) {
-                if ( !active[c] )
+            for (int k = 0; k < L; k++) {
+                if ( !active[k] )
                     continue;
-                float *out = outputs[c];
-                float *extra_buf = contexts[c].extra_buf;
+                float *out = outputs[k];
+                float *extra_buf = extra[k];
                 for (int j = 0; j < N; ++j) {
                     if (j < jmax) {
-                        out[i + j] = sumbuf[c][j];
+                        out[i + j] = sumbuf[k][j];
                     } else {
-                        extra_buf[j - jmax] = sumbuf[c][j];
+                        extra_buf[j - jmax] = sumbuf[k][j];
                     }
                 }
                 if ( right != nullptr ) {
-                    float *outRight = outputsRight[c];
-                    for (int j = 0; j < N; ++j) {
+                    float *outRight = outputsRight[k];
+                    for (int j = 0; j < N; ++j)
                         if (j < jmax)
-                            outRight[i + j] = sumbufRight[c][j];
+                            outRight[i + j] = sumbufRight[k][j];
                         else
-                            contexts[c].extra_bufRight[j - jmax] = sumbufRight[c][j];
-                    }
+                            extraRight[k][j - jmax] = sumbufRight[k][j];
                 }
             }
         }
@@ -547,43 +601,66 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     }
 
     events.dispatchUntil(numSamples);
-    // Each context through its own output filter, then summed (RFC 0005): context 0 in place,
-    // the others added to it, a retiring one into the ring-out buffer instead.
-    for (int c = 0; c < MAX_CONTEXTS; c++) {
-        if ( !active[c] )
+    if ( !inPlace ) { // context 0 is on a bus: the main output starts silent
+        for (int j = 0; j < numSamples; j++) {
+            channelData[j] = 0;
+            if ( right != nullptr )
+                right[j] = 0;
+        }
+    }
+    int chokeLeft[MAX_CONTEXTS]; // each context's fade, for both its lanes
+    for (int c = 0; c < MAX_CONTEXTS; c++)
+        chokeLeft[c] = contexts[c].selectedChannels != 0 ? 0 : contexts[c].chokeLeft;
+    // Each lane through its own output filter, then summed (RFC 0005): context 0 in place, the
+    // others added to it, a retiring one into the ring-out buffer instead, a lane on bus b > 0 to
+    // that bus.
+    for (int k = 0; k < L; k++) {
+        if ( !active[k] )
             continue;
+        const int c = k % MAX_CONTEXTS;
         SynthContext &x = contexts[c];
-        float *out = outputs[c], *outRight = outputsRight[c];
-        x.fx.setExtendedDc(x.extended());
-        x.fxRight.setExtendedDc(x.extended());
-        x.fx.process(out, numSamples);
+        const bool other = k >= MAX_CONTEXTS;
+        PluginFx &fx = other ? x.previous.fx : x.fx, &fxRight = other ? x.previous.fxRight : x.fxRight;
+        bool &tail = other ? x.previous.tail : x.tail;
+        const int bus = other ? x.previous.bus : x.bus;
+        float *out = outputs[k], *outRight = outputsRight[k];
+        if ( other ) { // the context's settings
+            fx.uiCutoff = x.fx.uiCutoff;
+            fx.uiReso = x.fx.uiReso;
+            fx.uiGain = x.fx.uiGain;
+        }
+        fx.setExtendedDc(x.extended());
+        fxRight.setExtendedDc(x.extended());
+        fx.process(out, numSamples);
         if ( right != nullptr )
-            processRight(x, outRight, numSamples);
+            processRight(fx, fxRight, outRight, numSamples);
         if ( x.selectedChannels != 0 ) { // selected again: plays on in full
             x.chokeLeft = x.chokeTotal = 0;
             x.choked = false;
         }
         if ( x.chokeTotal > 0 ) { // choked: fading out (its filter's tail with its voices), then silent
+            int left = chokeLeft[c];
             for (int j = 0; j < numSamples; j++) {
-                const float g = (float)x.chokeLeft / (float)x.chokeTotal;
+                const float g = (float)left / (float)x.chokeTotal;
                 out[j] *= g;
                 if ( right != nullptr )
                     outRight[j] *= g;
-                if ( x.chokeLeft > 0 )
-                    x.chokeLeft--;
+                if ( left > 0 )
+                    left--;
             }
+            x.chokeLeft = left;
         }
-        // the context still sounds (its filter rings on), here or in what is rendered ahead; below
+        // the lane still sounds (its filter rings on), here or in what is rendered ahead; below
         // a 24-bit step is silence, as the output filter can settle on a tiny value instead of 0
         const float silence = 1.0f / (1 << 24);
         bool sound = false;
         for (int j = 0; j < numSamples && !sound; j++)
             sound = std::fabs(out[j]) >= silence || (right != nullptr && std::fabs(outRight[j]) >= silence);
         for (int j = 0; j < extra_buf_size && !sound; j++)
-            sound = std::fabs(x.extra_buf[j]) >= silence || (right != nullptr && std::fabs(x.extra_bufRight[j]) >= silence);
-        x.tail = sound;
+            sound = std::fabs(extra[k][j]) >= silence || (right != nullptr && std::fabs(extraRight[k][j]) >= silence);
+        tail = sound;
         const bool retiring = ring != nullptr && x.selectedChannels == 0;
-        if ( c == 0 ) {
+        if ( k == 0 && inPlace ) {
             if ( retiring ) {
                 float *toLeft = ring[x.choked ? 2 : 0], *toRight = ring[x.choked ? 3 : 1];
                 for (int j = 0; j < numSamples; j++) {
@@ -597,24 +674,77 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             continue;
         }
         float *toLeft = retiring ? ring[x.choked ? 2 : 0] : channelData, *toRight = retiring ? ring[x.choked ? 3 : 1] : right;
-        for (int j = 0; j < numSamples; j++)
+        if ( bus > 0 ) { // only the main output rings out; a bus plays on through its own port
+            toLeft = bus <= busCount && buses != nullptr ? buses[2 * (bus - 1)] : nullptr;
+            toRight = bus <= busCount && buses != nullptr ? buses[2 * (bus - 1) + 1] : nullptr;
+        }
+        for (int j = 0; toLeft != nullptr && j < numSamples; j++)
             toLeft[j] += out[j];
-        if ( right == nullptr && retiring )
-            for (int j = 0; j < numSamples; j++)
+        if ( right == nullptr && (retiring || bus > 0) )
+            for (int j = 0; toRight != nullptr && j < numSamples; j++)
                 toRight[j] += out[j];
         if ( right != nullptr )
-            for (int j = 0; j < numSamples; j++)
+            for (int j = 0; toRight != nullptr && j < numSamples; j++)
                 toRight[j] += outRight[j];
     }
 }
 
 // The right channel through its own output filter, with the left one's settings: given the
 // same input it gives the same output, so unpanned sounds stay identical in both channels.
-void SynthEngine::processRight(SynthContext &x, float *right, int numSamples) {
-    x.fxRight.uiCutoff = x.fx.uiCutoff;
-    x.fxRight.uiReso = x.fx.uiReso;
-    x.fxRight.uiGain = x.fx.uiGain;
-    x.fxRight.process(right, numSamples);
+void SynthEngine::processRight(const PluginFx &settings, PluginFx &fxRight, float *right, int numSamples) {
+    fxRight.uiCutoff = settings.uiCutoff;
+    fxRight.uiReso = settings.uiReso;
+    fxRight.uiGain = settings.uiGain;
+    fxRight.process(right, numSamples);
+}
+
+void SynthEngine::applyOutputBuses() {
+    // (a voice that has finished sounding but is kept, as Dexed keeps them, holds no lane)
+    bool onBus[MAX_CONTEXTS] = {}, onPrevious[MAX_CONTEXTS] = {};
+    for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+        if ( voices[note].live && voices[note].dx7_note->isPlaying() ) {
+            const int c = voices[note].context;
+            (voices[note].bus == contexts[c].bus ? onBus : onPrevious)[c] = true;
+        }
+    for (int c = 0; c < MAX_CONTEXTS; c++) {
+        SynthContext &x = contexts[c];
+        SynthContext::Lane &p = x.previous;
+        if ( x.nextBus == x.bus )
+            continue;
+        const bool busy = onBus[c] || x.tail, previousBusy = onPrevious[c] || p.tail;
+        if ( busy && previousBusy && p.bus != x.nextBus ) {
+            // shortcut: voices on two other buses already; those on the older one fade out (as a choke)
+            // and the change waits until they and their filter's tail are gone. Upgrade to more lanes
+            // if a sound's bus ever changes that often while it sounds.
+            for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+                if ( voices[note].live && voices[note].context == c && voices[note].bus == p.bus )
+                    chokeVoice(note);
+            continue;
+        }
+        if ( busy || previousBusy ) {
+            // the voices on the current bus go on through `previous`; the lane there (idle, or
+            // already on the new bus) takes the new voices
+            const float cutoff = x.fx.uiCutoff, reso = x.fx.uiReso, gain = x.fx.uiGain;
+            std::swap(x.fx, p.fx);
+            std::swap(x.fxRight, p.fxRight);
+            x.fx.uiCutoff = cutoff;
+            x.fx.uiReso = reso;
+            x.fx.uiGain = gain;
+            for (int j = 0; j < N; j++) {
+                std::swap(x.extra_buf[j], p.extra_buf[j]);
+                std::swap(x.extra_bufRight[j], p.extra_bufRight[j]);
+            }
+            std::swap(x.block, p.block);
+            std::swap(x.blockRight, p.blockRight);
+            std::swap(x.rendering, p.rendering);
+            std::swap(x.tail, p.tail);
+            p.bus = x.bus;
+        }
+        x.bus = x.nextBus;
+        for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+            if ( voices[note].context == c && !(voices[note].live && voices[note].dx7_note->isPlaying()) )
+                voices[note].bus = x.bus;
+    }
 }
 
 void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo) {
@@ -690,6 +820,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].ref = ref;
     voices[note].noteActive = true;
     voices[note].context = c;
+    voices[note].bus = x.bus;
 
     currentNote = (note + 1) % MAX_ACTIVE_NOTES;
     voices[note].channel = channel;
@@ -1020,7 +1151,7 @@ void SynthEngine::chokeRetiring() {
             sounds[voices[note].context] = true;
     for (int c = 0; c < MAX_CONTEXTS; c++) {
         SynthContext &x = contexts[c];
-        if ( x.selectedChannels != 0 || !(sounds[c] || x.tail) || x.choked )
+        if ( x.selectedChannels != 0 || !(sounds[c] || x.tail || x.previous.tail) || x.choked )
             continue;
         x.choked = true;
         x.chokeTotal = x.chokeLeft = (int)(0.003 * sampleRate) + 1;

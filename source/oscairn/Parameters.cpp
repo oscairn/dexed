@@ -46,6 +46,7 @@ static const char *const filterTypes[] = { "LPF24D", "LPF24A", "LPF18", "LPF18s"
                                            "HPF24D", "HPF12", "BPF12D", "BPFw", "BPF6", "BEF12", "BEF6",
                                            "DualLPF", "DualHPF", "DualBPF", "DualBEF", "LPF12+BPF6", "Thru",
                                            nullptr };
+static const char *const outputBuses[] = { "Main", "Bus 1", "Bus 2", "Bus 3", "Bus 4", "Bus 5", "Bus 6", "Bus 7", "Bus 8", nullptr };
 static const char *const fegSegments[] = { "Attack", "Attack and Decay", "Decay", "Attack and Release", "All",
                                            nullptr };
 
@@ -362,6 +363,8 @@ static std::vector<Param> build() {
     setting(131, "Filter", "Cutoff", 0, 1, 1, Setting::Cutoff, Text::Percent);
     setting(132, "Filter", "Resonance", 0, 1, 0, Setting::Resonance, Text::Percent);
     setting(133, "Amp", "Output", 0, 1, 1, Setting::Output, Text::Percent);
+    // the output port the sound plays on (Oscairn: parts sharing one instance, OSCAIRN_ROLE_OUTPUT_BUS)
+    setting(134, "Amp", "Output Bus", 0, 8, 0, Setting::OutputBus, Text::Choice, outputBuses);
 
     for (int n = 1; n <= 6; n++) {
         const std::string op = "Operator " + std::to_string(n);
