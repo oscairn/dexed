@@ -3013,6 +3013,12 @@ int contextsTest() {
         check(audible(a.out) && audible(b.out), "both parts are heard");
     }
     {
+        // A new instance's Default plays on every channel and says so before any process (Oscairn
+        // shares an instance whose sound every channel selects, and asks as it adds the plugin).
+        Instrument fresh;
+        check(fresh.info(0).selected_channels == 0xffff, "the Default selected on every channel before any process");
+    }
+    {
         // Each part's pitch bend reaches only that part, though MPE detection is still on (one note
         // per channel): MPE's master and member channels are those playing channel 1's sound.
         Instrument parts, a, b;

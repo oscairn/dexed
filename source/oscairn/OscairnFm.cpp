@@ -144,6 +144,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         engine.setPerChannelControllers(true); // RFC 0005: controllers act per MIDI channel
         for (int c = 0; c < contextCount; c++)
             applyAll(c);
+        engine.publishContextState(); // the Default, selected on every channel
     }
 
     void noteEnded(const NoteRef &note) override {
