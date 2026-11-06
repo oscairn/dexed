@@ -212,7 +212,7 @@ struct Plugin : SynthEngine::NoteEndSink {
         case Setting::PitchBendStep: ctrl.pitch_step = (int)f; break;
         case Setting::MasterTune: {
             int32_t tune = ((f / 2 + 0.5) * 0x4000) - 0x2000;
-            ctrl.masterTune = ((float)(tune << 11)) * (1.0 / 12);
+            ctrl.masterTune = ((float)(tune * 2048)) * (1.0 / 12); // Dexed's tune << 11, defined for negative tunes
             break;
         }
         case Setting::Cutoff: x.fx.uiCutoff = f; break;

@@ -1194,6 +1194,17 @@ int extendedTest() {
         expect(a == b && std::fabs(cents / 18.75 - std::round(cents / 18.75)) < 0.06 && std::fabs(cents) <= 600.5,
                "random pitch is deterministic and on its grid: " + std::to_string(cents) + " cents");
     }
+    // -- Master Tune (a Classic sine): -1 and +1 move the pitch a semitone down and up
+    {
+        const auto lo = renderExtended({ { 5, 0 }, { 130, -1 } }, 60, 1.0, 0.6, 0.6);
+        const auto mid = renderExtended({ { 5, 0 } }, 60, 1.0, 0.6, 0.6);
+        const auto hi = renderExtended({ { 5, 0 }, { 130, 1 } }, 60, 1.0, 0.6, 0.6);
+        const double hz = zeroCrossingHz(mid, 4800, mid.size());
+        const double down = 1200 * std::log2(zeroCrossingHz(lo, 4800, lo.size()) / hz);
+        const double up = 1200 * std::log2(zeroCrossingHz(hi, 4800, hi.size()) / hz);
+        expect(std::fabs(down + 100) < 0.5 && std::fabs(up - 100) < 0.5,
+               "master tune -1 and +1: " + std::to_string(down) + " and " + std::to_string(up) + " cents");
+    }
     // -- key-on delay: the note starts that many samples late (exact, within the 64-sample
     // grid), tempo-synced lengths at the host's tempo (120 without transport), and a note
     // released before its delay ends never sounds
