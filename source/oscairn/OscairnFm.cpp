@@ -90,6 +90,10 @@ struct Plugin : SynthEngine::NoteEndSink {
     // read by the main thread.
     std::unique_ptr<std::atomic<double>[]> values;
     std::atomic<int> view { 0 }; // the context selected on channel 1: what get_value shows
+    // Parameters whose new value the host has not been sent since the sound shown changed
+    // (audio thread); a full output queue keeps them for the next process or flush.
+    std::vector<uint8_t> feedbackPending;
+    size_t feedbackCount = 0;
     bool active = false;
     uint32_t nextId = 1;
 
@@ -111,7 +115,7 @@ struct Plugin : SynthEngine::NoteEndSink {
 
     std::atomic<double> &value(int c, size_t i) { return values[(size_t)c * params().size() + i]; }
 
-    Plugin() : values(new std::atomic<double>[contextCount * params().size()]) {
+    Plugin() : values(new std::atomic<double>[contextCount * params().size()]), feedbackPending(params().size(), 0) {
         for (int c = 0; c < contextCount; c++) {
             std::memcpy(slots[c].patch, initVoice, 156);
             slots[c].ext = extDefaults();
@@ -284,15 +288,31 @@ struct Plugin : SynthEngine::NoteEndSink {
         const int after = engine.selectedContext(0);
         if (after != before) {
             view.store(after, std::memory_order_relaxed);
-            // parameter feedback for the sound now shown
-            for (size_t i = 0; out != nullptr && i < params().size(); i++) {
-                clap_event_param_value_t e {};
-                e.header = { sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 };
-                e.param_id = params()[i].id;
-                e.note_id = e.port_index = e.channel = e.key = -1;
-                e.value = value(after, i).load(std::memory_order_relaxed);
-                out->try_push(out, &e.header);
-            }
+            // parameter feedback for the sound now shown: the values that differ from the last one's
+            for (size_t i = 0; i < params().size(); i++)
+                if (!feedbackPending[i] && value(after, i).load(std::memory_order_relaxed) != value(before, i).load(std::memory_order_relaxed)) {
+                    feedbackPending[i] = 1;
+                    feedbackCount++;
+                }
+        }
+    }
+
+    // Sends the pending parameter feedback, the shown sound's current values, until the output
+    // queue is full; the rest stay pending.
+    void sendFeedback() {
+        const int c = view.load(std::memory_order_relaxed);
+        for (size_t i = 0; out != nullptr && feedbackCount > 0 && i < params().size(); i++) {
+            if (!feedbackPending[i])
+                continue;
+            clap_event_param_value_t e {};
+            e.header = { sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 };
+            e.param_id = params()[i].id;
+            e.note_id = e.port_index = e.channel = e.key = -1;
+            e.value = value(c, i).load(std::memory_order_relaxed);
+            if (!out->try_push(out, &e.header))
+                return;
+            feedbackPending[i] = 0;
+            feedbackCount--;
         }
     }
 
@@ -373,10 +393,12 @@ struct Plugin : SynthEngine::NoteEndSink {
         }
     }
 
-    // What process does before a block's events: selections, then loaded states.
+    // What process does before a block's events: selections, then loaded states, then the
+    // parameter feedback still to send.
     void beforeEvents() {
         takeSelections();
         takeStateChanges();
+        sendFeedback();
     }
 };
 

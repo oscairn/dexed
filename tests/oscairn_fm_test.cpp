@@ -48,6 +48,7 @@
 #include <atomic>
 #include <cmath>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <new>
 #include <set>
@@ -3235,6 +3236,37 @@ int contextsTest() {
         check(both.size() == 1 && both[0] == std::make_pair(1, 60), "a note-off on channel 2 releases channel 2's key 60 only");
         const auto noMpe = endedAfter({ { 0x91, 60, 100 }, { 0x91, 64, 100 } }, { 0x81, 62, 0 });
         check(noMpe.empty(), "a note-off for key 62 does not release key 60 (MPE off)");
+    }
+    {
+        // parameter feedback when channel 1's sound changes: only the values that differ, and an
+        // output queue too full for them all delays the rest to the next blocks, losing none
+        Instrument t;
+        auto feedback = [&](std::map<clap_id, double> &got) {
+            for (const auto &slot : t.host.output.events) {
+                auto *e = reinterpret_cast<const clap_event_param_value_t *>(slot.data());
+                if (e->header.type == CLAP_EVENT_PARAM_VALUE)
+                    got[e->param_id] = e->value;
+            }
+        };
+        const uint32_t x = t.prepare("X", { { 2, 5 }, { 131, 0.25 }, { 132, 0.5 } });
+        check(x != CLAP_INVALID_ID && t.select(x), "select X");
+        t.run();
+        std::map<clap_id, double> got;
+        feedback(got);
+        check(got == std::map<clap_id, double>{ { 2, 5 }, { 131, 0.25 }, { 132, 0.5 } },
+              "feedback for the three values that differ, and only those: " + std::to_string(got.size()) + " events");
+        std::vector<EventList::Slot>().swap(t.host.output.events); // room for one output event
+        t.host.output.events.reserve(1);
+        check(t.select(0), "select the default sound");
+        got.clear();
+        for (int k = 0; k < 3; k++) {
+            t.run();
+            check(t.host.output.events.size() == 1, "one feedback event per block while the queue is full");
+            feedback(got);
+        }
+        t.run();
+        check(t.host.output.events.empty() && got == std::map<clap_id, double>{ { 2, 0 }, { 131, 1 }, { 132, 0 } },
+              "feedback held back by a full queue arrives in the next blocks");
     }
     std::printf("held sounds, parts, note ownership, sustain, capacity, queue, reclamation, patch text, block sizes, snapshots, per-channel controllers, CC 120, CC 123 and note-off matching\n");
     return 0;
