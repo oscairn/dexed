@@ -606,6 +606,12 @@ Plan:
   per-part voice budget entries (one per part, its sound, reserve and priority, limit 0) needed no
   change. State and snapshot formats are 2 (`oscairn-fm-state 2`, `octet-contexts 2`); format 1 is
   refused (pre-release). MPE is now scoped to the channels playing channel 1's sound (decision 87).
+  Octet 0.4.1 moves to `oscairn.sound-snapshots/draft-4` (Oscairn `0a5c14f`, which shares instances
+  between parts on its own; draft 3 is no longer read): `save_sound` writes a snapshot holding one
+  sound alone, as its Default on every channel and on Main, and `sound_values` gives the values of a
+  sound no channel selects (as prepared until it is first loaded, then as the engine has them). A new
+  instance now reports its Default selected on every channel before its first `process()`, which
+  Oscairn checks as it adds the plugin.
 
 ### 4.6 Real-time safety
 
@@ -3213,6 +3219,27 @@ CLAP: 164 of 164) and the Extended test on each. A first gate run of `1f574e9` f
 test (the init sounds in `assets/octet` were still format 1); they were moved to format 2 in the same
 commit before it was pushed and every gate run again. The version commit's gates and CI are in the
 session report.
+
+**Draft 4 (later in the session).** Oscairn `0a5c14f` replaced `oscairn.sound-snapshots/draft-3` with
+draft 4 and shares instances between parts on its own. Commits: `c4f8845` (the Default's channels
+reported from creation; Oscairn shares only an instance whose sound every channel selects, so a second
+Octet added to a Performance had taken an instance of its own), `cddb1b5` (draft 4, headers at
+`0a5c14f`), then Octet 0.4.1 and this paragraph. Tests: `contexts` checks a new instance's Default
+channels before any process (fails without the change); `buses` checks `sound_values` (a prepared
+sound's values, none while selected, an edit made while selected) and `save_sound` (loaded into a new
+instance it is the only sound, on every channel, and plays on Main as the same sound prepared on its
+own, sample for sample; fails with the bus not reset, with values read from the engine before the
+sound is loaded, and with values for a selected sound). Oscairn's own `control-shared-parts` at
+`0a5c14f`, copied with Octet's parameter IDs (outside both repositories) and built from an export:
+three Octet parts saved with an instance each open on one instance and sound as the three instances
+did (largest difference 0), saved as format 13 and reopened the same, nine parts spill to a second
+instance as they are read and as they are added, adding joins, undo and redo, a sharing part saved as a
+Sound, changes between the layouts and the protocol all pass, in-process and with every plugin in a
+worker; on `e54e176`'s plugin (draft 3) it fails from the first check (three instances). Its
+`shared-engine` copy passes too (largest difference 0). `oscairn-plugin-check` PASSED against
+`0a5c14f`, in-process and in a worker. Release CTest 41/41 on `c4f8845` and `cddb1b5`, and again on
+`cddb1b5` with Oscairn's host tests from the `0a5c14f` build; ASan/UBSan 24/24, TSan 2/2 and the x86_64
+Rosetta gates on both.
 
 **The converter** (not changed): `perfconv/fmx.py` writes `oscairn-fm-state 1` and `octet-contexts 1`,
 which Octet 0.4.0 refuses; it needs format 2 headers (the Output Bus can be left out, defaulting to
