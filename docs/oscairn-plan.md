@@ -669,9 +669,10 @@ CLAP preset discovery (the SDK's factory, provider `org.oscairn.fm.cartridges`) 
 load keys `0` to `31`, named from the cartridge; `prepare_preset` makes a voice a new context (Classic,
 the values loading it as parameters gives) and `clap.preset-load` loads it into the sound shown. A
 Sound saves values, not the preset. Written in the sixteenth session (local commits `3e3d0bb`,
-`4b3d866`), carried onto this branch as `cb8d3b6` and `2b967b7`. Open: Oscairn's plugin store installs
-only the `.clap`, so from there the built-in cartridges beside it are not found; the desktop Dexed's
-folder is.
+`4b3d866`), carried onto this branch as `cb8d3b6` and `2b967b7`. Oscairn's plugin store installs
+only the `.clap`, so from 0.4.4 the built-in cartridges come from Oscairn's asset library
+`org.oscairn.fm-cartridges` when the indexer has it (`oscairn.assets/draft-2` `library_root`), and
+from the folder beside the `.clap` otherwise (section 11, twenty-third session).
 
 ### 4.11 Tests
 
@@ -3316,6 +3317,18 @@ and CI are in the session report.
 Jacob renamed the plugin from Octet to Oscairn FM (section 9, "The name Oscairn FM"): display name,
 preset provider name, the built-in cartridge folder, the snapshot header and the init sound files,
 in `9f3505f`. No behaviour changes otherwise. Oscairn FM 0.4.3.
+
+### Twenty-third session (2026-11-07): the built-in cartridges as an asset library
+
+An Oscairn plugin package carries only the `.clap`, so Oscairn ships the 33 banks and
+`SynprezFM-NOTICE` as the asset library `org.oscairn.fm-cartridges` 1.0.0 (`Cartridges/*.syx`,
+`Cartridges/SynprezFM-NOTICE`, `LICENSE`). In `9f58348` the preset provider's init asks the
+indexer for `oscairn.assets/draft-2` and, when `library_root` finds the library at 1.0.0 or later,
+declares its `Cartridges` folder; otherwise (no extension, or not installed) the folder beside the
+`.clap`, as before, for other hosts. The desktop Dexed's folder is unchanged. Presets load by the
+path discovery gives, so nothing calls `library_root` at run time. `assets.h` re-vendored from
+Oscairn `8a8fcc6`. Oscairn FM 0.4.4, which requires `org.oscairn.fm-cartridges` >= 1.0.0 for its
+built-in cartridges under Oscairn.
 
 ### Fifth session (2026-10-31): tests run
 
