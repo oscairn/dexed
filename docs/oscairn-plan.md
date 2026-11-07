@@ -880,7 +880,7 @@ only (no remote added, nothing pushed, the fork's `master` untouched). Results:
 | Part | Licence (as found in the files) |
 | --- | --- |
 | Dexed plugin, editor, `source/engine/EngineMkI.*`, `EngineOpl.*`, `source/PluginFx.*` | GPL-3.0-or-later (headers say "version 3 of the License, or (at your option) any later version"; `LICENSE` is GPL v3) |
-| MSFA, `source/msfa/*` | Apache-2.0 (headers checked for every file except `tuning.cc` / `tuning.h`, which have no header; provenance to confirm) |
+| MSFA, `source/msfa/*` | Apache-2.0 (`source/msfa/LICENSE`; headers checked for every file except `tuning.cc` / `tuning.h`, which have no header; provenance to confirm), except the Extended files `ext_*.cc` / `ext_*.h`, GPL-3.0-or-later by their headers; `tuning_standard.cc` (split from `tuning.cc`) and the generated `ext_*_data.h` have no header |
 | JUCE at `c352e24` (8.0.11) | AGPLv3 or commercial (`LICENSE.md` at that commit) |
 | clap-juce-extensions, tuning-library, MTS-ESP, surgesynthteam_tuningui | Not checked in this plan; check before release |
 
