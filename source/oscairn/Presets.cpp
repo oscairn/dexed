@@ -95,15 +95,17 @@ struct Presets {
     static const char *const pluginId;
 
     static void declare(oscairn::presets::Declarations &d) {
-        // the built-in cartridges from the asset library (read-only) when the indexer has it
-        // installed, else beside the plugin (for hosts without it)
-        // (not the desktop Dexed's folder: that is another app's, and holds the same banks again)
-        std::string builtin = builtinCartridges();
+        // the built-in cartridges: under Oscairn (the assets extension) only from the asset
+        // library (read-only), else beside the plugin (for hosts without it); not the desktop
+        // Dexed's folder, which is another app's and holds the same banks again
+        std::string builtin;
         const auto *assets = static_cast<const oscairn_host_assets_t *>(
             d.indexer->get_extension != nullptr ? d.indexer->get_extension(d.indexer, OSCAIRN_EXT_ASSETS) : nullptr);
         char root[4096];
-        if (assets != nullptr && assets->library_root != nullptr &&
-            assets->library_root(d.indexer, cartridgeLibrary, cartridgeLibraryVersion, root, sizeof root))
+        if (assets == nullptr)
+            builtin = builtinCartridges();
+        else if (assets->library_root != nullptr &&
+                 assets->library_root(d.indexer, cartridgeLibrary, cartridgeLibraryVersion, root, sizeof root))
             builtin = std::string(root) + "/Cartridges";
         if (!builtin.empty() && isFolder(builtin))
             d.files("Built-in cartridges", builtin.c_str(), "syx");

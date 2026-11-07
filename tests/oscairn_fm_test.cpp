@@ -3916,7 +3916,8 @@ int presetsTest() {
           "file type syx");
 
     // the built-in cartridges through Oscairn's asset library (oscairn.assets draft 2): with it
-    // installed, its Cartridges folder; answering false, or no extension, the folder beside the module
+    // installed, its Cartridges folder; answering false, nothing (Oscairn has no other folder of
+    // them); with no extension (other hosts), the folder beside the module
     const std::string library = std::string(cwd) + "/presets-library";
     check(std::system(("mkdir -p '" + library + "/Cartridges'").c_str()) == 0, "make the library folder");
     auto builtinDeclared = [&](bool offer, bool installed, std::vector<std::string> *asked = nullptr) {
@@ -3942,7 +3943,7 @@ int presetsTest() {
     check(fromLibrary == library + "/Cartridges" && asked == std::vector<std::string> { "org.oscairn.fm-cartridges 1.0.0" },
           "with the asset library installed, its Cartridges folder: " + fromLibrary);
     const std::string notInstalled = builtinDeclared(true, false, &asked);
-    check(notInstalled == beside && asked.size() == 1, "library not installed: the folder beside the module: " + notInstalled);
+    check(notInstalled == "(none)" && asked.size() == 1, "library not installed under Oscairn: nothing: " + notInstalled);
     const std::string noExtension = builtinDeclared(false, true);
     check(noExtension == beside, "no assets extension: the folder beside the module: " + noExtension);
 
