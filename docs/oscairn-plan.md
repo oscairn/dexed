@@ -2008,6 +2008,10 @@ ARM64 hardware is still not measured.
     Oscairn took from its names until then (both cutoffs and resonances, Part LFO Hold, the four
     envelope macros, and every operator's Level as the instrument's level). These are Oscairn's
     guesses kept as they were, not chosen roles; choosing them is left for later.
+89. Reset ends notes without `NOTE_END` (twenty-first session; proposed): the notes a CLAP reset
+    ends are not reported, as Oscairn Analog and Oscairn sfizz do; reported at the next render,
+    they counted as playing their sound for that render and made a sound's second lane render
+    (twenty-first session).
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
@@ -3246,6 +3250,55 @@ which Octet 0.4.0 refuses; it needs format 2 headers (the Output Bus can be left
 Main). Performances converted before this are refused by 0.4.0 until converted again. Writing shared
 nodes would need Performance format 12's `sound` per node and the engine's snapshot in its first
 node's folder, once Oscairn forms shared engines when opening a Performance.
+
+### Twenty-first session (2026-11-06): reset as a fresh instance
+
+Oscairn main `11ca03a` reuses a running instance at a Performance change: it calls CLAP `reset`
+on the audio thread, then loads the incoming state, and the instance must then render as a fresh
+instance with that state, sample for sample, with a note in the next block at full level
+(`docs/plugin-porting.md`, "Expect a second life"). An audit found reset nearly complete; a
+memory diff and render comparisons found two gaps, fixed in `916083c`. Decision 89. Octet 0.4.2.
+
+- **MPE detection.** Two notes on one channel turn it off for good (`keydown`), and neither reset
+  nor activation turned it on again: after a reset an MPE source played as a plain one.
+  `resetControllers` (constructor, prepare, reset) now turns it on, as a new engine has it.
+- **Ended notes.** Reset left the notes it ended reported as playing (`noteActive`) until the next
+  render sent their `NOTE_END`, and for that render they counted as voices of their sound: the
+  second lane of a sound whose bus had changed while they sounded rendered too, on the same bus as
+  the first (reset gives both lanes the sound's bus), and with no state loaded after the reset the
+  notes played in that block came out wrong on that bus (at first at twice a fresh instance's
+  level). Reset now ends them without `NOTE_END` (decision 89).
+
+**Memory diff** (scratch tool, not committed: the plugin's source compiled with access control off
+and every allocation zero-filled, a played instance against a fresh one, field by field): an
+instance that played (notes held and released on three channels, the sustain pedal, bend,
+pressure, wheel, breath, foot, portamento, MPE detection off, a second prepared sound on channel
+3, the Output Bus changed while notes sounded, twice on the Default and once on the second sound)
+and was reset, against a fresh one,
+both given the same state, another state first, or no load (against a fresh one given the state it
+kept). After the two changes the engine and the plugin differ only in pointers (to each instance's
+own members, voices and slots), FM cores' scratch buffers, the second sound's Output Bus (a
+parameter, which reset keeps, with the lane bus it sets) and fields written before they are next
+read: a stopped voice's note data (`Dx7Note::init` sets everything that differs at the next note;
+its `initialised_` is false), channel, velocity, address, bus and sound (set at its next key-down;
+its address is read only while its note is reported), the last voice of a sound (read only when that
+voice still has a note of that sound; reset clears every voice's note), an idle second lane's bus
+(set when it next takes voices) and its filter's settings and coefficients (copied from the sound
+before each render; the coefficients recomputed at its first render after `PluginFx::init`). Before
+the changes it also differed in every controller set's MPE flag.
+
+**Tests.** `oscairn-fm-test-linked reset` (CTest `oscairn-fm-reset`): notes in the block after a
+reset sound at full level (case 78, a voice loud from its start), and no `NOTE_END` comes for the
+notes it ended; every 8th DX7 case, the four MPE ones and two with the Extended profile (LFO 2 and
+the part LFO free-running, random pitch and pan, alternate pan, the filter), all with the output
+filter on, render as a fresh instance on every port after a reset with the same state loaded
+again, after another state, with no load (against a fresh instance given the state it kept), and
+deactivated, loaded and activated (against one loaded before activation): 26 cases, four ways
+each; three prepared sounds, one taken off its channel while it sounds and one never selected,
+play as in an instance that never played; reset allocates nothing. Without the MPE change the MPE
+cases differ all four ways (12 renders); without the `NOTE_END` change the `NOTE_END` check fails,
+and without that check every case differs with no load (26 renders). The version commit's gates
+and CI are in the session report.
 
 ### Fifth session (2026-10-31): tests run
 
