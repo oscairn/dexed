@@ -468,7 +468,7 @@ Today the wrapper turns CLAP notes into MIDI and drops the note ID; `NOTE_END` i
 the plugin offers MIDI and MPE only.
 
 **Changed in M1:** the Oscairn build is a native CLAP entry over the headless engine
-(`source/oscairn/`, target `oscairn_fm`, display name "Octet", `org.oscairn.fm`), not the JUCE
+(`source/oscairn/`, target `oscairn_fm`, display name "Oscairn FM", `org.oscairn.fm`), not the JUCE
 processor's direct-process path. Why: with direct process, parameters, state, ports and note
 ports would still go through the JUCE processor (APVTS listeners on other threads, parameter IDs
 derived by the wrapper, a note output port fixed by `producesMidi()` on the shared class, no
@@ -547,7 +547,7 @@ Plan:
   **Decided in M1: (c)**, see section 4.3.
 - Reuse the rules and tests of Oscairn's `plugins/common/SoundContexts.h` and
   `core/engine/tests/sound_contexts.cpp`; copy with licence care (section 9).
-- **Instant Performance changes (seventeenth session, decision 82):** Octet offers
+- **Instant Performance changes (seventeenth session, decision 82):** Oscairn FM offers
   `oscairn.sound-snapshots/draft-3`. Its `prepare` reads a whole `octet-contexts 1` snapshot (the
   reading is split out of the snapshot load and touches nothing of the plugin, so it is safe on
   the main thread while rendering), then makes every sound in it, the Default included, a new
@@ -570,13 +570,13 @@ Plan:
   flush.
 - **Voice budget (nineteenth session, decision 85):** Octet 0.3.0 offers
   `oscairn.voice-budget/draft-1` (Oscairn RFC 0018 step 4). The engine is not the SDK's
-  sound-contexts Engine, so Octet keeps its own pool and uses the SDK's `voices::Limits`,
+  sound-contexts Engine, so Oscairn FM keeps its own pool and uses the SDK's `voices::Limits`,
   `voices::Candidate`, `voices::victim()` and `voices::Report` (`voice-budget-plugin.hpp`, vendored),
   through one hook in the engine (`SynthEngine::VoiceGiver`; without one, as in the desktop Dexed,
   nothing changes). At the start of each block, voices past a lowered limit (the instance's, or a
   sound's own, a sound found by the ID of the preparation its slot holds or as one a channel selects)
   fade out over the choke time, 3 ms; a new note past a limit makes room the same way first. The
-  order is the SDK's: never a held voice of a mono sound (Octet's own Mono, or an Extended sound's
+  order is the SDK's: never a held voice of a mono sound (Oscairn FM's own Mono, or an Extended sound's
   Mono/Poly at mono) or of a host entry marked mono or legato, nor a held voice within its sound's
   reserve unless the new voice is that sound's; released before held (a key up counts as released,
   pedal or not); the new voice's own sound first; lower priority, quieter, older. `NOTE_END` comes
@@ -586,7 +586,7 @@ Plan:
   carrier's gain now (envelope, operator level and velocity: about 1 at level 99 without velocity
   sensitivity, more with it; an Extended voice times its mix gain), through any fade. A released voice holding an audible
   release level (decision 84) counts as released and is as quiet as that level (level 20 reads
-  about 0.001). `honors_volume` is false: Octet has no note expressions yet. With every voice
+  about 0.001). `honors_volume` is false: Oscairn FM has no note expressions yet. With every voice
   sounding, a new note takes a voice in the same order (one already fading first) while the host
   has set any limit; without limits it keeps Dexed's stealing (known differences register). Oscairn
   carries the extension only in-process so far: a plugin in a worker is budgeted as one without it.
@@ -604,7 +604,7 @@ Plan:
   ring-out buffer; a retiring sound on a bus plays on through its port, as draft 3 says. Unused buses
   are written silent and render nothing; the desktop Dexed passes no buses and is unchanged. The
   per-part voice budget entries (one per part, its sound, reserve and priority, limit 0) needed no
-  change. State and snapshot formats are 2 (`oscairn-fm-state 2`, `octet-contexts 2`); format 1 is
+  change. State and snapshot formats are 2 (`oscairn-fm-state 2`, `oscairn-fm-contexts 2`); format 1 is
   refused (pre-release). MPE is now scoped to the channels playing channel 1's sound (decision 87).
   Octet 0.4.1 moves to `oscairn.sound-snapshots/draft-4` (Oscairn `0a5c14f`, which shares instances
   between parts on its own; draft 3 is no longer read): `save_sound` writes a snapshot holding one
@@ -662,9 +662,9 @@ of the Oscairn gate.
 Oscairn lists CLAP presets and prepares native contexts from them (RFC 0005 "Presets",
 `oscairn.sound-contexts/draft-5` `prepare_preset`). The cartridge manager stays in the desktop editor.
 
-**Done (seventeenth session, decision 83):** cartridge voices are presets. Octet's entry offers
+**Done (seventeenth session, decision 83):** cartridge voices are presets. Oscairn FM's entry offers
 CLAP preset discovery (the SDK's factory, provider `org.oscairn.fm.cartridges`) over two folders of
-`.syx` files: the built-in cartridges, which the build unpacks into `Octet/Cartridges` beside the
+`.syx` files: the built-in cartridges, which the build unpacks into `Oscairn FM/Cartridges` beside the
 `.clap`, and the desktop Dexed's cartridge folder (user content). Each cartridge lists its 32 voices,
 load keys `0` to `31`, named from the cartridge; `prepare_preset` makes a voice a new context (Classic,
 the values loading it as parameters gives) and `clap.preset-load` loads it into the sound shown. A
@@ -849,7 +849,7 @@ only (no remote added, nothing pushed, the fork's `master` untouched). Results:
   `SynthEngine::keydown`/`keyupVoice`. It would also change Classic mono behaviour, so the Classic
   baseline would have to be re-recorded from upstream at that commit (it is upstream's behaviour,
   so "Classic sounds like stock Dexed" still holds after the port).
-- Size of the fork's diff against upstream `master`: 42 new files, +15,411 lines (Octet's
+- Size of the fork's diff against upstream `master`: 42 new files, +15,411 lines (Oscairn FM's
   engine, plugin, tests, tables, plan), and 31 upstream files changed, +634 / -859 lines. Most of
   the upstream-file change is the headless split (`PluginProcessor.cpp` -339, `PluginMidi.cpp`
   -110, `PluginProcessor.h` -48, moved into `SynthEngine`); the rest is real-time fixes in MSFA
@@ -923,7 +923,7 @@ No Yamaha names in the plugin, parameter or UI names. "DX7" is a Yamaha product 
 
 | Today / Yamaha term | Proposed neutral name |
 | --- | --- |
-| Plugin "Dexed", CLAP ID `com.digital-suburban.dexed`, features `instrument FM DX7` | Oscairn build: "Octet" (decided 2026-10-31; was proposed as "Oscairn FM"), CLAP ID `org.oscairn.fm` (matches `org.oscairn.basic-synth` etc.), features `instrument synthesizer` and the CLAP `fm` feature if defined. The desktop Dexed build keeps its own name and ID |
+| Plugin "Dexed", CLAP ID `com.digital-suburban.dexed`, features `instrument FM DX7` | Oscairn build: "Oscairn FM" (decided 2026-11-07; "Octet" from 2026-10-31), CLAP ID `org.oscairn.fm` (matches `org.oscairn.basic-synth` etc.), features `instrument synthesizer` and the CLAP `fm` feature if defined. The desktop Dexed build keeps its own name and ID |
 | FM-X (engine) | "Extended" profile |
 | DX7 (mode) | "Classic" profile |
 | Spectral Form / Skirt / Resonance | Operator Wave / Spread / Formant |
@@ -939,6 +939,15 @@ Compatibility statements describe facts ("imports MODX M Performances", "loads D
 banks") and are reviewed before release. Algorithm numbering for the Extended profile follows
 the published chart so converted Parts keep their number; whether to keep that numbering in the
 UI or show the graph only is for review.
+
+**The name Oscairn FM (2026-11-07, Jacob's decision).** The plugin was called "Octet" from
+2026-10-31 to 0.4.2; from 0.4.3 its display name is "Oscairn FM", its preset provider "Oscairn FM
+cartridges" (ID `org.oscairn.fm.cartridges`, unchanged), the built-in cartridges sit in
+`Oscairn FM/Cartridges` beside the `.clap`, the snapshot format is `oscairn-fm-contexts 2` and the
+init sounds are `assets/oscairn-fm/*.oscairn-fm`. The CLAP ID `org.oscairn.fm` and the file
+`oscairn-fm.clap` keep their names. Nothing reads the old folder or snapshot name (pre-release). The
+progress entries in section 11 keep the name Octet as written then, as do the version numbers in
+section 4.
 
 ---
 
@@ -981,8 +990,8 @@ These answer the seven questions this section used to list.
    content. A "convert to Extended" action maps a Classic sound's values and is labelled
    approximate, because where the tables differ the result may sound slightly different.
    Converting back to Classic only works when the sound stays within the Classic subset.
-3. **Name and ID.** The CLAP ID stays `org.oscairn.fm`; the display name is "Octet" (it may
-   change again).
+3. **Name and ID.** The CLAP ID stays `org.oscairn.fm`; the display name is "Oscairn FM" (decided 2026-11-07; it was "Octet"
+   from 2026-10-31 to 2026-11-07).
 4. **Voice pool size and context count: on hold.** Voice stealing is being discussed with
    Oscairn. Voice allocation and stealing policy do not change beyond what bit-exactness
    needs.
@@ -1015,7 +1024,7 @@ thirteenth session: 2, 3, 10, 18 and 19's time velocity (decisions 69-75); liste
 17 and 20 are in `forks/measurements/listen/` (renders, not committed). The others stay open.
 
 **Answer (Jacob, 2026-11-02):** 70 is decided: output clipping is left to Oscairn's mixer, not done
-inside Octet, as the reference clips after part volume and pan, at the mix. No engine change.
+inside Oscairn FM, as the reference clips after part volume and pan, at the mix. No engine change.
 
 **Notes from implementation**
 
@@ -1060,7 +1069,7 @@ with FM-X Parts (bass, keys, piano, organ, mallets and bells, leads, comping and
 strings, woodwind, guitar, effects and percussion; 44 with one FM-X Part, 6 with two or three) were
 copied with every effect, EQ, arpeggio and motion sequence off and only the FM-X Parts sounding,
 and recorded playing one 29 s sequence: keys 36, 60 and 84 at velocities 40, 90 and 127, a
-four-note chord, and a held note with 4 s of release. Octet played the converter's states
+four-note chord, and a held note with 4 s of release. Oscairn FM played the converter's states
 (performance-converter `7a71d75`, unchanged) through `oscairn-fm-test render-seq`, which gives the
 same audio as loading the state (checked bit for bit on 15 Parts), with each copy's Part Volume,
 Performance Volume and centre pan applied as Output (decision 69). Compared with
@@ -1089,18 +1098,18 @@ renders (`m4/m15b`, `m4/m15p`: each FM-X Part rebuilt from its decoded values wi
 or knobs, keys 48 and 72, both sides) show which of the remaining sounds are engine differences:
 3F003B, 3F0300 and 3F1A31's Parts match within 1 dB median per third-octave band and 0.3 dB in level
 (their whole-sound scores come from what the converter drops, see "Not engine differences"); 3F0A41's
-and 3F0B05's match in spectrum (0.0-0.6 dB median) but one Part of each is 2.4-5.2 dB louder in Octet
+and 3F0B05's match in spectrum (0.0-0.6 dB median) but one Part of each is 2.4-5.2 dB louder in Oscairn FM
 at one key (3F0B05's at key 72, 3F0A41's second Part at both keys; not looked into); 3F0231 (4.4-4.9 dB
 median), 3F0B37's third Part (1.8-3.7, up to 19 at one band) and 3F0573 at key 48 (5.6) differ in
 spectrum.
 
-1. **AEG time key follow** (resolved, decision 77): Octet used the Classic rate-scaling curve on
+1. **AEG time key follow** (resolved, decision 77): Oscairn FM used the Classic rate-scaling curve on
    every segment and the hold, far too strong at high keys and the wrong way at low ones (3F0118's
    held note 43 dB low at 2.9 s; 3F076E attacks 56 instead of 253 ms at key 36). Measured in `m15k`
    (230 renders) and modelled as the reference's rate steps; 24 of the 50 sounds use it, and their
    scores fell the most (3F076E 28.8 -> 1.4, 3F025C 19.6 -> 1.5, 3F0925 18.8 -> 1.3, 3F0118 9.9 ->
    2.4). Left: fast segments (faster than about 1.4 ms/dB) read up to 15 % slower in the reference
-   than Octet's tables give, with or without key follow (`m15k` t20s0: 6 %), an EG difference at fast
+   than Oscairn FM's tables give, with or without key follow (`m15k` t20s0: 6 %), an EG difference at fast
    rates, not key follow; the slowest attack checked is 7 % slow. Code `extTimeKeyFollowSteps`,
    `extTimeKeyFollowScale` (`msfa/ext_tables.cc`), `ExtEnv` (`msfa/ext_note.cc`). Reproduce:
    `m4/m15gen.py m15k`, `m4/ana15.py`, `m4/cmp15.py`.
@@ -1111,7 +1120,7 @@ spectrum.
    spread 7 and formant 2) still differs by 4-5 dB median per band on the Part alone, 3F0B37's Part 3
    (formant 1 at spread 7, resonance 60) by up to 19 dB at one band, 3F0573 at key 48 by 5.6 dB: the
    open M5 cases (entries 9, 10, 12). Unresolved; code `msfa/ext_waves.*`, `ExtNote::chooseWave`.
-3. **Feedback on a modulator** (resolved, decision 78): Octet used a carrier's fitted amount (0.18 of
+3. **Feedback on a modulator** (resolved, decision 78): Oscairn FM used a carrier's fitted amount (0.18 of
    the DX7's) on every operator; a modulator in the reference feeds back the DX7's amount. 3F0579's
    spectrum term 10.0 -> 2.6 (its pitch reading at key 84, an operator above Nyquist, remains: score
    10.6 -> 9.6), 3F0443 10.2 -> 3.3, 3F044C 9.7 -> 3.4, 3F0526 8.7 -> 5.0. Carrier feedback is unchanged
@@ -1120,11 +1129,11 @@ spectrum.
    `m4/m15gen.py m15g`, `m4/fbcmp.py`.
 4. **Strong macros with feedback 7** (3F1A31): not the macros. Its FM-X Part uses algorithm 1, where
    every operator is a carrier; the reference's macros do nothing to a carrier that feeds back
-   (`m15h`: depth -99 to +50 and ratio shift -99 at feedback 4 and 7, all within 0.1 dB), as in Octet,
+   (`m15h`: depth -99 to +50 and ratio shift -99 at feedback 4 and 7, all within 0.1 dB), as in Oscairn FM,
    and the Part alone matches the reference within 0.4 dB median per band (`m15p`). The whole-sound
-   difference (Octet 9 dB quieter, 20 dB brighter above 500 Hz) comes from the Performance (controller
+   difference (Oscairn FM 9 dB quieter, 20 dB brighter above 500 Hz) comes from the Performance (controller
    sets, a part LFO to an effect), which the converter drops. No engine difference known.
-5. **Attacks that read slower in Octet**: 3F0443's (702 against 9 ms) was a missing early peak, fixed
+5. **Attacks that read slower in Oscairn FM**: 3F0443's (702 against 9 ms) was a missing early peak, fixed
    with the modulator feedback (now 9-10 ms on every note). 3F003B's (63 against 9 ms) is not the
    engine's: the Part alone matches (`m15b`). 3F0221 (56 against 9 ms at key 36, 166 against 21 ms on
    the chord) is left: its operators 1 and 2 play at ratio 0.5 (33 Hz at key 36) and operator 2 has
@@ -1139,7 +1148,7 @@ spectrum.
    250-750 ms after the onset, so the vibrato's phase, depth or delay differs there. 3F067F (depth 4,
    free-running phase) scatters +-50 cents from note to note, which is decision 46's phase choice.
    Unresolved for 3F0526.
-8. **Clicks in the reference that Octet does not make**: 12 recordings have clicks Octet's renders
+8. **Clicks in the reference that Oscairn FM does not make**: 12 recordings have clicks Oscairn FM's renders
    do not have there; in the 11 recorded twice they recur at the same places (3F055C 91 and 92,
    3F0349 39 and 38, 3F0231 23 and 24). Found by `fmx-compare/dropouts.py`, which also found and
    replaced one real dropout. Source not known. Unresolved.
@@ -1151,13 +1160,13 @@ Deliberate (decided):
   No whole-sound case was traced to this alone. Code `ExtNote::chooseWave`, `msfa/ext_waves.*`;
   listening examples in `forks/measurements/listen/`.
 - **No resonance overload** (decision 17): LPF24D, HPF24D and BPF12D above resonance 80 overload in
-  the reference (20 filter cases); Octet only bounds its states. `msfa/ext_filter.cc` (shortcut
+  the reference (20 filter cases); Oscairn FM only bounds its states. `msfa/ext_filter.cc` (shortcut
   comment); `filt*`, `fm/compare_filter.py`.
 - **FEG segments straight in cents** (decision 20): the reference's bend by up to about 90 cents
   along 1200. FEG in `msfa/ext_note.cc`; `feg2`, `fm/compare_feg.py`.
 - **No output clip** (decision 70, decided by Jacob 2026-11-02): the reference clips at full scale
   after Part and Performance Volume (6 of the 50 copies clipped at Performance Volume 127 and were
-  recorded at 64), that is at the mix; clipping is left to Oscairn's mixer, not done inside Octet.
+  recorded at 64), that is at the mix; clipping is left to Oscairn's mixer, not done inside Oscairn FM.
 - **Filter and FEG once per 64 samples** (decisions 18, 75): instant FEG segments (times 0-20) take
   1.45 ms. `msfa/ext_note.cc`.
 - **Random pitch and pan** (decisions 26, 44): uniform approximations; the reference's extra step
@@ -1166,7 +1175,7 @@ Deliberate (decided):
 - **Key-on delay** (decision 27): a table in 64-sample blocks at 44.1 kHz, the same time at every rate.
 - **Ratio past coarse 31** (decision 76 and Jacob's rule of no ceiling on pitch): the reference's ratio
   at coarse 31 with fine above 100 is not stable (13.0 in one campaign, 6.658 in another; c31f100
-  3660 cents from the documented ratio in `m14s`); Octet plays the documented ratio. `extRatio`,
+  3660 cents from the documented ratio in `m14s`); Oscairn FM plays the documented ratio. `extRatio`,
   `extRatioSteps` (`msfa/ext_tables.cc`); `pitch2`, `m14s`, `fm/compare.py`.
 
 - **Voice stealing under a voice budget** (decision 85, proposed): while Oscairn has set voice
@@ -1175,7 +1184,7 @@ Deliberate (decided):
   mono key or a sound's reserve), where Dexed takes, among voices that all sound, a released one
   before a held one, then the same key, then the oldest. Without limits Dexed's stealing is
   unchanged (the 164 Classic cases are bit-identical). The reference's own stealing order is not
-  measured. Why: Oscairn RFC 0018's order, so the host and Octet agree on what is least audible.
+  measured. Why: Oscairn RFC 0018's order, so the host and Oscairn FM agree on what is least audible.
   Reproduce: `oscairn-fm-test voice-budget`, last case (16 held notes, the sixth at velocity 0.3:
   with a budget it is the one given up; the same case without limits gives up the oldest, checked
   once by hand in the nineteenth session, not by a test). Code `Plugin::steal`, `Plugin::victim` (`oscairn/OscairnFm.cpp`), the hook in
@@ -1189,7 +1198,7 @@ reference has one; deliberate):
   as equal-tempered semitones with the end key's key-scaled tables. Parameters 244, 253, 254
   (`oscairn/Parameters.cpp`), `SynthEngine::keyBeyond`, `ExtStart::keyBeyond`, `ExtNote`'s setup.
 - **Fixed frequencies on every coarse and fine value** (decision 80): the reference plays coarse 21
-  fine 64 at 19,920 Hz and holds coarse 21 fine 127 and coarse 22-31 at 22,043 Hz (`m15f`); Octet
+  fine 64 at 19,920 Hz and holds coarse 21 fine 127 and coarse 22-31 at 22,043 Hz (`m15f`); Oscairn FM
   plays the 1/128-octave grid without a ceiling (above Nyquist as ratio-mode operators do).
   `extFixedSteps`, `extFixedHz` (`msfa/ext_tables.cc`).
 
@@ -1250,7 +1259,7 @@ level table (`m9b`), the texture places (`m8c`, `m8f`) and the Ratio Shift table
 all: fixed frequencies below 20 Hz, LFO speed 0, operator pitch EG attack at times 90-99, level
 scaling (decision 5, Classic curves), the mod wheel's depths in Extended sounds.
 
-Verified against the reference only at 44.1 kHz (decision 71): everything above. Octet's own
+Verified against the reference only at 44.1 kHz (decision 71): everything above. Oscairn FM's own
 cross-rate check (`oscairn-fm-test rates`, decision 81) holds 14 measurements (level, pitch, decay,
 attack, hold, both LFOs, key-on delay, two filters, the FEG and portamento) at 48, 88.2, 96 and
 192 kHz to the 44.1 kHz values within the comparison tolerances. Behaviours that change with the rate

@@ -46,16 +46,16 @@ add_test(NAME dx7-baseline-engine-reverse COMMAND dexed-render-engine --check ${
 add_test(NAME dx7-baseline-engine-two-rates COMMAND dexed-render-engine --interleaved ${DEXED_BASELINE})
 add_test(NAME engine-robustness COMMAND dexed-render-engine --robustness)
 
-# Octet, the native CLAP (source/oscairn).
+# Oscairn FM, the native CLAP (source/oscairn).
 # oscairn-fm-test loads the built .clap; oscairn-fm-test-linked has the plugin linked in, so
 # its allocation guard sees the plugin's allocations. Never both copies in one process.
 add_executable(oscairn-fm-test oscairn_fm_test.cpp ../source/oscairn/Parameters.cpp)
 target_include_directories(oscairn-fm-test PRIVATE ../libs/clap-juce-extensions/clap-libs/clap/include ../libs/oscairn-clap/include ../source)
 target_link_libraries(oscairn-fm-test PRIVATE dexed_engine ${CMAKE_DL_LIBS})
-target_compile_definitions(oscairn-fm-test PRIVATE OCTET_ASSETS="${CMAKE_SOURCE_DIR}/assets/octet")
+target_compile_definitions(oscairn-fm-test PRIVATE OSCAIRN_FM_ASSETS="${CMAKE_SOURCE_DIR}/assets/oscairn-fm")
 add_dependencies(oscairn-fm-test oscairn_fm)
 add_executable(oscairn-fm-test-linked oscairn_fm_test.cpp)
-target_compile_definitions(oscairn-fm-test-linked PRIVATE OSCAIRN_FM_LINKED=1 OCTET_ASSETS="${CMAKE_SOURCE_DIR}/assets/octet")
+target_compile_definitions(oscairn-fm-test-linked PRIVATE OSCAIRN_FM_LINKED=1 OSCAIRN_FM_ASSETS="${CMAKE_SOURCE_DIR}/assets/oscairn-fm")
 target_link_libraries(oscairn-fm-test-linked PRIVATE oscairn_fm_objects)
 set(fm_module --module $<TARGET_FILE:oscairn_fm>)
 set(fm_params ${CMAKE_CURRENT_SOURCE_DIR}/baseline/oscairn-fm-params.txt)

@@ -1,5 +1,5 @@
 /*
- * Octet parameter table.
+ * Oscairn FM parameter table.
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *

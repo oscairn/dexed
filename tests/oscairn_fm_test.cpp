@@ -1,5 +1,5 @@
 /*
- * Tests of the Octet CLAP (source/oscairn).
+ * Tests of the Oscairn FM CLAP (source/oscairn).
  *
  *   oscairn-fm-test baseline FILE [--reverse] [--module PATH]   the DX7 cases, as the baseline
  *   oscairn-fm-test baseline-write FILE [--module PATH]
@@ -190,7 +190,7 @@ int paramsTest(const char *file, bool write) {
     Host h(entry);
     const uint32_t count = h.params->count(h.plugin);
     std::ostringstream listing;
-    listing << "# Octet parameters: id | module | name | min | max | default | flags. IDs must never change.\n";
+    listing << "# Oscairn FM parameters: id | module | name | min | max | default | flags. IDs must never change.\n";
     std::set<clap_id> ids;
     for (uint32_t i = 0; i < count; i++) {
         clap_param_info_t info;
@@ -1895,8 +1895,8 @@ int extendedTest() {
     }
     // -- the two init sounds: Classic is the default sound; Extended plays (operator 8 at
     // level 85 in algorithm 69)
-    for (const char *file : { "Classic Init.octet", "Extended Init.octet" }) {
-        std::ifstream f(std::string(OCTET_ASSETS) + "/" + file);
+    for (const char *file : { "Classic Init.oscairn-fm", "Extended Init.oscairn-fm" }) {
+        std::ifstream f(std::string(OSCAIRN_FM_ASSETS) + "/" + file);
         std::stringstream text;
         text << f.rdbuf();
         Host h(entry);
@@ -2523,7 +2523,7 @@ int extendedTest() {
 
 // ---- the Extended profile at other sample rates ----
 
-// The reference was measured at 44.1 kHz; Octet runs at any rate. The same Extended cases at 44.1,
+// The reference was measured at 44.1 kHz; Oscairn FM runs at any rate. The same Extended cases at 44.1,
 // 48, 88.2, 96 and 192 kHz must agree on times (2 %), LFO rates (1 %), pitch (1 cent; 0.05 cent for the
 // tuning) and levels (0.5 dB; the filter 0.2 dB), the tolerances the reference comparisons use.
 int crossRateTest() {
@@ -3607,7 +3607,7 @@ int snapshotsTest() {
         Instrument full;
         uint32_t selected[16];
         char message[128] = "";
-        check(!prepareSnapshot(full.host.plugin, "octet-contexts 2\nnonsense\n", selected, message, sizeof message) && *message, "a bad snapshot is refused");
+        check(!prepareSnapshot(full.host.plugin, "oscairn-fm-contexts 2\nnonsense\n", selected, message, sizeof message) && *message, "a bad snapshot is refused");
         std::string missingDefault = S;
         missingDefault.replace(missingDefault.find("context 0 "), 10, "context 7 ");
         check(!prepareSnapshot(full.host.plugin, missingDefault, selected), "a snapshot without its Default is refused");
@@ -3881,12 +3881,15 @@ int presetsTest() {
     check(factory != nullptr && factory == entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT), "preset discovery factory");
     check(factory->count(factory) == 1, "one provider");
     const auto *desc = factory->get_descriptor(factory, 0);
+    check(std::string(desc->name) == "Oscairn FM cartridges", "provider name");
+    auto *plugins = static_cast<const clap_plugin_factory_t *>(entry->get_factory(CLAP_PLUGIN_FACTORY_ID));
+    check(std::string(plugins->get_plugin_descriptor(plugins, 0)->name) == "Oscairn FM", "plugin name");
     Indexer ix;
     const auto *provider = factory->create(factory, &ix.indexer, desc->id);
     check(provider != nullptr && provider->init(provider), "provider init");
 
     // locations: the built-in cartridges beside the module (the build puts them there) and the user's folder
-    const std::string builtin = modulePath.substr(0, modulePath.find_last_of('/') + 1) + "Octet/Cartridges";
+    const std::string builtin = modulePath.substr(0, modulePath.find_last_of('/') + 1) + "Oscairn FM/Cartridges";
     check(ix.locations.size() == (modulePath.empty() ? 1u : 2u), "two locations");
     for (const auto &l : ix.locations) {
         const bool user = l.path == userFolder;
@@ -4121,7 +4124,7 @@ oscairn_voice_budget_context_t budgetFor(uint32_t context, uint32_t limit, uint3
 int voiceBudgetTest() {
     {
         Budgeted probe;
-        check(!probe.vb->honors_volume(probe.host.plugin), "no voice follows volume expressions (Octet has none yet)");
+        check(!probe.vb->honors_volume(probe.host.plugin), "no voice follows volume expressions (Oscairn FM has none yet)");
     }
 
     // A lowered limit: the voices past it fade out from the next block's start, are counted and
@@ -4422,7 +4425,7 @@ int busesTest() {
         check(found, "the Output Bus: stepped, 0 (Main) to 8");
         auto *ui = static_cast<const oscairn_plugin_ui_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_UI));
         check(ui != nullptr && ui->param_hint != nullptr, "oscairn.ui");
-        // every role: the Output Bus's, and those Oscairn took from the names before Octet declared any
+        // every role: the Output Bus's, and those Oscairn took from the names before Oscairn FM declared any
         std::map<clap_id, uint32_t> roles = { { busParam, OSCAIRN_ROLE_OUTPUT_BUS }, { 61, OSCAIRN_ROLE_CUTOFF },  { 131, OSCAIRN_ROLE_CUTOFF },
                                               { 63, OSCAIRN_ROLE_RESONANCE },     { 132, OSCAIRN_ROLE_RESONANCE }, { 207, OSCAIRN_ROLE_HOLD },
                                               { 248, OSCAIRN_ROLE_ATTACK },       { 249, OSCAIRN_ROLE_DECAY },    { 250, OSCAIRN_ROLE_SUSTAIN },
@@ -4641,11 +4644,12 @@ int busesTest() {
         t.run();
         const std::string snapshot = saveSnapshot(t);
         check(snapshot.find("\np 134 2\n") != std::string::npos, "the snapshot holds the bus");
+        check(snapshot.rfind("oscairn-fm-contexts 2\n", 0) == 0, "the snapshot's header");
         std::string older = snapshot; // format 1, before the Output Bus: no reader (pre-release)
-        older.replace(0, std::strlen("octet-contexts 2"), "octet-contexts 1");
+        older.replace(0, std::strlen("oscairn-fm-contexts 2"), "oscairn-fm-contexts 1");
         {
             Instrument w(true, 9);
-            check(!loadSnapshot(w, older), "an octet-contexts 1 snapshot is refused");
+            check(!loadSnapshot(w, older), "an oscairn-fm-contexts 1 snapshot is refused");
         }
         Instrument u(true, 9);
         check(loadSnapshot(u, snapshot), "load the snapshot");

@@ -1,5 +1,5 @@
 /*
- * Octet parameter table.
+ * Oscairn FM parameter table.
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *
@@ -75,7 +75,7 @@ static ExtendedVoice buildExtDefaults() {
     e.v[PitchKeyFollow] = 96; // +100 %
     e.v[PitchKeyCentre] = 60;
     e.v[KeyOnDelayNote] = 9; // 1/2 (the documented default)
-    // the part LFO's documented defaults (its destinations map to Octet's list: Off here)
+    // the part LFO's documented defaults (its destinations map to Oscairn FM's list: Off here)
     e.v[PartLfoSpeed] = 32;
     e.v[PartLfoTempoSpeed] = 6; // 1/4
     e.v[PartLfoHold] = 127;     // hold for ever

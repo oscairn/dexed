@@ -228,7 +228,7 @@ int extDetuneSteps(int detune, int midinote) { return 2 * (int)std::lround(extDe
 
 int extFixedSteps(int coarse, int fine) {
     // every coarse and fine value (the reference plays coarse 21 fine 64 at 19.92 kHz and holds
-    // higher values at 22.04 kHz, just under its Nyquist; Octet has no ceiling: `m15f`)
+    // higher values at 22.04 kHz, just under its Nyquist; Oscairn FM has no ceiling: `m15f`)
     return kA4Steps + 2048 * (clampi(coarse, 0, 31) - 16) + 16 * clampi(fine, 0, 127);
 }
 
@@ -701,7 +701,7 @@ double extPartLfoPanPositions(int depth) { return 64.0 * (1.0 - std::exp(-clampi
 // Part velocity sensitivity: depth / 64 times the velocity, plus twice the offset's distance from
 // 64 (measured at 40 depth, offset and velocity combinations through a carrier's level velocity
 // sensitivity; fractional results play between the neighbouring velocities' levels there,
-// shortcut: Octet rounds them); a velocity of 0 or below plays no note
+// shortcut: Oscairn FM rounds them); a velocity of 0 or below plays no note
 double extPartVelocity(int depth, int offset, int velocity) {
     return std::min(127.0, velocity * clampi(depth, 0, 127) / 64.0 + 2.0 * (clampi(offset, 0, 127) - 64));
 }

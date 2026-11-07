@@ -162,7 +162,7 @@ PUBLIC
     juce::juce_recommended_lto_flags
 )
 
-# Octet: a native CLAP over the headless engine, for Oscairn (docs/oscairn-plan.md, M1).
+# Oscairn FM: a native CLAP over the headless engine, for Oscairn (docs/oscairn-plan.md, M1).
 # No JUCE. A plain .clap module file, as Oscairn's own plugins.
 add_library(oscairn_fm_objects OBJECT oscairn/OscairnFm.cpp oscairn/Parameters.cpp oscairn/Presets.cpp)
 target_include_directories(oscairn_fm_objects PUBLIC ../libs/clap-juce-extensions/clap-libs/clap/include ../libs/oscairn-clap/include .)
@@ -180,11 +180,11 @@ set_target_properties(oscairn_fm PROPERTIES
     SUFFIX ".clap"
     OUTPUT_NAME oscairn-fm
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/oscairn)
-# The built-in cartridges, as presets: Octet/Cartridges beside the .clap (oscairn/Presets.h).
-set(octet_cartridges ${CMAKE_BINARY_DIR}/oscairn/Octet/Cartridges)
+# The built-in cartridges, as presets: Oscairn FM/Cartridges beside the .clap (oscairn/Presets.h).
+set(fm_cartridges "${CMAKE_BINARY_DIR}/oscairn/Oscairn FM/Cartridges")
 add_custom_command(TARGET oscairn_fm POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${octet_cartridges}
-    COMMAND ${CMAKE_COMMAND} -E chdir ${octet_cartridges} ${CMAKE_COMMAND} -E tar xf ${CMAKE_SOURCE_DIR}/assets/builtin_pgm.zip)
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${fm_cartridges}"
+    COMMAND ${CMAKE_COMMAND} -E chdir "${fm_cartridges}" ${CMAKE_COMMAND} -E tar xf ${CMAKE_SOURCE_DIR}/assets/builtin_pgm.zip)
 if(UNIX AND NOT APPLE)
     target_link_options(oscairn_fm PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/oscairn/exports.map")
     set_target_properties(oscairn_fm PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/oscairn/exports.map)

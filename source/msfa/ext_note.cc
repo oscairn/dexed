@@ -494,7 +494,7 @@ void ExtNote::setup(const ExtendedVoice &v, int midinote, int velocity, const Sy
         const double velocityDb = extLevelVelocityDb(o(ext::LevelVelocity), velocity_ > 0 ? velocity_ : velocity); // (may raise the level)
         // carriers: the reference's output level for this algorithm (up to 13.6 dB above
         // algorithm 1), and its overall level: its probes play a full-level sine 6.57 dB below
-        // Octet's Classic-scale carrier, which keeps the loudest algorithms from clipping
+        // Oscairn FM's Classic-scale carrier, which keeps the loudest algorithms from clipping
         const double algorithmGain = modulator ? 0.0 : extAlgorithmGainDb(algorithm_ + 1) + kExtendedOutputDb;
         const int32_t outlevel = kFullScale + dbToLog(std::min(0.0, db) + velocityDb + algorithmGain);
         int levels[4] = { o(ext::AttackLevel), o(ext::Decay1Level), o(ext::Decay2Level), o(ext::ReleaseLevel) };

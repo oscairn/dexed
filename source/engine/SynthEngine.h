@@ -81,7 +81,7 @@ enum DexedEngineResolution {
 // had one per instrument) and its output filter. Context 0 is the default sound.
 struct SynthContext {
     const uint8_t *patch = nullptr; // 156 bytes, owned by the engine's user
-    const ExtendedVoice *ext = nullptr; // Extended values (Octet only), owned by the engine's user
+    const ExtendedVoice *ext = nullptr; // Extended values (Oscairn FM only), owned by the engine's user
     bool extended() const { return ext != nullptr && ext->extended(); }
     Controllers ctrl;               // settings and controller values
     Lfo lfo;
@@ -107,7 +107,7 @@ struct SynthContext {
     int chokeLeft = 0, chokeTotal = 0;
     bool choked = false;
 
-    // Output buses (Octet: parts sharing one instance). New voices play on `bus`; a voice keeps the
+    // Output buses (Oscairn FM: parts sharing one instance). New voices play on `bus`; a voice keeps the
     // bus it started on, so after a change the voices still on the bus before play through
     // `previous`, with an output filter of its own. nextBus is the setting, applied by
     // applyOutputBuses() between blocks. Bus 0 is the main output.
@@ -128,7 +128,7 @@ struct SynthContext {
 
 // Chooses the voice for a new note: Dexed's policy (+4 not playing, +2 key up, +1 same pitch,
 // oldest key-down on ties) across the whole shared pool. When every voice sounds, a
-// SynthEngine::VoiceGiver (Octet's oscairn.voice-budget order) chooses instead.
+// SynthEngine::VoiceGiver (Oscairn FM's oscairn.voice-budget order) chooses instead.
 struct VoiceStealing {
     static int choose(const ProcessorVoice *voices, int count, int currentNote, int pitch);
 };
@@ -159,7 +159,7 @@ public:
         Panic                   // CC 120: the engine panicked; the caller resets its own note state
     };
 
-    // Gives up voices for the engine (Octet: oscairn.voice-budget); without one, Dexed's stealing.
+    // Gives up voices for the engine (Oscairn FM: oscairn.voice-budget); without one, Dexed's stealing.
     struct VoiceGiver {
         virtual ~VoiceGiver() = default;
         // a new voice of context c is about to take a slot: fade voices out to keep within limits

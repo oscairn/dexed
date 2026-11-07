@@ -52,7 +52,7 @@ void ExtPartLfo::keydown(bool firstKey) {
         phase_ = startPhase_;
         held_ = 2; // (draw a new value at once)
         // the reference's LFO starts about 12 ms after the key-on (its onset with no delay, at
-        // 3.9 and 11.9 Hz, and its waves' lag behind Octet's without this, 3-18 ms)
+        // 3.9 and 11.9 Hz, and its waves' lag behind Oscairn FM's without this, 3-18 ms)
         startWait_ = (int)std::lround(0.012 * sampleRate_);
     }
     // shortcut: the envelope restarts with the phase, and on every first key-on with key-on

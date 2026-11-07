@@ -1,5 +1,5 @@
 /*
- * Octet presets: the voices of DX7 cartridge files, through CLAP preset discovery.
+ * Oscairn FM presets: the voices of DX7 cartridge files, through CLAP preset discovery.
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *
@@ -10,7 +10,7 @@
  *
  * A preset is (CLAP_PRESET_DISCOVERY_LOCATION_FILE, a .syx cartridge, load key "0".."31"):
  * one voice of a 32-voice bulk dump. Locations: the built-in cartridges beside the plugin
- * (Octet/Cartridges next to the .clap) and the desktop Dexed's cartridge folder.
+ * (Oscairn FM/Cartridges next to the .clap) and the desktop Dexed's cartridge folder.
  */
 #pragma once
 

@@ -1,5 +1,5 @@
 /*
- * A minimal CLAP host for the Octet tests: loads a plugin, sends events, renders,
+ * A minimal CLAP host for the Oscairn FM tests: loads a plugin, sends events, renders,
  * collects output events.
  *
  * Copyright (c) 2026 the Oscairn contributors.

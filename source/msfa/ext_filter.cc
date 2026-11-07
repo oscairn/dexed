@@ -23,7 +23,7 @@ namespace {
 enum Out { Lp, Bp, Hp, Br };
 
 // shortcut: the reference overloads at high resonance (measured: LPF24D and BPF12D above
-// resonance 80 distort); Octet only keeps its states bounded, at 18 dB above full scale
+// resonance 80 distort); Oscairn FM only keeps its states bounded, at 18 dB above full scale
 constexpr float kLimit = 8.0f;
 
 constexpr double kPi = 3.14159265358979323846; // (M_PI is not standard; MSVC lacks it)

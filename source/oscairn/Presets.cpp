@@ -1,5 +1,5 @@
 /*
- * Octet presets: the voices of DX7 cartridge files, through CLAP preset discovery.
+ * Oscairn FM presets: the voices of DX7 cartridge files, through CLAP preset discovery.
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *
@@ -101,13 +101,13 @@ std::string dexedCartridges() {
 #endif
 }
 
-// The built-in cartridges: Octet/Cartridges beside the plugin file.
+// The built-in cartridges: Oscairn FM/Cartridges beside the plugin file.
 std::string builtinCartridges() {
     const std::string &path = pluginPath();
     const size_t slash = path.find_last_of("/\\");
     if (slash == std::string::npos)
         return "";
-    return path.substr(0, slash + 1) + "Octet" + path[slash] + "Cartridges";
+    return path.substr(0, slash + 1) + "Oscairn FM" + path[slash] + "Cartridges";
 }
 
 struct Presets {
@@ -141,7 +141,7 @@ struct Presets {
 };
 
 const clap_preset_discovery_provider_descriptor_t Presets::descriptor = { CLAP_VERSION_INIT, "org.oscairn.fm.cartridges",
-                                                                          "Octet cartridges", "Oscairn" };
+                                                                          "Oscairn FM cartridges", "Oscairn" };
 const char *const Presets::pluginId = "org.oscairn.fm";
 
 } // namespace

@@ -1,5 +1,5 @@
 /*
- * Octet: a native CLAP entry over the headless engine, for Oscairn.
+ * Oscairn FM: a native CLAP entry over the headless engine, for Oscairn.
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *
@@ -48,7 +48,7 @@ const char *const features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEA
 const clap_plugin_descriptor_t descriptor = {
     CLAP_VERSION_INIT,
     "org.oscairn.fm",
-    "Octet",
+    "Oscairn FM",
     "Oscairn",
     "https://github.com/oscairn/dexed",
     "",
@@ -59,7 +59,7 @@ const clap_plugin_descriptor_t descriptor = {
 };
 
 constexpr const char *stateHeader = "oscairn-fm-state 2"; // 2: the Output Bus (134); no reader for 1 (pre-release)
-constexpr const char *snapshotHeader = "octet-contexts 2"; // 2: its sounds in state format 2
+constexpr const char *snapshotHeader = "oscairn-fm-contexts 2"; // 2: its sounds in state format 2
 constexpr size_t maxStateBytes = 1 << 16;
 constexpr int contextCount = SynthEngine::MAX_CONTEXTS;
 constexpr int queueSize = 32;
@@ -1212,7 +1212,7 @@ bool snapshotsPrepare(const clap_plugin_t *plugin, const clap_istream_t *stream,
     Loaded loaded[contextCount];
     int channels[16];
     if (!readSnapshot(stream, loaded, channels)) {
-        diagnostic(message, capacity, "not an octet-contexts 2 snapshot, or a bad line");
+        diagnostic(message, capacity, "not an oscairn-fm-contexts 2 snapshot, or a bad line");
         return false;
     }
     int slot[contextCount], found = -1;
@@ -1251,7 +1251,7 @@ const oscairn_plugin_sound_snapshots_t snapshotsExt = { snapshotsPrepare, snapsh
 
 // ---- oscairn.voice-budget ----
 
-// Octet has no note expressions yet, so no voice follows CLAP_NOTE_EXPRESSION_VOLUME.
+// Oscairn FM has no note expressions yet, so no voice follows CLAP_NOTE_EXPRESSION_VOLUME.
 bool voiceBudgetHonorsVolume(const clap_plugin_t *) { return false; }
 
 void voiceBudgetSetLimits(const clap_plugin_t *plugin, uint32_t limit, const oscairn_voice_budget_context_t *contexts, uint32_t count) {
@@ -1308,7 +1308,7 @@ const clap_plugin_audio_ports_t audioPortsExt = { audioPortsCount, audioPortsGet
 // ---- oscairn.ui ----
 
 // The Output Bus's role; and, since a plugin declaring any role gets no roles from its names, the
-// roles Oscairn took from these parameters' names before Octet declared one.
+// roles Oscairn took from these parameters' names before Oscairn FM declared one.
 bool paramHint(const clap_plugin_t *, clap_id id, oscairn_param_hint_t *hint) {
     uint32_t role = OSCAIRN_ROLE_NONE;
     const uint32_t n = id % 1000;
