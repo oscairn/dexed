@@ -657,6 +657,11 @@ filter EGs, the filter response, and the spectral form preview. The JUCE editor 
 desktop build; it needs new pages for operators 7–8 and the new sections, but that is not part
 of the Oscairn gate.
 
+From 0.4.6 `oscairn.ui/draft-4` describes the algorithm graph, the operators' envelopes and key
+scaling, both pitch EGs, the operators' pitch EGs and the filter EG as rich views, which Oscairn
+draws from the parameters (section 11, twenty-fifth session; decisions 90-92). The filter response
+and the spectral form preview have no view in draft 4.
+
 ### 4.10 Presets
 
 Oscairn lists CLAP presets and prepares native contexts from them (RFC 0005 "Presets",
@@ -2026,6 +2031,26 @@ ARM64 hardware is still not measured.
     ends are not reported, as Oscairn Analog and Oscairn sfizz do; reported at the next render,
     they counted as playing their sound for that render and made a sound's second lane render
     (twenty-first session).
+90. Rich views past the porting guide (twenty-fifth session; proposed, for Jacob to confirm): the
+    guide names views 1-3 (the Classic voice, the Extended voice, the Classic pitch EG) and leaves
+    the Extended operators' pitch EGs optional. Oscairn FM also declares those (view 5, one envelope
+    per operator), the Extended pitch EG (view 4) and the Extended filter EG (view 6), since the
+    reference's pitch EG, filter EG and operator screens draw these envelopes. Without them an
+    Extended sound would show its pitch and filter EGs as tiles only.
+91. How the Extended envelopes read (twenty-fifth session; proposed): the filter EG starts at its
+    Hold Level and holds for its Hold Time (a segment without a level), then Attack, Decay 1,
+    Decay 2 and Release, each a time and a level; the Extended pitch EG starts at its Initial Level,
+    then the same four; an operator's pitch EG starts at its Initial Level, the Attack Time reaches
+    the Attack Level and the Decay Time is its last segment. The host draws that segment as a
+    release falling to the bottom of the -50 to +50 range, after a hold until the note ends; the
+    engine's operator pitch EG decays at once, without waiting for the key, back to 0, the middle
+    (draft 4 has no field for an envelope that does not hold). As the guide says, the host draws
+    pitch levels from the bottom, not about a centre, for now.
+92. No widgets, priorities or groups, and the roles unchanged (twenty-fifth session; proposed): the
+    views need no role, so decision 88's roles stay as they were. An operator's Rate Scaling and
+    Amp Mod Sensitivity, an Extended operator's Time Key Follow, LFO depth offsets and wave, and the
+    envelopes' depth and velocity settings are in no view (draft 4 has no field for them) and stay
+    tiles. Whether the filter EG's stages should also take the filter envelope roles is left open.
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
@@ -3465,6 +3490,61 @@ failed under UBSan (oscairn-fm-topology and oscairn-fm-extended: a bool loaded a
 when the engine's members moved). `21d8453` was meant to fix that and did not (Controllers has its own
 constructor, so value-initialising it zeroes nothing); it was already pushed, and `842ee57` is the fix
 that works. Every gate was run again on the three later trees. CI results are in the session report.
+
+### Twenty-fifth session (2026-11-07): rich views
+
+Oscairn main `4961c35` added rich views to `oscairn.ui` (draft 4): a parameter's hint names a view,
+its field there and its index, and `algorithm()` gives each algorithm's routing; Desktop and Panel
+draw envelopes, key scaling and FM operator views from the parameters and set them when dragged. Read
+at `2885698` (`4961c35` and one later commit to a packaging script): `docs/plugin-porting.md` ("Rich
+views: what each engine should declare"), `ui.h`, RFC 0019 and the host's reading of the hints.
+Decisions 90-92. Oscairn FM 0.4.6.
+
+Commits: `7a081b1` (headers at `4961c35`: `ui.h` at draft 4, the other five unchanged; Oscairn FM
+answers draft 4 only, since a draft 3 host's hint is smaller than the one it fills), `1934c1e` (the
+views and the routings), then the version and this entry.
+
+| View | Parameters | Fields |
+| --- | --- | --- |
+| 1 Classic voice | 1, 2; per operator n (1-6) `n001`-`n013`, `n016`-`n021` | algorithm, feedback; rates 1-4 and levels 1-4, breakpoint, left and right depths and curves, velocity depth, operator level, fixed, ratio (Coarse), fine, detune |
+| 2 Extended voice | 40, 41; per operator n (1-8) `n031`-`n034`, `n041`-`n049`, `n051`-`n057` | algorithm, feedback; Hold Time as time 1, Attack to Release times 2-5 and levels 2-5 (no level 0: it starts at the Release (Hold) Level); the same frequency, level and scaling fields (Low and High as left and right) |
+| 3 Classic pitch EG | 20-27 | rates 1-4, levels 1-4 |
+| 4 Extended pitch EG | 28-36 | Initial Level as level 0; Attack to Release times 1-4 and levels 1-4 |
+| 5 Extended operators' pitch EGs | per operator `n037`-`n040` | Initial Level as level 0, Attack Time and Level as segment 1, Decay Time as time 2 |
+| 6 Extended filter EG | 68-77 | Hold Level as level 0, Hold Time as time 1, Attack to Release times 2-5 and levels 2-5 |
+
+Every parameter in a view has a hint (automatic widget, no priority, range or group), also those with
+no role; the roles are decision 88's. The routings are `msfa/algorithms.h`'s graphs, which the
+`topology` test checks against renders. Nothing changed on the audio thread.
+
+**Tests** (each shown failing with its change undone). `buses` checks that Oscairn FM answers
+`oscairn.ui/draft-4` and not draft 3 (fails with the draft 3 header), and the roles now regardless of
+whether a parameter has a hint. `oscairn-fm-test views` (CTest `oscairn-fm-views`): every
+parameter's view, field and index against a second statement of the table above, written from the
+parameters' modules and names (fails on 0.4.5's plugin, with hints only for roles, with the Extended
+pitch EG left out); the number of parameters in each view; the curves' value texts carry their sign;
+a value a third of the way up each view parameter's range, set through `process`, is what
+`get_value` reports; `algorithm()` for values 0-89 of both algorithm parameters (the 32 and 88
+routings equal the engine's graphs, values outside them refused; fails with the Extended routings
+off by one), DX7 algorithms 1 and 32 and the first Extended one spelled out, and no routing for other
+parameters. The `get_value` check is not specific to this change (it passes wherever the views do).
+`no-alloc` also edits every parameter of a view while notes play, in both profiles, and calls
+`param_hint` and `algorithm()` under the allocation guard; on 0.4.5 it fails because `algorithm()`
+is missing, and the processing part alone passes there too (nothing changed on the audio thread).
+
+**Oscairn's own checks** (built from a `2885698` export, outside both repositories, against
+`1934c1e`'s plugin): `oscairn-worker-host-test` with Oscairn FM: the parameters with their hints,
+views, fields, indexes and routings are the same in the engine and in a worker, and it renders
+identically. A copy-style check (not committed anywhere) loads the plugin through Oscairn's plugin
+host in the engine and in a worker: six views of 116, 162, 8, 9, 32 and 10 parameters, every
+routing of both algorithm parameters, the 24 roles; on 0.4.5's plugin the views and routings fail.
+Oscairn has no rich-view test that loads another plugin (the desktop's `desktop-gaps` uses its own
+fixture plugin).
+
+**Not sound differences:** the views are drawn by the host, so how they look is Oscairn's; where
+they differ from the reference's screens is decision 91 (pitch levels drawn from the bottom; an
+operator's pitch EG drawn holding until the note ends and then falling to the bottom, where it
+decays at once back to the middle).
 
 ### How to run the tests
 
