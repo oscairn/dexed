@@ -11,6 +11,7 @@
 #include "Presets.h"
 #include "Parameters.h"
 
+#include <oscairn-clap/assets.h>
 #include <oscairn-clap/preset-discovery-plugin.hpp>
 
 #include <algorithm>
@@ -101,7 +102,7 @@ std::string dexedCartridges() {
 #endif
 }
 
-// The built-in cartridges: Oscairn FM/Cartridges beside the plugin file.
+// The built-in cartridges, without Oscairn's asset library: Oscairn FM/Cartridges beside the plugin file.
 std::string builtinCartridges() {
     const std::string &path = pluginPath();
     const size_t slash = path.find_last_of("/\\");
@@ -110,12 +111,25 @@ std::string builtinCartridges() {
     return path.substr(0, slash + 1) + "Oscairn FM" + path[slash] + "Cartridges";
 }
 
+// The Oscairn asset library holding the built-in cartridges, unchanged, in Cartridges/.
+constexpr const char *cartridgeLibrary = "org.oscairn.fm-cartridges";
+constexpr const char *cartridgeLibraryVersion = "1.0.0";
+
 struct Presets {
     static const clap_preset_discovery_provider_descriptor_t descriptor;
     static const char *const pluginId;
 
     static void declare(oscairn::presets::Declarations &d) {
-        const std::string builtin = builtinCartridges(), user = dexedCartridges();
+        // the built-in cartridges from the asset library (read-only) when the indexer has it
+        // installed, else beside the plugin (for hosts without it)
+        std::string builtin = builtinCartridges();
+        const std::string user = dexedCartridges();
+        const auto *assets = static_cast<const oscairn_host_assets_t *>(
+            d.indexer->get_extension != nullptr ? d.indexer->get_extension(d.indexer, OSCAIRN_EXT_ASSETS) : nullptr);
+        char root[4096];
+        if (assets != nullptr && assets->library_root != nullptr &&
+            assets->library_root(d.indexer, cartridgeLibrary, cartridgeLibraryVersion, root, sizeof root))
+            builtin = std::string(root) + "/Cartridges";
         if (!builtin.empty() && isFolder(builtin))
             d.files("Built-in cartridges", builtin.c_str(), "syx");
         if (!user.empty() && isFolder(user))

@@ -41,6 +41,7 @@
 #include "msfa/ext_waves_data.h"
 #include "msfa/lfo.h"
 #include "msfa/synth.h"
+#include <oscairn-clap/assets.h>
 #include <oscairn-clap/sound-contexts.h>
 #include <oscairn-clap/ui.h>
 #include <oscairn-clap/voice-budget.h>
@@ -3798,6 +3799,11 @@ struct Indexer {
     struct Location { uint32_t flags; std::string name, path; };
     std::vector<Location> locations;
     std::vector<std::string> types;
+    // oscairn.assets draft 2, when offered: library_root writes root and answers installed
+    oscairn_host_assets_t assets {};
+    bool offerAssets = false, installed = true;
+    std::string root;
+    std::vector<std::string> asked;
     Indexer() {
         indexer.clap_version = CLAP_VERSION;
         indexer.name = "dexed tests";
@@ -3811,7 +3817,16 @@ struct Indexer {
             return true;
         };
         indexer.declare_soundpack = [](const clap_preset_discovery_indexer_t *, const clap_preset_discovery_soundpack_t *) { return true; };
-        indexer.get_extension = [](const clap_preset_discovery_indexer_t *, const char *) -> const void * { return nullptr; };
+        indexer.get_extension = [](const clap_preset_discovery_indexer_t *i, const char *id) -> const void * {
+            auto *x = static_cast<Indexer *>(i->indexer_data);
+            return x->offerAssets && std::strcmp(id, OSCAIRN_EXT_ASSETS) == 0 ? &x->assets : nullptr;
+        };
+        assets.library_root = [](const void *owner, const char *id, const char *min, char *path, uint32_t capacity) {
+            auto *x = static_cast<Indexer *>(static_cast<const clap_preset_discovery_indexer_t *>(owner)->indexer_data);
+            x->asked.push_back(std::string(id) + " " + (min != nullptr ? min : ""));
+            std::snprintf(path, capacity, "%s", x->root.c_str());
+            return x->installed;
+        };
     }
 };
 
@@ -3899,6 +3914,36 @@ int presetsTest() {
     }
     check(ix.types.size() == ix.locations.size() && std::all_of(ix.types.begin(), ix.types.end(), [](auto &t) { return t == "syx"; }),
           "file type syx");
+
+    // the built-in cartridges through Oscairn's asset library (oscairn.assets draft 2): with it
+    // installed, its Cartridges folder; answering false, or no extension, the folder beside the module
+    const std::string library = std::string(cwd) + "/presets-library";
+    check(std::system(("mkdir -p '" + library + "/Cartridges'").c_str()) == 0, "make the library folder");
+    auto builtinDeclared = [&](bool offer, bool installed, std::vector<std::string> *asked = nullptr) {
+        Indexer x;
+        x.offerAssets = offer;
+        x.installed = installed;
+        x.root = library;
+        const auto *p = factory->create(factory, &x.indexer, desc->id);
+        check(p != nullptr && p->init(p), "provider init");
+        p->destroy(p);
+        if (asked != nullptr)
+            *asked = x.asked;
+        std::string found = "(none)";
+        for (const auto &l : x.locations)
+            if (l.flags == CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT)
+                found = l.path;
+        return found;
+    };
+    const std::string beside = modulePath.empty() ? "(none)" : builtin;
+    std::vector<std::string> asked;
+    const std::string fromLibrary = builtinDeclared(true, true, &asked);
+    check(fromLibrary == library + "/Cartridges" && asked == std::vector<std::string> { "org.oscairn.fm-cartridges 1.0.0" },
+          "with the asset library installed, its Cartridges folder: " + fromLibrary);
+    const std::string notInstalled = builtinDeclared(true, false, &asked);
+    check(notInstalled == beside && asked.size() == 1, "library not installed: the folder beside the module: " + notInstalled);
+    const std::string noExtension = builtinDeclared(false, true);
+    check(noExtension == beside, "no assets extension: the folder beside the module: " + noExtension);
 
     // every voice of the fixture, keys 0..31, named from the cartridge
     Listed listed;
