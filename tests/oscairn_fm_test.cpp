@@ -3903,14 +3903,14 @@ int presetsTest() {
     const auto *provider = factory->create(factory, &ix.indexer, desc->id);
     check(provider != nullptr && provider->init(provider), "provider init");
 
-    // locations: the built-in cartridges beside the module (the build puts them there) and the user's folder
+    // locations: the built-in cartridges beside the module (the build puts them there), and not
+    // the desktop Dexed's folder, though this home has one
     const std::string builtin = modulePath.substr(0, modulePath.find_last_of('/') + 1) + "Oscairn FM/Cartridges";
-    check(ix.locations.size() == (modulePath.empty() ? 1u : 2u), "two locations");
+    check(ix.locations.size() == (modulePath.empty() ? 0u : 1u), "one location");
     check(modulePath.empty() || std::ifstream(builtin + "/SynprezFM-NOTICE").good(), "the cartridges' notice beside them");
     for (const auto &l : ix.locations) {
-        const bool user = l.path == userFolder;
-        check(user || l.path == builtin, "location " + l.path);
-        check(l.flags == (user ? CLAP_PRESET_DISCOVERY_IS_USER_CONTENT : CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT), "location flags");
+        check(l.path == builtin, "location " + l.path + (l.path == userFolder ? " (the desktop Dexed's)" : ""));
+        check(l.flags == CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "location flags");
     }
     check(ix.types.size() == ix.locations.size() && std::all_of(ix.types.begin(), ix.types.end(), [](auto &t) { return t == "syx"; }),
           "file type syx");
@@ -3929,11 +3929,12 @@ int presetsTest() {
         p->destroy(p);
         if (asked != nullptr)
             *asked = x.asked;
-        std::string found = "(none)";
+        // every location declared, so the desktop Dexed's folder would show
+        std::string found;
         for (const auto &l : x.locations)
-            if (l.flags == CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT)
-                found = l.path;
-        return found;
+            found += (found.empty() ? "" : " + ") + l.path +
+                     (l.flags == CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT ? "" : " (not factory content)");
+        return found.empty() ? std::string("(none)") : found;
     };
     const std::string beside = modulePath.empty() ? "(none)" : builtin;
     std::vector<std::string> asked;

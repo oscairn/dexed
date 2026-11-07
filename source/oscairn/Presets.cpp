@@ -77,31 +77,6 @@ bool isFolder(const std::string &path) {
     return stat(path.c_str(), &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR;
 }
 
-std::string env(const char *name) {
-    const char *v = std::getenv(name);
-    return v != nullptr ? v : "";
-}
-
-// The desktop Dexed's cartridge folder (source/PluginData.cpp, resolvAppDir).
-std::string dexedCartridges() {
-#if defined(_WIN32)
-    const std::string base = env("APPDATA");
-    return base.empty() ? "" : base + "\\DigitalSuburban\\Dexed\\Cartridges";
-#elif defined(__APPLE__)
-    const std::string home = env("HOME");
-    return home.empty() ? "" : home + "/Library/Application Support/DigitalSuburban/Dexed/Cartridges";
-#else
-    std::string base = env("XDG_DATA_HOME");
-    if (base.empty()) {
-        const std::string home = env("HOME");
-        if (home.empty())
-            return "";
-        base = home + "/.local/share";
-    }
-    return base + "/DigitalSuburban/Dexed/Cartridges";
-#endif
-}
-
 // The built-in cartridges, without Oscairn's asset library: Oscairn FM/Cartridges beside the plugin file.
 std::string builtinCartridges() {
     const std::string &path = pluginPath();
@@ -122,8 +97,8 @@ struct Presets {
     static void declare(oscairn::presets::Declarations &d) {
         // the built-in cartridges from the asset library (read-only) when the indexer has it
         // installed, else beside the plugin (for hosts without it)
+        // (not the desktop Dexed's folder: that is another app's, and holds the same banks again)
         std::string builtin = builtinCartridges();
-        const std::string user = dexedCartridges();
         const auto *assets = static_cast<const oscairn_host_assets_t *>(
             d.indexer->get_extension != nullptr ? d.indexer->get_extension(d.indexer, OSCAIRN_EXT_ASSETS) : nullptr);
         char root[4096];
@@ -132,8 +107,6 @@ struct Presets {
             builtin = std::string(root) + "/Cartridges";
         if (!builtin.empty() && isFolder(builtin))
             d.files("Built-in cartridges", builtin.c_str(), "syx");
-        if (!user.empty() && isFolder(user))
-            d.files("Dexed cartridges", user.c_str(), "syx", CLAP_PRESET_DISCOVERY_IS_USER_CONTENT);
     }
 
     static void list(uint32_t kind, const char *location, oscairn::presets::Listing &l) {

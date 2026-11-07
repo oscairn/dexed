@@ -9,9 +9,9 @@
  * (at your option) any later version.
  *
  * A preset is (CLAP_PRESET_DISCOVERY_LOCATION_FILE, a .syx cartridge, load key "0".."31"):
- * one voice of a 32-voice bulk dump. Locations: the built-in cartridges (from Oscairn's asset
+ * one voice of a 32-voice bulk dump. Location: the built-in cartridges (from Oscairn's asset
  * library org.oscairn.fm-cartridges when the indexer has it, else Oscairn FM/Cartridges next to
- * the .clap) and the desktop Dexed's cartridge folder.
+ * the .clap).
  */
 #pragma once
 
