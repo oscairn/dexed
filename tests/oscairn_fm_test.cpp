@@ -4690,7 +4690,16 @@ void addMidi(std::vector<Timed> &t, const std::vector<Event> &evs, double rate, 
 
 // Renders `frames` in blocks of `block`: every port, block by block
 std::vector<float> playTimed(Host &h, std::vector<Timed> t, int frames, int block) {
-    std::stable_sort(t.begin(), t.end(), [](const Timed &a, const Timed &b) { return a.frame < b.frame; });
+    // in frame order, events at one frame as given (not std::stable_sort: its buffer comes from
+    // the nothrow operator new, which allocation_guard.h does not replace)
+    std::vector<size_t> order(t.size());
+    for (size_t i = 0; i < order.size(); i++)
+        order[i] = i;
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return t[a].frame != t[b].frame ? t[a].frame < t[b].frame : a < b; });
+    std::vector<Timed> sorted;
+    for (size_t i : order)
+        sorted.push_back(t[i]);
+    t.swap(sorted);
     std::vector<float> out;
     EventList in;
     in.events.reserve(512);
