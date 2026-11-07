@@ -672,7 +672,9 @@ Sound saves values, not the preset. Written in the sixteenth session (local comm
 `4b3d866`), carried onto this branch as `cb8d3b6` and `2b967b7`. Oscairn's plugin store installs
 only the `.clap`, so from 0.4.4 the built-in cartridges come from Oscairn's asset library
 `org.oscairn.fm-cartridges` when the indexer has it (`oscairn.assets/draft-2` `library_root`), and
-from the folder beside the `.clap` otherwise (section 11, twenty-third session).
+from the folder beside the `.clap` otherwise (section 11, twenty-third session). From 0.4.5 the
+provider no longer declares the desktop Dexed's cartridge folder, and under Oscairn it declares only
+the library's folder (section 11, twenty-fourth session).
 
 ### 4.11 Tests
 
@@ -3329,6 +3331,18 @@ declares its `Cartridges` folder; otherwise (no extension, or not installed) the
 path discovery gives, so nothing calls `library_root` at run time. `assets.h` re-vendored from
 Oscairn `8a8fcc6`. Oscairn FM 0.4.4, which requires `org.oscairn.fm-cartridges` >= 1.0.0 for its
 built-in cartridges under Oscairn.
+
+### Twenty-fourth session (2026-11-07): one copy of the built-in cartridges
+
+A live install of 0.4.4 into an empty Oscairn data folder listed 2,112 presets instead of 1,056: the
+provider also declared the desktop Dexed's cartridge folder (`DigitalSuburban/Dexed/Cartridges`),
+which a separately installed Dexed fills with the same 33 banks. Oscairn FM is a separate product, so
+in `5a6755d` it no longer indexes that folder, under Oscairn or in other hosts; the desktop Dexed is
+unchanged. In `687eb32`, under Oscairn (the indexer offers `oscairn.assets`) the provider declares only
+the `Cartridges` folder `library_root` gives for `org.oscairn.fm-cartridges`, and nothing when the
+library is not installed; without the extension, the folder beside the `.clap`, as before. There is no
+Oscairn cartridge user folder for Oscairn FM: Oscairn gives users their own Sounds, so none is
+declared. A cartridge the host passes by path still loads. Oscairn FM 0.4.5.
 
 ### Fifth session (2026-10-31): tests run
 
