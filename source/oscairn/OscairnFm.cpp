@@ -19,6 +19,7 @@
 #include "engine/SynthEngine.h"
 #include "Parameters.h"
 #include "Presets.h"
+#include "msfa/algorithms.h"
 
 #include <oscairn-clap/sound-contexts.h>
 #include <oscairn-clap/ui.h>
@@ -1307,8 +1308,83 @@ const clap_plugin_audio_ports_t audioPortsExt = { audioPortsCount, audioPortsGet
 
 // ---- oscairn.ui ----
 
-// The Output Bus's role; and, since a plugin declaring any role gets no roles from its names, the
-// roles Oscairn took from these parameters' names before Oscairn FM declared one.
+// Rich views (oscairn.ui draft 4): 1 the Classic voice, 2 the Extended voice (operator views, with
+// each operator's envelope and key scaling), 3 the Classic pitch EG, 4 the Extended pitch EG, 5 the
+// Extended operators' pitch EGs, 6 the Extended filter EG. The field of a parameter, its view and
+// index (the operator, or 0); OSCAIRN_FIELD_NONE when it is in no view.
+uint32_t fieldOf(clap_id id, uint32_t &view, uint32_t &index) {
+    const uint32_t n = id / 1000, k = id % 1000;
+    index = 0;
+    view = id == 1 || id == 2 ? 1 : id == 40 || id == 41 ? 2 : 0;
+    if (view)
+        return id == 1 || id == 40 ? OSCAIRN_FIELD_ALGORITHM : OSCAIRN_FIELD_FEEDBACK;
+    if (id >= 20 && id <= 27) { // Rate 1-4, Level 1-4; it starts at level 4
+        view = 3;
+        return id < 24 ? OSCAIRN_FIELD_RATE_1 + (id - 20) : OSCAIRN_FIELD_LEVEL_0 + 1 + (id - 24);
+    }
+    if (id >= 28 && id <= 36) { // from the Initial Level: Attack, Decay 1, Decay 2 and Release, each a time and level
+        view = 4;
+        return id <= 32 ? OSCAIRN_FIELD_LEVEL_0 + (id - 28) : OSCAIRN_FIELD_TIME_1 + (id - 33);
+    }
+    if (id >= 68 && id <= 77) { // from the Hold Level: Hold (a time), then Attack, Decay 1, Decay 2 and Release
+        view = 6;
+        return id <= 72 ? OSCAIRN_FIELD_TIME_1 + (id - 68) : id == 73 ? OSCAIRN_FIELD_LEVEL_0 : OSCAIRN_FIELD_LEVEL_0 + 2 + (id - 74);
+    }
+    if (n < 1 || n > 8)
+        return OSCAIRN_FIELD_NONE;
+    index = n;
+    if (k < 30) { // Classic operator n: Rate 1-4, Level 1-4 (it starts at level 4)
+        view = 1;
+        if (k >= 1 && k <= 4)
+            return OSCAIRN_FIELD_RATE_1 + (k - 1);
+        if (k >= 5 && k <= 8)
+            return OSCAIRN_FIELD_LEVEL_0 + (k - 4);
+        switch (k) {
+        case 9: return OSCAIRN_FIELD_BREAKPOINT;
+        case 10: return OSCAIRN_FIELD_LEFT_DEPTH;
+        case 11: return OSCAIRN_FIELD_RIGHT_DEPTH;
+        case 12: return OSCAIRN_FIELD_LEFT_CURVE;
+        case 13: return OSCAIRN_FIELD_RIGHT_CURVE;
+        case 16: return OSCAIRN_FIELD_VELOCITY_DEPTH;
+        case 17: return OSCAIRN_FIELD_OPERATOR_LEVEL;
+        case 18: return OSCAIRN_FIELD_FIXED;
+        case 19: return OSCAIRN_FIELD_RATIO;
+        case 20: return OSCAIRN_FIELD_FINE;
+        case 21: return OSCAIRN_FIELD_DETUNE;
+        }
+        return OSCAIRN_FIELD_NONE;
+    }
+    if (k >= 37 && k <= 40) { // its pitch EG: from the Initial Level, the Attack Time to the Attack Level, the Decay Time
+        view = 5;
+        return k == 37 ? OSCAIRN_FIELD_LEVEL_0 : k == 38 ? OSCAIRN_FIELD_LEVEL_0 + 1 : OSCAIRN_FIELD_TIME_1 + (k - 39);
+    }
+    view = 2; // Extended operator n: Hold, then Attack, Decay 1, Decay 2 and Release, back to the
+              // Release (Hold) Level, which it starts at (no LEVEL_0)
+    if (k == 49)
+        return OSCAIRN_FIELD_TIME_1;
+    if (k >= 45 && k <= 48)
+        return OSCAIRN_FIELD_TIME_1 + 1 + (k - 45);
+    if (k >= 41 && k <= 44)
+        return OSCAIRN_FIELD_LEVEL_0 + 2 + (k - 41);
+    switch (k) {
+    case 31: return OSCAIRN_FIELD_FIXED;
+    case 32: return OSCAIRN_FIELD_RATIO;
+    case 33: return OSCAIRN_FIELD_FINE;
+    case 34: return OSCAIRN_FIELD_DETUNE;
+    case 51: return OSCAIRN_FIELD_OPERATOR_LEVEL;
+    case 52: return OSCAIRN_FIELD_BREAKPOINT;
+    case 53: return OSCAIRN_FIELD_LEFT_DEPTH;
+    case 54: return OSCAIRN_FIELD_RIGHT_DEPTH;
+    case 55: return OSCAIRN_FIELD_LEFT_CURVE;
+    case 56: return OSCAIRN_FIELD_RIGHT_CURVE;
+    case 57: return OSCAIRN_FIELD_VELOCITY_DEPTH;
+    }
+    return OSCAIRN_FIELD_NONE;
+}
+
+// The roles: the Output Bus's; and, since a plugin declaring any role gets no roles from its
+// names, the roles Oscairn took from these parameters' names before Oscairn FM declared one.
+// A hint for every parameter with a role or in a view.
 bool paramHint(const clap_plugin_t *, clap_id id, oscairn_param_hint_t *hint) {
     uint32_t role = OSCAIRN_ROLE_NONE;
     const uint32_t n = id % 1000;
@@ -1318,13 +1394,29 @@ bool paramHint(const clap_plugin_t *, clap_id id, oscairn_param_hint_t *hint) {
     else if (id == 207) role = OSCAIRN_ROLE_HOLD;
     else if (id >= 248 && id <= 251) role = OSCAIRN_ROLE_ATTACK + (id - 248);
     else if (id >= 1000 && id < 9000 && (n == 51 || (n == 17 && id < 7000))) role = OSCAIRN_ROLE_LEVEL;
-    if (role == OSCAIRN_ROLE_NONE || indexOf(id) < 0)
+    uint32_t view = 0, index = 0;
+    const uint32_t field = fieldOf(id, view, index);
+    if ((role == OSCAIRN_ROLE_NONE && field == OSCAIRN_FIELD_NONE) || indexOf(id) < 0)
         return false;
-    *hint = { id == outputBusParam ? (uint32_t)OSCAIRN_WIDGET_LIST : (uint32_t)OSCAIRN_WIDGET_AUTO, 0, CLAP_INVALID_ID, 0, role };
+    *hint = { id == outputBusParam ? (uint32_t)OSCAIRN_WIDGET_LIST : (uint32_t)OSCAIRN_WIDGET_AUTO, 0, CLAP_INVALID_ID, 0, role,
+              field ? view : 0, field, field ? index : 0 };
     return true;
 }
 
-const oscairn_plugin_ui_t uiExt = { paramHint };
+// Each algorithm's routing, as the engine plays it (msfa/algorithms.h).
+bool algorithm(const clap_plugin_t *, clap_id id, uint32_t value, oscairn_fm_algorithm_t *out) {
+    const OperatorGraph *g = id == 1 && value >= 1 && value <= 32 ? &dx7Algorithms[value - 1]
+                           : id == 40 && value >= 1 && value <= 88 ? &extAlgorithms[value - 1] : nullptr;
+    if (!g)
+        return false;
+    std::memcpy(out->inputs, g->inputs, sizeof out->inputs);
+    out->carriers = g->carriers;
+    out->feedback_from = g->feedbackFrom;
+    out->feedback_to = g->feedbackTo;
+    return true;
+}
+
+const oscairn_plugin_ui_t uiExt = { paramHint, algorithm };
 
 uint32_t notePortsCount(const clap_plugin_t *, bool isInput) { return isInput ? 1 : 0; }
 

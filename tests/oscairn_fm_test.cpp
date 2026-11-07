@@ -16,6 +16,7 @@
  *   oscairn-fm-test presets                          cartridge voices through CLAP preset discovery
  *   oscairn-fm-test voice-budget                     voice limits, the order voices go in, notes (oscairn.voice-budget)
  *   oscairn-fm-test reset                            reset at once, then as a fresh instance (linked)
+ *   oscairn-fm-test views                            oscairn.ui rich views: fields, routings, values
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
@@ -562,6 +563,32 @@ int noAllocTest() {
             in.param(20, 134, k % 9);
             h.output.clear();
             forbidAllocation = true;
+            h.process(512, in);
+            forbidAllocation = false;
+        }
+    }
+    {
+        // the rich views: every parameter of a view edited while notes play, in both profiles; and
+        // the hints and routings, which are main-thread but allocate nothing
+        Host h(entry);
+        h.activate(48000, 512);
+        auto *ui = static_cast<const oscairn_plugin_ui_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_UI));
+        check(ui != nullptr && ui->algorithm != nullptr, "oscairn.ui with algorithm()");
+        EventList in;
+        in.events.reserve(1024);
+        oscairn_param_hint_t hint {};
+        oscairn_fm_algorithm_t a {};
+        for (int k = 0; k < 40 && ui && ui->algorithm; k++) {
+            in.clear();
+            in.note(CLAP_EVENT_NOTE_ON, 0, k, 0, 40 + k);
+            in.param(0, 5, k % 2);
+            forbidAllocation = true;
+            for (const auto &p : oscairn_fm::params())
+                if (ui->param_hint(h.plugin, p.id, &hint) && hint.view)
+                    in.param(1, p.id, p.min + k % (int)(p.max - p.min + 1));
+            for (uint32_t v = 1; v <= 88; v++)
+                ui->algorithm(h.plugin, 1, v, &a), ui->algorithm(h.plugin, 40, v, &a);
+            h.output.clear();
             h.process(512, in);
             forbidAllocation = false;
         }
@@ -4491,7 +4518,8 @@ int busesTest() {
             h.params->get_info(h.plugin, i, &p);
             oscairn_param_hint_t hint {};
             const bool has = ui->param_hint(h.plugin, p.id, &hint);
-            check(has == (roles.count(p.id) > 0) && (!has || hint.role == roles[p.id]), "the role of parameter " + std::to_string(p.id));
+            const uint32_t role = has ? hint.role : (uint32_t)OSCAIRN_ROLE_NONE;
+            check(role == (roles.count(p.id) ? roles[p.id] : (uint32_t)OSCAIRN_ROLE_NONE), "the role of parameter " + std::to_string(p.id));
         }
         oscairn_param_hint_t hint {};
         ui->param_hint(h.plugin, busParam, &hint);
@@ -4727,6 +4755,163 @@ int busesTest() {
         check(silentFor(v.host.left, 512) && !silentFor(v.host.buses[8], 512), "a sound from patch text plays on its bus");
     }
     std::printf("output buses: ports, the Output Bus and its role, two parts as two instances, a change while playing, ring-out, saved and restored\n");
+    return 0;
+}
+
+// ---- oscairn.ui rich views ----
+
+// The view, field and index a parameter should have, from its module and name (0: in no view):
+// docs/oscairn-plan.md, section 11, twenty-fifth session.
+struct ViewField {
+    uint32_t view = 0, field = OSCAIRN_FIELD_NONE, index = 0;
+    bool operator==(const ViewField &o) const { return view == o.view && field == o.field && index == o.index; }
+};
+
+ViewField expectedField(const oscairn_fm::Param &p) {
+    const std::string &m = p.module, &name = p.name;
+    auto ends = [&](const std::string &s) { return m.size() >= s.size() && m.compare(m.size() - s.size(), s.size(), s) == 0; };
+    const uint32_t op = m.rfind("Operator ", 0) == 0 ? (uint32_t)std::stoi(m.substr(9)) : 0;
+    const bool ext = m.find("Extended") != std::string::npos;
+    const std::vector<std::string> segs = { "Attack", "Decay 1", "Decay 2", "Release" };
+    auto seg = [&](const std::string &suffix) { // 1-4: which of segs name is, with the suffix; else 0
+        for (size_t i = 0; i < segs.size(); i++)
+            if (name == segs[i] + suffix)
+                return (uint32_t)i + 1;
+        return 0u;
+    };
+    auto number = [&](const std::string &prefix) { // "Rate 3" -> 3
+        return name.rfind(prefix, 0) == 0 ? (uint32_t)std::stoi(name.substr(prefix.size())) : 0u;
+    };
+    if (m == "Common" || m == "Extended/Common") {
+        const uint32_t v = ext ? 2 : 1;
+        if (name == "Algorithm") return { v, OSCAIRN_FIELD_ALGORITHM, 0 };
+        if (name == "Feedback") return { v, OSCAIRN_FIELD_FEEDBACK, 0 };
+        return {};
+    }
+    if (m == "Pitch/EG") {
+        if (uint32_t r = number("Rate ")) return { 3, OSCAIRN_FIELD_RATE_1 + r - 1, 0 };
+        return { 3, OSCAIRN_FIELD_LEVEL_0 + number("Level "), 0 };
+    }
+    if (m == "Extended/Pitch EG") {
+        if (name == "Initial Level") return { 4, OSCAIRN_FIELD_LEVEL_0, 0 };
+        if (uint32_t s = seg(" Level")) return { 4, OSCAIRN_FIELD_LEVEL_0 + s, 0 };
+        if (uint32_t s = seg(" Time")) return { 4, OSCAIRN_FIELD_TIME_1 + s - 1, 0 };
+        return {};
+    }
+    if (m == "Extended/Filter EG") {
+        if (name == "Hold Level") return { 6, OSCAIRN_FIELD_LEVEL_0, 0 };
+        if (name == "Hold Time") return { 6, OSCAIRN_FIELD_TIME_1, 0 };
+        if (uint32_t s = seg(" Level")) return { 6, OSCAIRN_FIELD_LEVEL_0 + 1 + s, 0 };
+        if (uint32_t s = seg(" Time")) return { 6, OSCAIRN_FIELD_TIME_1 + s, 0 };
+        return {};
+    }
+    if (!op)
+        return {};
+    const uint32_t v = ext ? 2 : 1;
+    if (ends("/Pitch EG")) {
+        if (name == "Initial Level") return { 5, OSCAIRN_FIELD_LEVEL_0, op };
+        if (name == "Attack Level") return { 5, OSCAIRN_FIELD_LEVEL_0 + 1, op };
+        if (name == "Attack Time") return { 5, OSCAIRN_FIELD_TIME_1, op };
+        if (name == "Decay Time") return { 5, OSCAIRN_FIELD_TIME_1 + 1, op };
+        return {};
+    }
+    if (ends("/Envelope")) {
+        if (uint32_t r = number("Rate ")) return { v, OSCAIRN_FIELD_RATE_1 + r - 1, op };
+        if (uint32_t l = number("Level ")) return { v, OSCAIRN_FIELD_LEVEL_0 + l, op };
+        if (name == "Hold Time") return { v, OSCAIRN_FIELD_TIME_1, op };
+        if (uint32_t s = seg(" Time")) return { v, OSCAIRN_FIELD_TIME_1 + s, op };
+        if (uint32_t s = seg(" Level")) return { v, OSCAIRN_FIELD_LEVEL_0 + 1 + s, op };
+        if (name == "Release (Hold) Level") return { v, OSCAIRN_FIELD_LEVEL_0 + 5, op };
+        return {};
+    }
+    if (ends("/Scaling")) {
+        if (name == "Break Point") return { v, OSCAIRN_FIELD_BREAKPOINT, op };
+        if (name == "Left Depth" || name == "Low Depth") return { v, OSCAIRN_FIELD_LEFT_DEPTH, op };
+        if (name == "Right Depth" || name == "High Depth") return { v, OSCAIRN_FIELD_RIGHT_DEPTH, op };
+        if (name == "Left Curve" || name == "Low Curve") return { v, OSCAIRN_FIELD_LEFT_CURVE, op };
+        if (name == "Right Curve" || name == "High Curve") return { v, OSCAIRN_FIELD_RIGHT_CURVE, op };
+        return {};
+    }
+    if (ends("/Frequency")) {
+        if (name == "Mode") return { v, OSCAIRN_FIELD_FIXED, op };
+        if (name == "Coarse") return { v, OSCAIRN_FIELD_RATIO, op };
+        if (name == "Fine") return { v, OSCAIRN_FIELD_FINE, op };
+        if (name == "Detune") return { v, OSCAIRN_FIELD_DETUNE, op };
+        return {};
+    }
+    if (ends("/Modulation") && name == "Velocity Sensitivity") return { v, OSCAIRN_FIELD_VELOCITY_DEPTH, op };
+    if ((m == "Operator " + std::to_string(op) || ends("/Extended")) && name == "Level") return { v, OSCAIRN_FIELD_OPERATOR_LEVEL, op };
+    return {};
+}
+
+// The six views: every parameter's view, field and index; the algorithms' routings; values set
+// by the host reach each view's parameters, and the curves' texts say their sign.
+int viewsTest() {
+    Host h(entry);
+    h.activate(48000, 512);
+    auto *ui = static_cast<const oscairn_plugin_ui_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_UI));
+    check(ui != nullptr && ui->param_hint != nullptr && ui->algorithm != nullptr, "oscairn.ui with algorithm()");
+    std::map<uint32_t, int> perView;
+    EventList in;
+    in.events.reserve(2048);
+    std::map<clap_id, double> set;
+    for (const auto &p : oscairn_fm::params()) {
+        const ViewField want = expectedField(p);
+        oscairn_param_hint_t hint {};
+        const bool has = ui->param_hint(h.plugin, p.id, &hint);
+        if (want.view == 0) {
+            check(!has || (hint.view == 0 && hint.field == OSCAIRN_FIELD_NONE && hint.index == 0), "no view for " + p.module + "/" + p.name);
+            continue;
+        }
+        check(has && ViewField { hint.view, hint.field, hint.index } == want,
+              p.module + "/" + p.name + ": view " + std::to_string(hint.view) + " field " + std::to_string(hint.field) + " index " +
+                  std::to_string(hint.index) + ", not " + std::to_string(want.view) + " " + std::to_string(want.field) + " " + std::to_string(want.index));
+        check(has && hint.widget == OSCAIRN_WIDGET_AUTO && hint.priority == 0 && hint.range_high == CLAP_INVALID_ID && hint.group == 0,
+              p.module + "/" + p.name + ": no widget, priority, range or group");
+        perView[want.view]++;
+        // a value a third of the way up its range, through process
+        const double v = p.stepped() ? std::floor(p.min + (p.max - p.min) / 3) : p.min + (p.max - p.min) / 3;
+        set[p.id] = v;
+        in.param(0, p.id, v);
+        if (want.field == OSCAIRN_FIELD_LEFT_CURVE || want.field == OSCAIRN_FIELD_RIGHT_CURVE)
+            for (double c = p.min; c <= p.max; c++) {
+                char text[64] = {};
+                check(h.params->value_to_text(h.plugin, p.id, c, text, sizeof text) && (text[0] == '-' || text[0] == '+'),
+                      p.module + "/" + p.name + ": the curve's text has its sign");
+            }
+    }
+    // Classic: algorithm, feedback and 19 per operator; Extended: the same and 20 per operator; the
+    // Classic pitch EG's 8, the Extended one's 9, 4 per operator pitch EG, the filter EG's 10
+    const std::map<uint32_t, int> counts = { { 1, 2 + 6 * 19 }, { 2, 2 + 8 * 20 }, { 3, 8 }, { 4, 9 }, { 5, 8 * 4 }, { 6, 10 } };
+    check(perView == counts, "the parameters in each view");
+    h.process(512, in);
+    for (const auto &[id, v] : set)
+        check(valueOf(h, id) == v, "the value set reaches parameter " + std::to_string(id));
+
+    // the routings: the graphs the engine plays (checked against renders by the topology test)
+    oscairn_fm_algorithm_t a {};
+    for (uint32_t value = 0; value <= 89; value++) {
+        for (clap_id id : { (clap_id)1, (clap_id)40 }) {
+            const uint32_t count = id == 1 ? 32 : 88;
+            const bool known = value >= 1 && value <= count;
+            std::memset(&a, 0xee, sizeof a);
+            check(ui->algorithm(h.plugin, id, value, &a) == known, "algorithm " + std::to_string(id) + " value " + std::to_string(value));
+            if (!known)
+                continue;
+            const OperatorGraph &g = (id == 1 ? dx7Algorithms : extAlgorithms)[value - 1];
+            check(std::memcmp(a.inputs, g.inputs, 8) == 0 && a.carriers == g.carriers && a.feedback_from == g.feedbackFrom && a.feedback_to == g.feedbackTo,
+                  "the routing of algorithm " + std::to_string(id) + " at " + std::to_string(value));
+        }
+    }
+    // spelled out: DX7 1 (2 into 1, 6 into 5 into 4 into 3, 6 feeding itself) and 32 (six
+    // carriers), the first Extended one (eight carriers, operator 1 feeding itself)
+    const uint8_t dx1[8] = { 2, 0, 8, 16, 32, 0, 0, 0 }, none[8] = {};
+    check(ui->algorithm(h.plugin, 1, 1, &a) && std::memcmp(a.inputs, dx1, 8) == 0 && a.carriers == 5 && a.feedback_from == 6 && a.feedback_to == 6, "DX7 algorithm 1");
+    check(ui->algorithm(h.plugin, 1, 32, &a) && std::memcmp(a.inputs, none, 8) == 0 && a.carriers == 63 && a.feedback_from == 6 && a.feedback_to == 6, "DX7 algorithm 32");
+    check(ui->algorithm(h.plugin, 40, 1, &a) && std::memcmp(a.inputs, none, 8) == 0 && a.carriers == 255 && a.feedback_from == 1 && a.feedback_to == 1, "Extended algorithm 1");
+    for (clap_id id : { (clap_id)2, (clap_id)41, (clap_id)1017 })
+        check(!ui->algorithm(h.plugin, id, 1, &a), "no routing for parameter " + std::to_string(id));
+    std::printf("rich views: %zu views, every parameter's field, the routings, values set reach them\n", perView.size());
     return 0;
 }
 
@@ -5042,6 +5227,8 @@ int main(int argc, char **argv) {
         return voiceBudgetTest();
     if (cmd == "buses")
         return busesTest();
+    if (cmd == "views")
+        return viewsTest();
     if (cmd == "reset")
         return resetTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());

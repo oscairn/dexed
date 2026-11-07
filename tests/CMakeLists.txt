@@ -77,6 +77,7 @@ add_test(NAME oscairn-fm-snapshots COMMAND oscairn-fm-test snapshots ${fm_module
 add_test(NAME oscairn-fm-presets COMMAND oscairn-fm-test presets ${fm_module})
 add_test(NAME oscairn-fm-voice-budget COMMAND oscairn-fm-test voice-budget ${fm_module})
 add_test(NAME oscairn-fm-buses COMMAND oscairn-fm-test buses ${fm_module})
+add_test(NAME oscairn-fm-views COMMAND oscairn-fm-test views ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)
 add_test(NAME oscairn-fm-threads COMMAND oscairn-fm-test-linked threads)
 add_test(NAME oscairn-fm-reset COMMAND oscairn-fm-test-linked reset)
