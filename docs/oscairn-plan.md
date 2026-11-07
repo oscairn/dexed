@@ -1181,7 +1181,7 @@ Deliberate (decided):
   3660 cents from the documented ratio in `m14s`); Oscairn FM plays the documented ratio. `extRatio`,
   `extRatioSteps` (`msfa/ext_tables.cc`); `pitch2`, `m14s`, `fm/compare.py`.
 
-- **Voice stealing under a voice budget** (decision 85, proposed): while Oscairn has set voice
+- **Voice stealing under a voice budget** (decision 85, confirmed by Jacob 2026-11-07): while Oscairn has set voice
   limits (`oscairn.voice-budget`), a full pool of 16 and voices past a limit go in the SDK's order
   (released before held, the new voice's own sound, lower priority, quieter, older; never a held
   mono key or a sound's reserve), where Dexed takes, among voices that all sound, a released one
@@ -1991,7 +1991,7 @@ ARM64 hardware is still not measured.
     reference does; nothing changes (levels 1-11 play as silence and end the note, `7f59025`).
     Oscairn's ring-out cut-offs and its voice stealing, still to come, deal with such voices; to be
     revisited if they turn out not to.
-85. Voice budget (nineteenth session; proposed, for Jacob to confirm): Octet offers
+85. Voice budget (nineteenth session; confirmed by Jacob 2026-11-07): Octet offers
     `oscairn.voice-budget/draft-1` with the SDK's order (section 4.5). Choices: the full pool uses
     that order only while Oscairn has set a limit, because the Classic baseline's poly scenario
     steals (18 notes on 16 voices) and the SDK's order (quietest before oldest among released
@@ -2002,25 +2002,25 @@ ARM64 hardware is still not measured.
     for the pool size, the context count and mono hand-over: a held mono key is now kept from
     another sound's new voice under a budget, but without one Dexed's stealing can still take it.
 
-86. Parts sharing one instance (twentieth session; proposed, for Jacob to confirm): eight sound buses,
+86. Parts sharing one instance (twentieth session; confirmed by Jacob 2026-11-07): eight sound buses,
     the Basic Synth's count, since Octet holds eight sounds (the Default and seven) and a fresh instance
     can then take a part for every sound. A voice keeps its bus through a change by a second lane per
     sound, not by a lane per bus (nine filters per sound), since the host sets a sound's bus when it
     joins and rarely again; a third bus while both lanes sound chokes the older lane instead. The bus
     applies at a process boundary, so a note in the same block as the change still starts on the old
     bus. No output clipping per bus: as the main output (decision 70), Octet does not clip.
-87. MPE scoped to channel 1's sound (twentieth session; proposed): while MPE detection is on (until
+87. MPE scoped to channel 1's sound (twentieth session; confirmed by Jacob 2026-11-07): while MPE detection is on (until
     two notes share a channel), a channel that selects another sound than channel 1 is a part of its
     own: its bend is a channel bend, and channel 1's controllers reach only the channels playing
     channel 1's sound. Before, two parts playing one note each on channels 1 and 2 made channel 2's
     bend an MPE per-note bend (range 24) and channel 1's bend reach both parts. One sound on every
     channel, and the desktop Dexed, behave as before.
-88. `oscairn.ui` roles (twentieth session; proposed): a plugin declaring any role gets none from its
+88. `oscairn.ui` roles (twentieth session; confirmed by Jacob 2026-11-07): a plugin declaring any role gets none from its
     parameter names in Oscairn, so with the Output Bus's role Octet now also declares the roles
     Oscairn took from its names until then (both cutoffs and resonances, Part LFO Hold, the four
     envelope macros, and every operator's Level as the instrument's level). These are Oscairn's
     guesses kept as they were, not chosen roles; choosing them is left for later.
-89. Reset ends notes without `NOTE_END` (twenty-first session; proposed): the notes a CLAP reset
+89. Reset ends notes without `NOTE_END` (twenty-first session; confirmed by Jacob 2026-11-07): the notes a CLAP reset
     ends are not reported, as Oscairn Analog and Oscairn sfizz do; reported at the next render,
     they counted as playing their sound for that render and made a sound's second lane render
     (twenty-first session).
