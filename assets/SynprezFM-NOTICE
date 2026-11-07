@@ -1,0 +1,7 @@
+The built-in cartridges (Dexed_01 and SynprezFM_01–32, from upstream Dexed's assets/builtin_pgm.zip) are a DX7 program compilation by Jean-Marc Desprez, author of SynprezFM (http://www.synprez.com/SynprezFM), distributed as in upstream Dexed.
+
+Upstream Dexed's README (https://github.com/asb2m10/dexed, line 85) credits them as:
+
+* DX7 program compilation : Jean-Marc Desprez (author of [SynprezFM](http://www.synprez.com/SynprezFM))
+
+They are distributed with the plugin, as in upstream Dexed.

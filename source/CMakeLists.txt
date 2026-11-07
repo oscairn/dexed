@@ -180,11 +180,12 @@ set_target_properties(oscairn_fm PROPERTIES
     SUFFIX ".clap"
     OUTPUT_NAME oscairn-fm
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/oscairn)
-# The built-in cartridges, as presets: Oscairn FM/Cartridges beside the .clap (oscairn/Presets.h).
+# The built-in cartridges, as presets: Oscairn FM/Cartridges beside the .clap (oscairn/Presets.h), with their notice.
 set(fm_cartridges "${CMAKE_BINARY_DIR}/oscairn/Oscairn FM/Cartridges")
 add_custom_command(TARGET oscairn_fm POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${fm_cartridges}"
-    COMMAND ${CMAKE_COMMAND} -E chdir "${fm_cartridges}" ${CMAKE_COMMAND} -E tar xf ${CMAKE_SOURCE_DIR}/assets/builtin_pgm.zip)
+    COMMAND ${CMAKE_COMMAND} -E chdir "${fm_cartridges}" ${CMAKE_COMMAND} -E tar xf ${CMAKE_SOURCE_DIR}/assets/builtin_pgm.zip
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/assets/SynprezFM-NOTICE "${fm_cartridges}")
 if(UNIX AND NOT APPLE)
     target_link_options(oscairn_fm PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/oscairn/exports.map")
     set_target_properties(oscairn_fm PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/oscairn/exports.map)

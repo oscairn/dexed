@@ -1054,7 +1054,9 @@ inside Oscairn FM, as the reference clips after part volume and pan, at the mix.
 - Whether 2nd LFO key-on reset and the Part LFO are per voice or shared in FM-X. (Measured in M7:
   the 2nd LFO runs per voice, the part LFO per part.)
 - Licences of the submodules other than JUCE, and the origin of `source/msfa/tuning.*`.
-- The origin and licence of the banks in `assets/builtin_pgm.zip`.
+- The origin and licence of the banks in `assets/builtin_pgm.zip`. Decided (Jacob, 2026-11-07): the 33
+  banks ship unchanged, as in upstream Dexed, with `assets/SynprezFM-NOTICE` crediting Jean-Marc
+  Desprez's compilation (upstream README line 85); the build copies it into `Oscairn FM/Cartridges`.
 
 ### Known differences from the reference (2026-11-01)
 

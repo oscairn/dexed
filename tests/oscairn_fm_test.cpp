@@ -3891,6 +3891,7 @@ int presetsTest() {
     // locations: the built-in cartridges beside the module (the build puts them there) and the user's folder
     const std::string builtin = modulePath.substr(0, modulePath.find_last_of('/') + 1) + "Oscairn FM/Cartridges";
     check(ix.locations.size() == (modulePath.empty() ? 1u : 2u), "two locations");
+    check(modulePath.empty() || std::ifstream(builtin + "/SynprezFM-NOTICE").good(), "the cartridges' notice beside them");
     for (const auto &l : ix.locations) {
         const bool user = l.path == userFolder;
         check(user || l.path == builtin, "location " + l.path);
