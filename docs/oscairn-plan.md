@@ -3309,6 +3309,12 @@ cases differ all four ways (12 renders); without the `NOTE_END` change the `NOTE
 and without that check every case differs with no load (26 renders). The version commit's gates
 and CI are in the session report.
 
+### Twenty-second session (2026-11-07): the name Oscairn FM
+
+Jacob renamed the plugin from Octet to Oscairn FM (section 9, "The name Oscairn FM"): display name,
+preset provider name, the built-in cartridge folder, the snapshot header and the init sound files,
+in `9f3505f`. No behaviour changes otherwise. Oscairn FM 0.4.3.
+
 ### Fifth session (2026-10-31): tests run
 
 Code commits `204249a` (no 16-bit rounding of Extended voices), `c5fbc05` (part values and
