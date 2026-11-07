@@ -4473,6 +4473,9 @@ int busesTest() {
         check(found, "the Output Bus: stepped, 0 (Main) to 8");
         auto *ui = static_cast<const oscairn_plugin_ui_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_UI));
         check(ui != nullptr && ui->param_hint != nullptr, "oscairn.ui");
+        // draft 4 only: a draft 3 host's hint is smaller than the one param_hint fills
+        check(std::strcmp(OSCAIRN_EXT_UI, "oscairn.ui/draft-4") == 0 && !h.plugin->get_extension(h.plugin, "oscairn.ui/draft-3"),
+              "oscairn.ui draft 4, not draft 3");
         // every role: the Output Bus's, and those Oscairn took from the names before Oscairn FM declared any
         std::map<clap_id, uint32_t> roles = { { busParam, OSCAIRN_ROLE_OUTPUT_BUS }, { 61, OSCAIRN_ROLE_CUTOFF },  { 131, OSCAIRN_ROLE_CUTOFF },
                                               { 63, OSCAIRN_ROLE_RESONANCE },     { 132, OSCAIRN_ROLE_RESONANCE }, { 207, OSCAIRN_ROLE_HOLD },
