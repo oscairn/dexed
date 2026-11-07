@@ -79,6 +79,7 @@ add_test(NAME oscairn-fm-voice-budget COMMAND oscairn-fm-test voice-budget ${fm_
 add_test(NAME oscairn-fm-buses COMMAND oscairn-fm-test buses ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)
 add_test(NAME oscairn-fm-threads COMMAND oscairn-fm-test-linked threads)
+add_test(NAME oscairn-fm-reset COMMAND oscairn-fm-test-linked reset)
 
 # Oscairn's scanner, offline renderer and plugin worker (docs/plugin-porting.md), when an
 # Oscairn build is given: -DDEXED_OSCAIRN_BUILD_DIR=<oscairn build> with oscairn-plugin-scan,

@@ -153,14 +153,16 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
 
 // As a fresh engine after prepare, without the allocations: voices as new, the LFOs at phase 0
 // (prepare leaves a free-running LFO's phase alone, as Dexed does), filters, buffers and
-// controllers cleared; the parameters stay as set. A note that was playing is reported ended
-// at the next render.
+// controllers cleared; the parameters stay as set. The notes it ends get no NOTE_END: until
+// one was sent, such a voice would count as playing its sound at the next render.
 void SynthEngine::reset() {
     for (int c = 0; c < MAX_CONTEXTS; c++)
         contexts[c].lfo = Lfo();
-    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note)
+    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
         if ( voices[note].dx7_note != NULL )
             voices[note].dx7_note->reset();
+        voices[note].noteActive = false;
+    }
     restart();
 }
 
@@ -225,6 +227,7 @@ void SynthEngine::resetControllers() {
         ctrl.aftertouch_cc = 0;
         ctrl.portamento_enable_cc = false;
         ctrl.portamento_cc = 0;
+        ctrl.mpeEnabled = true; // MPE detection starts again: on until two notes share a channel
         ctrl.refresh();
         for (int ch = 0; ch < 16; ch++)
             channelCtrl[c][ch] = ctrl;

@@ -15,6 +15,7 @@
  *   oscairn-fm-test snapshots                        a snapshot's sounds prepared beside the playing ones
  *   oscairn-fm-test presets                          cartridge voices through CLAP preset discovery
  *   oscairn-fm-test voice-budget                     voice limits, the order voices go in, notes (oscairn.voice-budget)
+ *   oscairn-fm-test reset                            reset at once, then as a fresh instance (linked)
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
@@ -4674,6 +4675,248 @@ int busesTest() {
     return 0;
 }
 
+// ---- reset: at once, and then as a fresh instance ----
+
+// Events at frames from the start of a render
+struct Timed {
+    int frame;
+    std::function<void(EventList &, uint32_t)> add;
+};
+
+void addMidi(std::vector<Timed> &t, const std::vector<Event> &evs, double rate, int from = 0) {
+    for (const Event &e : evs)
+        t.push_back({ from + eventSample(e, rate), [e](EventList &l, uint32_t at) { l.midi(at, e.bytes, e.size); } });
+}
+
+// Renders `frames` in blocks of `block`: every port, block by block
+std::vector<float> playTimed(Host &h, std::vector<Timed> t, int frames, int block) {
+    std::stable_sort(t.begin(), t.end(), [](const Timed &a, const Timed &b) { return a.frame < b.frame; });
+    std::vector<float> out;
+    EventList in;
+    in.events.reserve(512);
+    size_t next = 0;
+    for (int pos = 0; pos < frames; pos += block) {
+        const int n = std::min(block, frames - pos);
+        in.clear();
+        for (; next < t.size() && t[next].frame < pos + n; next++)
+            t[next].add(in, (uint32_t)std::max(0, t[next].frame - pos));
+        h.output.clear();
+        h.process((uint32_t)n, in);
+        out.insert(out.end(), h.left.begin(), h.left.begin() + n);
+        out.insert(out.end(), h.right.begin(), h.right.begin() + n);
+        for (const auto &b : h.buses)
+            out.insert(out.end(), b.begin(), b.begin() + n);
+    }
+    return out;
+}
+
+// CLAP reset, as Oscairn sends it to an instance it takes over, before giving it a state: it
+// takes effect at once, so a note in the next block sounds at full level, and the notes it ended
+// get no NOTE_END; the instance then plays exactly as a fresh one with the state it gets,
+// whatever it played before (held notes, the pedals, controllers, MPE detection turned off,
+// output buses changed while notes sounded, the output filter on); every prepared sound with it;
+// and nothing is allocated (reset runs under the allocation guard).
+int resetTest() {
+#ifndef OSCAIRN_FM_LINKED
+    fail("reset needs oscairn-fm-test-linked");
+#endif
+    constexpr clap_id busParam = 134;
+    auto reset = [](Host &h) {
+        forbidAllocation = true;
+        h.plugin->reset(h.plugin);
+        forbidAllocation = false;
+    };
+    auto make = [](double rate, int block) {
+        auto h = std::make_unique<Host>(entry);
+        h->ports = 9;
+        h->activate(rate, (uint32_t)block);
+        return h;
+    };
+    // What the outgoing Performance played: the Poly scenario's first 0.6 s (held notes, wheel,
+    // bend, pressure, the sustain pedal), two notes on channel 2 (so MPE detection turns off),
+    // portamento on, and output buses changed while notes sound
+    auto busy = [](double rate) {
+        std::vector<Timed> t;
+        std::vector<Event> evs;
+        for (const Event &e : events(Scenario::Poly))
+            if (e.seconds < 0.6)
+                evs.push_back(e);
+        evs.push_back({ 0.05, { 0x91, 50, 90 }, 3 });
+        evs.push_back({ 0.06, { 0x91, 53, 90 }, 3 });
+        evs.push_back({ 0.07, { 0xB0, 65, 127 }, 3 });
+        evs.push_back({ 0.25, { 0x90, 79, 100 }, 3 });
+        addMidi(t, evs, rate);
+        for (auto [at, bus] : { std::pair<double, double>{ 0.2, 3 }, { 0.4, 6 } })
+            t.push_back({ (int)(at * rate), [bus](EventList &l, uint32_t f) { paramOn(l, f, 0, busParam, bus); } });
+        return t;
+    };
+    // What the incoming one plays: its case's scenario, and a bus change while its notes sound
+    auto incoming = [](const Case &c) {
+        std::vector<Timed> t;
+        addMidi(t, events(c.scenario), c.rate);
+        t.push_back({ (int)(0.3 * c.rate), [](EventList &l, uint32_t f) { paramOn(l, f, 0, busParam, 5); } });
+        return t;
+    };
+    auto frames = [](const Case &c) { return (int)std::lround(scenarioSeconds(c.scenario) * c.rate); };
+    // A case's state: its voice and settings with the output filter on (its memory and
+    // smoothing), optionally the Extended profile with what keeps running (LFO 2 and the part
+    // LFO without key-on reset, random pitch and pan, alternate pan, the filter)
+    auto stateOf = [&](const Case &c, bool extended) {
+        auto h = make(c.rate, c.block);
+        EventList in;
+        voiceAndSettings(in, c);
+        in.param(0, 131, 0.35);
+        in.param(0, 132, 0.4);
+        if (extended)
+            for (auto [id, v] : std::initializer_list<std::pair<clap_id, double>>{
+                     { 5, 1 }, { 43, 60 }, { 46, 0 }, { 47, 40 }, { 55, 40 }, { 52, 60 }, { 53, 30 },
+                     { 202, 40 }, { 209, 0 }, { 210, 1 }, { 211, 64 }, { 60, 1 }, { 61, 500 }, { 63, 60 } })
+                in.param(0, id, v);
+        h->process((uint32_t)c.block, in);
+        return h->saveState();
+    };
+
+    const std::vector<Case> all = cases();
+    // At once: notes in the first block after a reset sound at full level (a voice that is
+    // loud from the start)
+    {
+        const Case &c = all[78];
+        const std::string state = stateOf(c, false);
+        auto a = make(c.rate, c.block), b = make(c.rate, c.block);
+        check(a->loadState(state) && b->loadState(state), "load");
+        playTimed(*a, busy(c.rate), (int)(0.6 * c.rate), c.block);
+        reset(*a);
+        check(a->loadState(state), "load"); // the busy part changed its bus
+        // the notes it ended get no NOTE_END (a fresh instance never played them)
+        a->output.clear();
+        a->process((uint32_t)c.block, EventList());
+        check(ends(*a).empty(), "no NOTE_END after a reset for the notes it ended");
+        b->process((uint32_t)c.block, EventList());
+        auto rms = [](const std::vector<float> &x) { // every port, over the first 0.1 s
+            double e = 0;
+            for (float v : x)
+                e += (double)v * v;
+            return std::sqrt(e / (double)x.size());
+        };
+        const int tenth = (int)(0.1 * c.rate);
+        const auto x = playTimed(*a, incoming(c), tenth, c.block), y = playTimed(*b, incoming(c), tenth, c.block);
+        check(rms(y) > 1e-3 && rms(x) >= 0.99 * rms(y), "notes in the block after a reset sound at full level");
+    }
+
+    // As a fresh instance: reset and the same state loaded again, or another state after this
+    // one played; reset with no load (its state unchanged); and the host's takeover (reset,
+    // deactivate, load, activate) against a fresh instance loaded before activation. Every 8th
+    // DX7 case, the four MPE ones, and two with the Extended profile.
+    std::vector<std::pair<size_t, bool>> picked;
+    for (size_t i = 0; i < all.size(); i++)
+        if (i % 8 == 0 || all[i].scenario == Scenario::Mpe)
+            picked.push_back({ i, false });
+    picked.push_back({ 0, true });
+    picked.push_back({ 123, true });
+    int compared = 0, differ = 0;
+    for (auto [i, extended] : picked) {
+        const Case &c = all[i];
+        const std::string state = stateOf(c, extended), other = stateOf(all[(i * 7 + 13) % all.size()], !extended);
+        auto f = make(c.rate, c.block);
+        check(f->loadState(state), "load");
+        const auto fresh = playTimed(*f, incoming(c), frames(c), c.block);
+        Host g(entry);
+        g.ports = 9;
+        check(g.loadState(state), "load before activation");
+        g.activate(c.rate, (uint32_t)c.block);
+        const auto freshLoadedFirst = playTimed(g, incoming(c), frames(c), c.block);
+        static const char *const ways[] = { "the same state loaded again", "after another state", "no load",
+                                            "deactivated, loaded and activated" };
+        for (int way = 0; way < 4; way++) {
+            auto a = make(c.rate, c.block);
+            check(a->loadState(way == 1 ? other : state), "load");
+            playTimed(*a, busy(c.rate), (int)(0.6 * c.rate), c.block);
+            const std::string before = a->saveState();
+            reset(*a);
+            if (way == 3) {
+                a->plugin->stop_processing(a->plugin);
+                a->plugin->deactivate(a->plugin);
+                a->active = false;
+            }
+            if (way != 2)
+                check(a->loadState(state), "load after the reset");
+            else
+                check(a->saveState() == before, "a reset leaves the state as it was");
+            if (way == 3)
+                a->activate(c.rate, (uint32_t)c.block);
+            // with no load it keeps what the outgoing Performance set: its bus
+            std::vector<float> expected = way == 3 ? freshLoadedFirst : fresh;
+            if (way == 2) {
+                auto k = make(c.rate, c.block);
+                check(k->loadState(before), "load");
+                expected = playTimed(*k, incoming(c), frames(c), c.block);
+            }
+            if (playTimed(*a, incoming(c), frames(c), c.block) != expected) {
+                std::printf("after a reset, %s, it renders differently from a fresh instance: %s%s\n", ways[way],
+                            c.name.c_str(), extended ? " (Extended)" : "");
+                differ++;
+            }
+        }
+        compared++;
+    }
+    std::printf("reset: %d cases compared four ways, %d renders differ from a fresh instance's\n", compared, differ);
+    check(compared >= 25 && differ == 0, "after a reset every case renders as on a fresh instance");
+
+    // Every sound: two more prepared on channels 3 and 4, both played; the one on channel 3 is
+    // then taken off it while it still sounds, the one on channel 4 stays selected; a third is
+    // prepared and never selected. After the reset and the selections the instance plays as one
+    // that never played.
+    {
+        const Case &c = all[0];
+        const std::string state = stateOf(c, false);
+        auto prepare = [&](Host &h, uint32_t *ids) {
+            auto *ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(h.plugin->get_extension(h.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
+            char message[256] = {};
+            const oscairn_sound_parameter_t one[] = { { 5, 1 }, { 46, 0 }, { 47, 50 }, { 55, 60 }, { busParam, 2 } };
+            const oscairn_sound_parameter_t two[] = { { 12, 40 }, { 14, 0 }, { 16, 7 } };
+            ids[0] = ctx->prepare(h.plugin, "One", one, 5, nullptr, nullptr, message, sizeof message);
+            ids[1] = ctx->prepare(h.plugin, "Two", two, 3, nullptr, nullptr, message, sizeof message);
+            ids[2] = ctx->prepare(h.plugin, "Idle", one, 5, nullptr, nullptr, message, sizeof message);
+            check(ids[0] != CLAP_INVALID_ID && ids[1] != CLAP_INVALID_ID && ids[2] != CLAP_INVALID_ID, "prepare");
+            check(ctx->select(h.plugin, ids[0], 2) && ctx->select(h.plugin, ids[1], 3), "select");
+            return ctx;
+        };
+        auto a = make(c.rate, c.block), b = make(c.rate, c.block);
+        check(a->loadState(state) && b->loadState(state), "load");
+        uint32_t ia[3], ib[3];
+        auto *ca = prepare(*a, ia);
+        prepare(*b, ib);
+        std::vector<Timed> before = busy(c.rate);
+        std::vector<Event> evs;
+        for (uint8_t ch : { 2, 3 })
+            for (const Event &e : events(Scenario::Poly))
+                if (e.seconds < 0.6) {
+                    Event x = e;
+                    x.bytes[0] = (uint8_t)((x.bytes[0] & 0xF0) | ch);
+                    evs.push_back(x);
+                }
+        addMidi(before, evs, c.rate);
+        playTimed(*a, before, (int)(0.6 * c.rate), c.block);
+        check(ca->select(a->plugin, 0, 2), "select");
+        playTimed(*a, {}, c.block, c.block);
+        reset(*a);
+        check(a->loadState(state), "load"); // the busy part changed the default sound's bus
+        check(ca->select(a->plugin, ia[0], 2), "select");
+        std::vector<Timed> in;
+        for (uint8_t ch : { 0, 2, 3 }) {
+            std::vector<Event> e = events(Scenario::Poly);
+            for (Event &x : e)
+                x.bytes[0] = (uint8_t)((x.bytes[0] & 0xF0) | ch);
+            addMidi(in, e, c.rate);
+        }
+        check(playTimed(*a, in, frames(c), c.block) == playTimed(*b, in, frames(c), c.block),
+              "after a reset every prepared sound plays as in an instance that never played");
+    }
+    check(forbiddenAllocations.load() == 0, std::to_string(forbiddenAllocations.load()) + " allocations in reset");
+    std::printf("reset: at once, as a fresh instance (%d cases, four ways), every prepared sound, no allocation\n", compared);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -4735,6 +4978,8 @@ int main(int argc, char **argv) {
         return voiceBudgetTest();
     if (cmd == "buses")
         return busesTest();
+    if (cmd == "reset")
+        return resetTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }
