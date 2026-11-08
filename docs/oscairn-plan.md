@@ -662,6 +662,10 @@ scaling, both pitch EGs, the operators' pitch EGs and the filter EG as rich view
 draws from the parameters (section 11, twenty-fifth session; decisions 90-92). The filter response
 and the spectral form preview have no view in draft 4.
 
+From 0.4.7 (`oscairn.ui/draft-5`) `seconds()` gives the Classic operators' rates and the Extended
+filter EG's times, so the host draws those envelopes by time; the Extended operators' envelopes and
+the pitch EGs are drawn by their parameters' ranges (twenty-sixth session; decision 93).
+
 ### 4.10 Presets
 
 Oscairn lists CLAP presets and prepares native contexts from them (RFC 0005 "Presets",
@@ -2051,6 +2055,14 @@ ARM64 hardware is still not measured.
     Amp Mod Sensitivity, an Extended operator's Time Key Follow, LFO depth offsets and wave, and the
     envelopes' depth and velocity settings are in no view (draft 4 has no field for them) and stay
     tiles. Whether the filter EG's stages should also take the filter envelope roles is left open.
+93. Which envelopes give their times (twenty-sixth session; proposed, for Jacob to confirm): the
+    porting guide has the Classic rates give theirs through `seconds()` and the Extended voice's
+    times and the pitch EGs return false. Oscairn FM also gives the Extended filter EG's (68-72):
+    its hold and segments take their time value's duration whatever their distance, so the
+    engine's own tables give each one exactly (without time key follow or velocity). The Extended
+    operators' times (ms per dB over the distance, an attack towards an asymptote) and both pitch
+    EGs' times (cents per ms over the distance) have no time apart from their levels, and stay
+    false, so those envelopes are drawn by their ranges.
 
 ### M5 (in progress, 2026-10-31; third session below; a modulated wave in the ninth; formant 2's sign in the eleventh; nothing new in the twelfth)
 
@@ -3545,6 +3557,37 @@ fixture plugin).
 they differ from the reference's screens is decision 91 (pitch levels drawn from the bottom; an
 operator's pitch EG drawn holding until the note ends and then falling to the bottom, where it
 decays at once back to the middle).
+
+### Twenty-sixth session (2026-11-07): envelope times for the rich views
+
+Oscairn main `b1fcb88`-`cf63cd6` added `oscairn.ui` draft 5: an optional `seconds()` at the end of
+`oscairn_plugin_ui_t` gives how long an envelope stage takes at a value, so Desktop and Panel draw
+stages by time; without it the host reads times from value texts ending in `ms` or `s`, and
+otherwise draws by the parameters' ranges. Oscairn FM's rates are bare numbers, so it needs
+`seconds()`. Read: `docs/plugin-porting.md` (the Oscairn FM draft 5 section) and `ui.h`. Decision 93.
+Oscairn FM 0.4.7.
+
+Commits: `7ae1a0a` (headers at `cf63cd6`: `ui.h` at draft 5, the other five unchanged; Oscairn FM
+answers draft 5 only), `8bf6218` (the Classic rates: the guide's relation, MSFA's `Env` at 44.1 kHz
+decaying across the whole level range, `3824 * 65536` per 64-sample block at the rate's increment;
+rises are quicker and keyboard rate scaling is left out), `9eddf8a` (the Extended filter EG's
+hold and segments, decision 93), then the version and this entry. Nothing changed on the audio
+thread.
+
+**Tests** (each shown failing with its change undone). `buses` checks that Oscairn FM answers
+`oscairn.ui/draft-5` and not draft 3 (fails with the draft 4 header). `views` checks `seconds()`
+for every Classic operator's four rates at rates 0, 1, 7, 20, 33, 50, 64, 77, 90, 98 and 99 against
+`Env` itself (attack at 99 to level 99 at full output level, then decay 1 at the rate to level 0,
+its blocks counted), within one 64-sample block (fails without `seconds()`, and with the rate's
+41/64 scaling made 41/63); the filter EG's five times at time values 0, 21, 30, 51, 64, 100 and 127
+against `ExtFilterEnv` (one stage at the value, the others at 0, the samples until the level
+arrives), within two samples (fails without the change, and with the hold taken from the segment
+table); and no time for a level, an Extended operator's time, a pitch EG's rate or time, or the
+algorithm.
+
+**Not sound differences:** the times only draw the envelopes. The Classic times are a full-range
+decay at 44.1 kHz; a rise, a partial segment, keyboard rate scaling and the output level change
+the engine's real time, as the guide accepts ("approximate is enough").
 
 ### How to run the tests
 
