@@ -20,6 +20,7 @@
 #include "Parameters.h"
 #include "Presets.h"
 #include "msfa/algorithms.h"
+#include "msfa/ext_tables.h"
 
 #include <oscairn-clap/sound-contexts.h>
 #include <oscairn-clap/ui.h>
@@ -1418,10 +1419,17 @@ bool algorithm(const clap_plugin_t *, clap_id id, uint32_t value, oscairn_fm_alg
 
 // Draft 5: how long a Classic operator rate's stage takes, as MSFA's Env runs it at 44.1 kHz: a
 // decay across the whole level range (rises are quicker; keyboard rate scaling is left out). The
-// Extended voice's times and the pitch EGs have none, and are drawn by their ranges.
+// Extended filter EG's segments take their time value's duration whatever their distance, so
+// theirs are exact (without time key follow or velocity). The Extended operators' times and the
+// pitch EGs depend on the distance and have none; they are drawn by their ranges.
 bool seconds(const clap_plugin_t *, clap_id id, double value, double *out) {
     uint32_t view = 0, index = 0;
     const uint32_t field = fieldOf(id, view, index);
+    if (view == 6 && field >= OSCAIRN_FIELD_TIME_1 && field <= OSCAIRN_FIELD_TIME_1 + 4) {
+        const int time = (int)std::lround(value);
+        *out = (field == OSCAIRN_FIELD_TIME_1 ? extFegHoldMs(time) : extFegSegmentMs(time)) / 1000; // ExtFilterEnv::configure
+        return true;
+    }
     if (view != 1 || field < OSCAIRN_FIELD_RATE_1 || field > OSCAIRN_FIELD_RATE_8)
         return false;
     const int qrate = std::min(63, (int)std::lround(value) * 41 / 64);                 // Env::advance

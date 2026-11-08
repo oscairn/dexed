@@ -4935,10 +4935,31 @@ int viewsTest() {
                       "operator " + std::to_string(n) + " rate " + std::to_string(k) + " at " + std::to_string(rate) + ": " + std::to_string(sec) +
                           " s, the engine " + std::to_string(engine) + " s");
     }
-    // nothing for other parameters: levels, the Extended voice's times, the pitch EGs
-    for (clap_id id : { (clap_id)1005, (clap_id)1009, (clap_id)20, (clap_id)33, (clap_id)1045, (clap_id)1049, (clap_id)1039, (clap_id)69, (clap_id)1 })
+    // the Extended filter EG's hold and segments (68-72), against ExtFilterEnv at 44.1 kHz: one
+    // stage at a time value, the others at 0 (no time), the samples until the level reaches decay
+    // 2's (the release's, after the key is up), within two samples
+    const int fegLevels[5] = { 0, 127, -128, 64, -64 };
+    for (int time : { 0, 21, 30, 51, 64, 100, 127 })
+        for (int i = 0; i < 5 && ui->seconds; i++) {
+            double times[5] = {};
+            times[i] = time;
+            ExtFilterEnv feg;
+            feg.init(fegLevels, times, 1.0, 44100);
+            if (i == 4)
+                feg.getblock(1), feg.keydown(false);
+            const double target = extFegLevelCents(fegLevels[i == 4 ? 4 : 3]);
+            long samples = 1;
+            while (feg.getblock(1) != target && samples < 100000000)
+                samples++;
+            const double engine = samples / 44100.0;
+            check(ui->seconds(h.plugin, 68 + i, time, &sec) && std::fabs(sec - engine) <= 2 / 44100.0,
+                  "filter EG time " + std::to_string(i + 1) + " at " + std::to_string(time) + ": " + std::to_string(sec) + " s, the engine " +
+                      std::to_string(engine) + " s");
+        }
+    // nothing for other parameters: levels, the Extended operators' times, the pitch EGs
+    for (clap_id id : { (clap_id)1005, (clap_id)1009, (clap_id)20, (clap_id)33, (clap_id)1045, (clap_id)1049, (clap_id)1039, (clap_id)73, (clap_id)1 })
         check(ui->seconds && !ui->seconds(h.plugin, id, 50, &sec), "no seconds for parameter " + std::to_string(id));
-    std::printf("rich views: %zu views, every parameter's field, the routings, values set reach them, the Classic rates' seconds\n", perView.size());
+    std::printf("rich views: %zu views, every parameter's field, the routings, values set reach them, the Classic rates' and filter EG's seconds\n", perView.size());
     return 0;
 }
 
