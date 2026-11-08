@@ -1416,7 +1416,21 @@ bool algorithm(const clap_plugin_t *, clap_id id, uint32_t value, oscairn_fm_alg
     return true;
 }
 
-const oscairn_plugin_ui_t uiExt = { paramHint, algorithm };
+// Draft 5: how long a Classic operator rate's stage takes, as MSFA's Env runs it at 44.1 kHz: a
+// decay across the whole level range (rises are quicker; keyboard rate scaling is left out). The
+// Extended voice's times and the pitch EGs have none, and are drawn by their ranges.
+bool seconds(const clap_plugin_t *, clap_id id, double value, double *out) {
+    uint32_t view = 0, index = 0;
+    const uint32_t field = fieldOf(id, view, index);
+    if (view != 1 || field < OSCAIRN_FIELD_RATE_1 || field > OSCAIRN_FIELD_RATE_8)
+        return false;
+    const int qrate = std::min(63, (int)std::lround(value) * 41 / 64);                 // Env::advance
+    const double inc = (4 + (qrate & 3)) * std::ldexp(1.0, 2 + LG_N + (qrate >> 2)); // per 64-sample block
+    *out = 3824.0 * 65536 * 64 / (inc * 44100);                                      // the whole level range
+    return true;
+}
+
+const oscairn_plugin_ui_t uiExt = { paramHint, algorithm, seconds };
 
 uint32_t notePortsCount(const clap_plugin_t *, bool isInput) { return isInput ? 1 : 0; }
 

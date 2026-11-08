@@ -39,6 +39,7 @@
 #include "msfa/ext_part_lfo.h"
 #include "msfa/ext_tables.h"
 #include "msfa/ext_waves.h"
+#include "msfa/env.h"
 #include "msfa/ext_waves_data.h"
 #include "msfa/lfo.h"
 #include "msfa/synth.h"
@@ -4911,7 +4912,33 @@ int viewsTest() {
     check(ui->algorithm(h.plugin, 40, 1, &a) && std::memcmp(a.inputs, none, 8) == 0 && a.carriers == 255 && a.feedback_from == 1 && a.feedback_to == 1, "Extended algorithm 1");
     for (clap_id id : { (clap_id)2, (clap_id)41, (clap_id)1017 })
         check(!ui->algorithm(h.plugin, id, 1, &a), "no routing for parameter " + std::to_string(id));
-    std::printf("rich views: %zu views, every parameter's field, the routings, values set reach them\n", perView.size());
+    // seconds() (draft 5): a Classic operator rate's stage, against MSFA's Env at 44.1 kHz decaying
+    // across the whole level range (an operator at full level, attack at 99 to level 99, decay 1
+    // at the rate to level 0), within one 64-sample block
+    check(ui->seconds != nullptr, "oscairn.ui with seconds()");
+    double sec = 0;
+    for (int rate : { 0, 1, 7, 20, 33, 50, 64, 77, 90, 98, 99 }) {
+        const int rates[4] = { 99, rate, 99, 99 }, levels[4] = { 99, 0, 0, 0 };
+        Env env;
+        env.init(rates, levels, 127 << 5, 0);
+        char ix = 0;
+        long blocks = 0;
+        for (long i = 0; i < 100000000 && ix < 2; i++) {
+            env.getsample();
+            env.getPosition(&ix);
+            blocks += ix == 1;
+        }
+        const double engine = blocks * 64 / 44100.0;
+        for (uint32_t n = 1; n <= 6 && ui->seconds; n++)
+            for (uint32_t k = 1; k <= 4; k++)
+                check(ui->seconds(h.plugin, 1000 * n + k, rate, &sec) && std::fabs(sec - engine) <= 64 / 44100.0,
+                      "operator " + std::to_string(n) + " rate " + std::to_string(k) + " at " + std::to_string(rate) + ": " + std::to_string(sec) +
+                          " s, the engine " + std::to_string(engine) + " s");
+    }
+    // nothing for other parameters: levels, the Extended voice's times, the pitch EGs
+    for (clap_id id : { (clap_id)1005, (clap_id)1009, (clap_id)20, (clap_id)33, (clap_id)1045, (clap_id)1049, (clap_id)1039, (clap_id)69, (clap_id)1 })
+        check(ui->seconds && !ui->seconds(h.plugin, id, 50, &sec), "no seconds for parameter " + std::to_string(id));
+    std::printf("rich views: %zu views, every parameter's field, the routings, values set reach them, the Classic rates' seconds\n", perView.size());
     return 0;
 }
 
