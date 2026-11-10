@@ -3827,7 +3827,7 @@ struct Indexer {
     struct Location { uint32_t flags; std::string name, path; };
     std::vector<Location> locations;
     std::vector<std::string> types;
-    // oscairn.assets draft 2, when offered: library_root writes root and answers installed
+    // oscairn.assets draft 3, when offered: library_root writes root and answers installed
     oscairn_host_assets_t assets {};
     bool offerAssets = false, installed = true;
     std::string root;
@@ -3943,7 +3943,7 @@ int presetsTest() {
     check(ix.types.size() == ix.locations.size() && std::all_of(ix.types.begin(), ix.types.end(), [](auto &t) { return t == "syx"; }),
           "file type syx");
 
-    // the built-in cartridges through Oscairn's asset library (oscairn.assets draft 2): with it
+    // the built-in cartridges through Oscairn's asset library (oscairn.assets draft 3): with it
     // installed, its Cartridges folder; answering false, nothing (Oscairn has no other folder of
     // them); with no extension (other hosts), the folder beside the module
     const std::string library = std::string(cwd) + "/presets-library";
