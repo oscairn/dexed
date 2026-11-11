@@ -67,7 +67,7 @@ jobs:
 
     - name: Build
       run: |
-        cmake --build build --target ${{ matrix.targets || 'dexed_engine dexed-render-engine dexed-render-plugin Dexed_CLAP oscairn_fm oscairn-fm-test oscairn-fm-test-linked' }}
+        cmake --build build --target ${{ matrix.targets || 'dexed_engine dexed-render-engine dexed-render-plugin Dexed_CLAP oscairn_fm oscairn-fm-test oscairn-fm-test-linked oscairn-fm-privacy-host' }}
 
     - name: Test
       run: |

@@ -81,6 +81,16 @@ add_test(NAME oscairn-fm-views COMMAND oscairn-fm-test views ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)
 add_test(NAME oscairn-fm-threads COMMAND oscairn-fm-test-linked threads)
 add_test(NAME oscairn-fm-reset COMMAND oscairn-fm-test-linked reset)
+# Opened as Oscairn does, with a temporary HOME: nothing may touch the user's Documents,
+# Desktop or Downloads, or create anything under HOME (privacy-check.sh).
+add_executable(oscairn-fm-privacy-host privacy-host.cpp)
+target_include_directories(oscairn-fm-privacy-host PRIVATE ../libs/clap-juce-extensions/clap-libs/clap/include ../libs/oscairn-clap/include)
+target_link_libraries(oscairn-fm-privacy-host PRIVATE ${CMAKE_DL_LIBS})
+add_dependencies(oscairn-fm-privacy-host oscairn_fm)
+add_test(NAME oscairn-fm-privacy COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/privacy-check.sh
+    $<TARGET_FILE:oscairn-fm-privacy-host> $<TARGET_FILE:oscairn_fm> org.oscairn.fm
+    --library "org.oscairn.fm-cartridges=${CMAKE_BINARY_DIR}/oscairn/Oscairn FM"
+    --state "${CMAKE_SOURCE_DIR}/assets/oscairn-fm/Extended Init.oscairn-fm")
 
 # Oscairn's scanner, offline renderer and plugin worker (docs/plugin-porting.md), when an
 # Oscairn build is given: -DDEXED_OSCAIRN_BUILD_DIR=<oscairn build> with oscairn-plugin-scan,
