@@ -17,7 +17,7 @@ jobs:
   component_version:
     name: "Set up version"
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
+      group: ${{ github.workflow }}-${{ github.ref }}-component_version
       cancel-in-progress: true
     runs-on: ubuntu-22.04
     outputs:
@@ -50,7 +50,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
+      group: ${{ github.workflow }}-${{ github.ref }}-build-linux
       cancel-in-progress: true
     name: "Linux Build"
     environment: default
@@ -87,7 +87,7 @@ jobs:
   build-windows:
     runs-on: windows-2022
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
+      group: ${{ github.workflow }}-${{ github.ref }}-build-windows
       cancel-in-progress: true
     name: "Windows Build"
     environment: default
@@ -114,7 +114,7 @@ jobs:
   build-macos:
     runs-on: macos-15
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ github.job }}
+      group: ${{ github.workflow }}-${{ github.ref }}-build-macos
       cancel-in-progress: true
     name: "macOS Build"
     environment: default
