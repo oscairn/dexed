@@ -3598,3 +3598,25 @@ cmake --build build --target dexed-render-plugin dexed-render-engine Dexed_CLAP 
       oscairn-fm-test oscairn-fm-test-linked
 ctest --test-dir build
 ```
+
+### Releasing
+
+The package version is Oscairn FM's descriptor version (`source/oscairn/OscairnFm.cpp`);
+the bundle is the one plugin, so no second version exists. Bump the descriptor, commit,
+then tag the package version and push the tag:
+
+```
+git tag oscairn-v0.4.9
+git push origin oscairn-v0.4.9
+```
+
+The [release workflow](../.github/workflows/release.yml) builds the `.clap` for each
+platform from a clean Release configure (the same `-DDEXED_NO_ALSA=ON -DDEXED_SKIP_VST3=ON`
+as the test workflow, so it stays a single file with no non-system libraries), runs the
+tests and the device dependency checks, and creates a GitHub Release holding
+`oscairn-fm-<platform>.clap`, `licenses.tar.gz` and `oscairn-release.json`. The tag
+version must match the descriptor; the release fails if it does not. To try the workflow
+without a tag, run it manually (`workflow_dispatch`) with *dry run* checked: everything
+runs and the files land as a workflow artifact instead of a release. The repo-specific
+facts (names, ids, licence expression, licence files, the asset dependency) live in
+`source/oscairn/tools/release/release.conf`.
