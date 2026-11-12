@@ -24,20 +24,27 @@ jobs:
         include:
           - name: Linux x86_64
             os: ubuntu-24.04
+            compiler: gcc
             build_type: Release
           - name: Linux ARM64
             os: ubuntu-24.04-arm
+            compiler: gcc
             build_type: Release
           - name: macOS
             os: macos-15
+            compiler: appleclang
             build_type: Release
           - name: Linux ASan and UBSan
             os: ubuntu-24.04
+            compiler: gcc
             build_type: Debug
+            sanitizer: asan-ubsan
             sanitize: -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
           - name: Linux TSan
             os: ubuntu-24.04
+            compiler: gcc
             build_type: Debug
+            sanitizer: tsan
             sanitize: -fsanitize=thread
             targets: oscairn-fm-test-linked dexed-render-engine
             tests: engine-two-rates|fm-threads
@@ -62,9 +69,16 @@ jobs:
       if: runner.os == 'macOS'
       run: brew install ninja
 
+    - uses: hendrikmuhs/ccache-action@v1.2.24
+      with:
+        key: oscairn-fm-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ matrix.sanitizer || 'none' }}
+        max-size: 1000M
+        evict-old-files: job
+
     - name: Configure
       run: |
         cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
           -DDEXED_COPY_PLUGIN_AFTER_BUILD=OFF -DDEXED_NO_ALSA=ON -DDEXED_SKIP_VST3=ON \
           "-DCMAKE_CXX_FLAGS=${{ matrix.sanitize }}" "-DCMAKE_C_FLAGS=${{ matrix.sanitize }}" \
           "-DCMAKE_EXE_LINKER_FLAGS=${{ matrix.sanitize }}" "-DCMAKE_MODULE_LINKER_FLAGS=${{ matrix.sanitize }}"
