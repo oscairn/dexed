@@ -45,6 +45,7 @@ add_test(NAME dx7-baseline-engine COMMAND dexed-render-engine --check ${DEXED_BA
 add_test(NAME dx7-baseline-engine-reverse COMMAND dexed-render-engine --check ${DEXED_BASELINE} --reverse)
 add_test(NAME dx7-baseline-engine-two-rates COMMAND dexed-render-engine --interleaved ${DEXED_BASELINE})
 add_test(NAME engine-robustness COMMAND dexed-render-engine --robustness)
+add_test(NAME engine-pool-identity COMMAND dexed-render-engine --pool-identity)
 
 # Oscairn FM, the native CLAP (source/oscairn).
 # oscairn-fm-test loads the built .clap; oscairn-fm-test-linked has the plugin linked in, so
@@ -76,6 +77,11 @@ add_test(NAME oscairn-fm-state-active COMMAND oscairn-fm-test state-active ${fm_
 add_test(NAME oscairn-fm-snapshots COMMAND oscairn-fm-test snapshots ${fm_module})
 add_test(NAME oscairn-fm-presets COMMAND oscairn-fm-test presets ${fm_module})
 add_test(NAME oscairn-fm-voice-budget COMMAND oscairn-fm-test voice-budget ${fm_module})
+add_test(NAME oscairn-fm-polyphony COMMAND oscairn-fm-test polyphony ${fm_module})
+# Dexed's 16 voices (the plugin's pool is 128): the baseline is unmodified Dexed's, stealing
+# included, and these tests steal at a full pool of 16; engine-pool-identity checks 128 against 16
+set_tests_properties(oscairn-fm-baseline oscairn-fm-baseline-reverse oscairn-fm-two-rates oscairn-fm-notes
+    oscairn-fm-voice-budget PROPERTIES ENVIRONMENT OSCAIRN_FM_POLYPHONY=16)
 add_test(NAME oscairn-fm-buses COMMAND oscairn-fm-test buses ${fm_module})
 add_test(NAME oscairn-fm-views COMMAND oscairn-fm-test views ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)

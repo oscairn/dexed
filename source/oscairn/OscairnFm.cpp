@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cctype>
 #include <cstring>
 #include <functional>
@@ -65,6 +66,13 @@ constexpr const char *snapshotHeader = "oscairn-fm-contexts 2"; // 2: its sounds
 constexpr size_t maxStateBytes = 1 << 16;
 constexpr int contextCount = SynthEngine::MAX_CONTEXTS;
 constexpr int queueSize = 32;
+// Voices shared by every sound of an instance: the reference's FM polyphony (about 1.4 MB of notes),
+// or OSCAIRN_FM_POLYPHONY's 1 to 128 (16 plays every patch as Dexed does). What a device can play
+// is the host's voice budget (oscairn.voice-budget), not this.
+int polyphony() {
+    const char *v = std::getenv("OSCAIRN_FM_POLYPHONY");
+    return v != nullptr && std::atoi(v) > 0 ? std::min(std::atoi(v), SynthEngine::MAX_VOICES) : SynthEngine::MAX_VOICES;
+}
 constexpr uint32_t busCount = 8; // sound buses beside Main, one for each sound (Oscairn parts sharing one instance)
 constexpr clap_id outputBusParam = 134;
 
@@ -142,6 +150,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         for (auto &f : stateChanged)
             f.store(false, std::memory_order_relaxed);
         engine.setTuning(createStandardTuning());
+        engine.setPolyphony(polyphony());
         engine.setNoteEndSink(this);
         engine.setVoiceGiver(this);
         engine.setPerChannelControllers(true); // RFC 0005: controllers act per MIDI channel
@@ -172,7 +181,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
     // the voices sounding and not fading out, of context c (-1: of every context)
     uint32_t keeping(int c = -1) const {
         uint32_t n = 0;
-        for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+        for (int i = 0; i < engine.polyphony(); i++)
             n += sounding(i) && engine.voice(i).fadeTotal == 0 && (c < 0 || engine.voice(i).context == c);
         return n;
     }
@@ -197,8 +206,8 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
     // The voice to give up for a new voice of context `incoming` (-1: none), from context `only`
     // alone unless -1; -1 when none may go.
     int victim(int incoming, int only = -1) {
-        std::array<oscairn::voices::Candidate, SynthEngine::MAX_ACTIVE_NOTES> candidates {};
-        for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++) {
+        std::array<oscairn::voices::Candidate, SynthEngine::MAX_VOICES> candidates {};
+        for (int i = 0; i < engine.polyphony(); i++) {
             if (!sounding(i))
                 continue;
             const ProcessorVoice &v = engine.voice(i);
@@ -207,7 +216,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         }
         auto id = [&](int c) { return c < 0 ? oscairn::voices::none : slots[c].loadedId; };
         return oscairn::voices::victim(
-            candidates.size(), [&](size_t i) { return sounding((int)i) ? &candidates[i] : nullptr; }, voiceLimits, id(incoming),
+            (size_t)engine.polyphony(), [&](size_t i) { return sounding((int)i) ? &candidates[i] : nullptr; }, voiceLimits, id(incoming),
             id(only));
     }
     void giveUp(int note) {
@@ -216,7 +225,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
     }
     void makeRoom(int c) override {
         if (mono(c))
-            for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+            for (int i = 0; i < engine.polyphony(); i++)
                 if (engine.voice(i).live && engine.voice(i).context == c && engine.voice(i).fadeTotal == 0)
                     return; // the new note takes the sounding one's place
         const auto own = settings(c);
@@ -230,7 +239,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
             return -1; // no budget from the host: Dexed's stealing, as the Classic baseline has it
         // a voice already fading out first, the furthest gone
         int best = -1;
-        for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++) {
+        for (int i = 0; i < engine.polyphony(); i++) {
             const ProcessorVoice &v = engine.voice(i);
             if (v.live && v.fadeTotal > 0 && (best < 0 || v.fadeLeft < engine.voice(best).fadeLeft))
                 best = i;
@@ -1265,15 +1274,15 @@ uint32_t voiceBudgetActiveVoices(const clap_plugin_t *plugin, double *voiceCost)
     if (voiceCost != nullptr)
         *voiceCost = 0; // no estimate: the host measures the instance
     uint32_t n = 0;
-    for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < s.engine.polyphony(); i++)
         n += s.sounding(i);
     return n;
 }
 
 uint32_t voiceBudgetNotes(const clap_plugin_t *plugin, oscairn_voice_budget_note_t *notes, uint32_t capacity) {
     Plugin &s = self(plugin);
-    oscairn::voices::Report<SynthEngine::MAX_ACTIVE_NOTES> report;
-    for (int i = 0; i < SynthEngine::MAX_ACTIVE_NOTES; i++)
+    oscairn::voices::Report<SynthEngine::MAX_VOICES> report;
+    for (int i = 0; i < s.engine.polyphony(); i++)
         if (s.sounding(i)) {
             const NoteRef &r = s.engine.voice(i).ref;
             report.add(r.id, r.port, r.channel, r.key, s.loudness(i));

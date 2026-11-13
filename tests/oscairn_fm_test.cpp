@@ -15,6 +15,7 @@
  *   oscairn-fm-test snapshots                        a snapshot's sounds prepared beside the playing ones
  *   oscairn-fm-test presets                          cartridge voices through CLAP preset discovery
  *   oscairn-fm-test voice-budget                     voice limits, the order voices go in, notes (oscairn.voice-budget)
+ *   oscairn-fm-test polyphony                        the voice pool, stealing at it, parts sharing it
  *   oscairn-fm-test reset                            reset at once, then as a fresh instance (linked)
  *   oscairn-fm-test views                            oscairn.ui rich views: fields, routings, values
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
@@ -54,6 +55,7 @@
 #include <functional>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -2833,9 +2835,9 @@ int renderSeqToWav(const std::vector<char *> &args) {
 
 // ---- CPU benchmark (informational, not a gate: the plan defines no CPU budget) ----
 
-// bench [seconds]: held notes of representative sounds at 48 kHz in 64-sample blocks, 16 voices
-// (the engine's polyphony) per instance and as many instances as the voice count needs, all on
-// this thread. Prints the real-time factor (render time over audio time) at 1, 16 and 64 voices
+// bench [seconds]: held notes of representative sounds at 48 kHz in 64-sample blocks, 128 voices
+// (the plugin's pool) per instance and as many instances as the voice count needs, all on this
+// thread. Prints the real-time factor (render time over audio time) at 1, 16 and 64 voices
 // and the most voices measured to fit within 100 % and 50 % of one core.
 int benchmark(const std::vector<char *> &args) {
     const double seconds = args.size() > 2 ? std::atof(args[2]) : 0.5;
@@ -2867,7 +2869,7 @@ int benchmark(const std::vector<char *> &args) {
         std::vector<std::unique_ptr<Host>> hosts;
         EventList in;
         in.events.reserve(256);
-        for (int v = 0; v < voices; v += 16) {
+        for (int v = 0; v < voices; v += 128) {
             hosts.push_back(std::make_unique<Host>(entry));
             Host &h = *hosts.back();
             h.activate(kRate, kBlock);
@@ -2875,8 +2877,8 @@ int benchmark(const std::vector<char *> &args) {
                 in.param(0, id, value);
             h.process(kBlock, in);
             in.clear();
-            for (int k = 0; k < std::min(16, voices - v); k++)
-                in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)(40 + 2 * k), 0.8);
+            for (int k = 0; k < std::min(128, voices - v); k++)
+                in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)k, 0.8); // 128 keys, each a voice
             h.process(kBlock, in);
             in.clear();
         }
@@ -4452,6 +4454,80 @@ int voiceBudgetTest() {
 }
 
 
+// ---- polyphony: the pool every sound shares (OSCAIRN_FM_POLYPHONY, 128 unless set) ----
+
+// Notes held per MIDI channel, from the voice budget's notes()
+std::map<int, int> voicesPerChannel(Budgeted &t) {
+    std::vector<oscairn_voice_budget_note_t> n(256);
+    const uint32_t count = t.vb->notes(t.host.plugin, n.data(), (uint32_t)n.size());
+    std::map<int, int> m;
+    for (uint32_t i = 0; i < count; i++)
+        m[n[i].channel] += (int)n[i].voices;
+    return m;
+}
+
+int polyphonyTest() {
+    const char *set = std::getenv("OSCAIRN_FM_POLYPHONY");
+    const int pool = set != nullptr ? std::clamp(std::atoi(set), 1, 128) : 128;
+
+    // A full pool: every note sounds, and one more takes a voice as Dexed chooses it: the oldest,
+    // or (every key held) the one playing its key.
+    {
+        Budgeted t;
+        for (int k = 0; k < pool; k++)
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 1000 + k, 0, (int16_t)k);
+        t.run(4);
+        check(t.voices() == (uint32_t)pool && t.ended.empty(), std::to_string(pool) + " held notes sound");
+        const int16_t key = pool < 128 ? 127 : 60;
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 2000, 0, key);
+        t.run();
+        check(t.ended.size() == 1 && t.hasEnded(pool < 128 ? 1000 : 1000 + key), "one more: Dexed's choice is stolen");
+        check(t.voices() == (uint32_t)pool, "the pool stays full");
+    }
+
+    // The host's limit below the pool is what holds: voices past it fade out, and a new note
+    // makes room first.
+    {
+        Budgeted t;
+        const uint32_t limit = std::max(1, pool / 2);
+        for (int k = 0; k < pool; k++)
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 1000 + k, 0, (int16_t)k);
+        t.run(4);
+        t.limit(limit);
+        t.run(8);
+        check(t.voices() == limit, "the host's limit holds below the pool");
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 2000, 0, 127);
+        t.run(8);
+        check(t.voices() == limit && !t.hasEnded(2000), "a new note within the limit");
+    }
+
+    // Parts sharing the instance, each a sound on its own channel, the same 16 keys held on
+    // every part (Oscairn's layered parts): each part keeps 16 voices, or its equal share of a
+    // pool too small for all, never losing its voices to the parts after it.
+    for (const int parts : { 2, 4 }) {
+        Budgeted t;
+        for (int p = 1; p < parts; p++) {
+            char message[256] = {};
+            const uint32_t id = t.ctx->prepare(t.host.plugin, "B", soundB.data(), (uint32_t)soundB.size(), nullptr, nullptr, message, sizeof message);
+            check(id != CLAP_INVALID_ID && t.ctx->select(t.host.plugin, id, (int16_t)p), "a sound for each part");
+        }
+        t.run();
+        for (int k = 0; k < 16; k++)
+            for (int p = 0; p < parts; p++)
+                t.in.note(CLAP_EVENT_NOTE_ON, 0, 100 * p + k, (int16_t)p, (int16_t)(40 + k));
+        t.run(4);
+        const auto held = voicesPerChannel(t);
+        const int each = std::min(16, pool / parts);
+        for (int p = 0; p < parts; p++)
+            check(held.count(p) == 1 && held.at(p) == each,
+                  std::to_string(parts) + " parts: part " + std::to_string(p + 1) + " keeps " + std::to_string(each) + " voices (" +
+                      std::to_string(held.count(p) ? held.at(p) : 0) + ")");
+    }
+
+    std::printf("polyphony: %d voices, stealing at the pool, the host's limit, parts sharing it\n", pool);
+    return 0;
+}
+
 // ---- output buses: parts sharing one instance (Oscairn RFC 0021) ----
 
 void paramOn(EventList &e, uint32_t time, int16_t channel, clap_id id, double value) {
@@ -5273,6 +5349,8 @@ int main(int argc, char **argv) {
         return presetsTest();
     if (cmd == "voice-budget")
         return voiceBudgetTest();
+    if (cmd == "polyphony")
+        return polyphonyTest();
     if (cmd == "buses")
         return busesTest();
     if (cmd == "views")

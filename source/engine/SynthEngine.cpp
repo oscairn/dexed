@@ -113,7 +113,7 @@ SynthEngine::SynthEngine() {
     contexts[0].selectedChannels = 0xffff;
     resetControllers();
 
-    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+    for (int note = 0; note < MAX_VOICES; ++note) {
         voices[note].dx7_note = NULL;
     }
 }
@@ -124,7 +124,7 @@ SynthEngine::~SynthEngine() {
 
 void SynthEngine::setTuning(std::shared_ptr<TuningState> t) {
     tuningState = t;
-    for( int i=0; i<MAX_ACTIVE_NOTES; ++i )
+    for( int i=0; i<pool; ++i )
         if( voices[i].dx7_note != nullptr )
             voices[i].dx7_note->tuning_state_ = tuningState;
 }
@@ -142,9 +142,10 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
         contexts[c].previous.blockRight.assign(frames, 0.0f);
     }
 
-    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+    pool = polyphonyWanted;
+    for (int note = 0; note < MAX_VOICES; ++note) {
         delete voices[note].dx7_note; // prepared again without a release: rebuild for the new rate
-        voices[note].dx7_note = new Dx7Note(tuningState, mtsClient, &rate);
+        voices[note].dx7_note = note < pool ? new Dx7Note(tuningState, mtsClient, &rate) : nullptr;
         voices[note].noteActive = false;
         voices[note].context = 0;
     }
@@ -158,7 +159,7 @@ void SynthEngine::prepare(double sampleRate, int maxFrames) {
 void SynthEngine::reset() {
     for (int c = 0; c < MAX_CONTEXTS; c++)
         contexts[c].lfo = Lfo();
-    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+    for (int note = 0; note < pool; ++note) {
         if ( voices[note].dx7_note != NULL )
             voices[note].dx7_note->reset();
         voices[note].noteActive = false;
@@ -188,7 +189,7 @@ void SynthEngine::restart() {
         contexts[c].bus = p.bus = contexts[c].nextBus;
     }
 
-    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+    for (int note = 0; note < pool; ++note) {
         voices[note].midi_note = -1;
         voices[note].keydown = false;
         voices[note].sustained = false;
@@ -237,7 +238,7 @@ void SynthEngine::resetControllers() {
 void SynthEngine::release() {
     currentNote = -1;
 
-    for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+    for (int note = 0; note < MAX_VOICES; ++note) {
         if ( voices[note].dx7_note != NULL ) {
             delete voices[note].dx7_note;
             voices[note].dx7_note = NULL;
@@ -251,7 +252,7 @@ void SynthEngine::release() {
 
 void SynthEngine::refreshVoices(int c) {
     SynthContext &x = contexts[c];
-    for(int i=0;i < MAX_ACTIVE_NOTES;i++) {
+    for(int i=0;i < pool;i++) {
         if ( voices[i].live && voices[i].context == c )
             voices[i].dx7_note->update(x.patch, voices[i].midi_note, voices[i].velocity, voices[i].channel, x.ext);
     }
@@ -270,7 +271,7 @@ void SynthEngine::resetLfo(int c) {
 void SynthEngine::panicContext(int c) {
     contexts[c].chokeLeft = contexts[c].chokeTotal = 0;
     contexts[c].choked = false;
-    for(int i=0;i<MAX_ACTIVE_NOTES;i++) {
+    for(int i=0;i<pool;i++) {
         if ( voices[i].context != c )
             continue;
         voices[i].midi_note = -1;
@@ -328,7 +329,7 @@ void SynthEngine::setPortamento(int c, int32_t time, bool enable) {
 
 void SynthEngine::publishContextState() {
     uint32_t count[MAX_CONTEXTS] = {};
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         if ( voices[i].noteActive )
             count[voices[i].context]++;
     for (int c = 0; c < MAX_CONTEXTS; c++) {
@@ -340,7 +341,7 @@ void SynthEngine::publishContextState() {
 }
 
 bool SynthEngine::silent() const {
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         if ( voices[i].live || voices[i].noteActive )
             return false;
     for (const SynthContext &x : contexts)
@@ -396,7 +397,7 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
     float *outputsRight[L] = { inPlace ? right : contexts[0].blockRight.data() };
     float *extra[L], *extraRight[L];
     bool hasVoice[MAX_CONTEXTS] = {}, hasPrevious[MAX_CONTEXTS] = {};
-    for (int n = 0; n < MAX_ACTIVE_NOTES; n++)
+    for (int n = 0; n < pool; n++)
         if ( voices[n].live || voices[n].noteActive ) {
             hasVoice[voices[n].context] = true;
             if ( voices[n].bus != contexts[voices[n].context].bus )
@@ -521,7 +522,7 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
             bool checkMTSESPRetuning = tuningState->is_standard_tuning() &&
                                         MTS_HasMaster(mtsClient);
 
-            for (int note = 0; note < MAX_ACTIVE_NOTES; ++note) {
+            for (int note = 0; note < pool; ++note) {
                 const int c = voices[note].context;
                 if (voices[note].live && active[c]) {
                     // the voice's lane: its sound's, or the one still on the bus it started on
@@ -704,7 +705,7 @@ void SynthEngine::processRight(const PluginFx &settings, PluginFx &fxRight, floa
 void SynthEngine::applyOutputBuses() {
     // (a voice that has finished sounding but is kept, as Dexed keeps them, holds no lane)
     bool onBus[MAX_CONTEXTS] = {}, onPrevious[MAX_CONTEXTS] = {};
-    for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+    for (int note = 0; note < pool; note++)
         if ( voices[note].live && voices[note].dx7_note->isPlaying() ) {
             const int c = voices[note].context;
             (voices[note].bus == contexts[c].bus ? onBus : onPrevious)[c] = true;
@@ -719,7 +720,7 @@ void SynthEngine::applyOutputBuses() {
             // shortcut: voices on two other buses already; those on the older one fade out (as a choke)
             // and the change waits until they and their filter's tail are gone. Upgrade to more lanes
             // if a sound's bus ever changes that often while it sounds.
-            for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+            for (int note = 0; note < pool; note++)
                 if ( voices[note].live && voices[note].context == c && voices[note].bus == p.bus )
                     chokeVoice(note);
             continue;
@@ -744,7 +745,7 @@ void SynthEngine::applyOutputBuses() {
             p.bus = x.bus;
         }
         x.bus = x.nextBus;
-        for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+        for (int note = 0; note < pool; note++)
             if ( voices[note].context == c && !(voices[note].live && voices[note].dx7_note->isPlaying()) )
                 voices[note].bus = x.bus;
     }
@@ -789,7 +790,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
 
     // triggerLfo (any key held in this sound?) + MPE same-channel-keydown detection
     bool triggerLfo = true;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+    for (int i = 0; i < pool; i++) {
         const ProcessorVoice &v = voices[i];
         if ( v.keydown ) {
             if ( v.context == c )
@@ -811,7 +812,13 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
 
     if ( voiceGiver != nullptr )
         voiceGiver->makeRoom(c);
-    int note = VoiceStealing::choose(voices, MAX_ACTIVE_NOTES, currentNote, pitch);
+    // Dexed's 16 voices first, chosen as Dexed chooses, so nothing changes while 16 or fewer
+    // sound; then a larger pool's other voices; with every voice sounding, Dexed's choice over
+    // the whole pool.
+    const int first = std::min(pool, (int)MAX_ACTIVE_NOTES);
+    int note = VoiceStealing::choose(voices, first, currentNote, pitch);
+    if ( pool > first && voices[note].dx7_note->isPlaying() )
+        note = VoiceStealing::choose(voices, pool, note, pitch);
     if ( voiceGiver != nullptr && voices[note].dx7_note->isPlaying() ) { // no free voice
         const int given = voiceGiver->steal(c);
         if ( given >= 0 )
@@ -825,7 +832,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     voices[note].context = c;
     voices[note].bus = x.bus;
 
-    currentNote = (note + 1) % MAX_ACTIVE_NOTES;
+    currentNote = (note + 1) % first;
     voices[note].channel = channel;
     voices[note].midi_note = pitch;
     voices[note].keyBeyond = beyond;
@@ -854,7 +861,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
     }
 
     if ( x.monoMode ) {
-        for(int i=0; i<MAX_ACTIVE_NOTES; i++) {
+        for(int i=0; i<pool; i++) {
             if ( voices[i].live && voices[i].context == c ) {
                 // all keys are up, only transfer signal
                 if ( ! voices[i].keydown ) {
@@ -876,7 +883,7 @@ void SynthEngine::keydown(uint8_t channel, uint8_t pitch, uint8_t velo, const No
         // to avoid unpredictable destructive interference. this can cause
         // clicking when voice stealing, but we've tried to choose a voice
         // to steal that will minimise the chances of clicking
-        for(int i=0; i<MAX_ACTIVE_NOTES; i++) {
+        for(int i=0; i<pool; i++) {
             if ( i != note && voices[i].context == c && voices[i].dx7_note->isPlaying() && voices[i].midi_note == pitch ) {
                 voices[note].dx7_note->transferPhase(*voices[i].dx7_note);
                 break;
@@ -934,7 +941,7 @@ void SynthEngine::fadeVoice(int note, double seconds, bool squared) {
 
 int SynthEngine::liveVoice(int c, int except) const {
     int best = -1;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         if ( i != except && voices[i].live && voices[i].context == c && voices[i].fadeTotal == 0 &&
              (best < 0 || voices[i].keydown_seq > voices[best].keydown_seq) )
             best = i;
@@ -963,7 +970,7 @@ void SynthEngine::extKeydown(int note, int c) {
     const ExtendedVoice &e = *x.ext;
     const bool mono = e.common(ext::MonoPoly) == 0, porta = e.common(ext::Portamento) != 0;
     bool held = false; // another key of this sound is down: a legato note
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         held |= i != note && voices[i].keydown && voices[i].context == c;
     const int prev = liveVoice(c, note);
     int retrigger = -1;
@@ -971,7 +978,7 @@ void SynthEngine::extKeydown(int note, int c) {
         retrigger = prev; // mono without a portamento legato: the note starts again
     } else if ( !mono && e.common(ext::KeyAssign) == 0 ) {
         // single: a key played again silences its sounding note
-        for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        for (int i = 0; i < pool; i++)
             if ( i != note && voices[i].live && voices[i].context == c && voices[i].fadeTotal == 0 &&
                  voices[i].midi_note == voices[note].midi_note && voices[i].keyBeyond == voices[note].keyBeyond )
                 retrigger = i;
@@ -980,7 +987,7 @@ void SynthEngine::extKeydown(int note, int c) {
         fadeVoice(retrigger, ExtNote::kRetriggerFade, true);
     // a key pressed again while held: one note-off releases nothing until every press is released
     voices[note].presses = 1;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         if ( i != note && voices[i].keydown && voices[i].context == c && voices[i].channel == voices[note].channel &&
              voices[i].midi_note == voices[note].midi_note && voices[i].keyBeyond == voices[note].keyBeyond ) {
             voices[note].presses += voices[i].presses;
@@ -1006,7 +1013,7 @@ bool SynthEngine::extKeyup(int note) {
     if ( x.ext->common(ext::MonoPoly) != 0 || !voices[note].live || voices[note].fadeTotal != 0 )
         return false;
     int h = -1;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         if ( i != note && voices[i].keydown && voices[i].context == c &&
              (h < 0 || voices[i].keydown_seq > voices[h].keydown_seq) )
             h = i;
@@ -1036,12 +1043,12 @@ void SynthEngine::extRelease(int note) {
                voices[i].keyBeyond == beyond;
     };
     int lead = note;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         if ( same(i) && voices[i].presses > voices[lead].presses )
             lead = i;
     if ( --voices[lead].presses > 0 )
         return;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    for (int i = 0; i < pool; i++)
         if ( same(i) ) {
             voices[i].keydown = false;
             keyupVoice(i);
@@ -1049,7 +1056,7 @@ void SynthEngine::extRelease(int note) {
 }
 
 int SynthEngine::findKeyupVoice(uint8_t chan, uint8_t pitch, unsigned channels) {
-    for (int note=0; note<MAX_ACTIVE_NOTES; ++note) {
+    for (int note=0; note<pool; ++note) {
         // the pitch as the voice's sound transposed it
         // a held voice on the same channel and key (with MPE too: a member channel's
         // note-off carries its note's key); Dexed matched only the channel with MPE on, which
@@ -1089,7 +1096,7 @@ void SynthEngine::keyupVoice(int note) {
     } else if ( contexts[c].monoMode ) {
         int highNote = -1;
         int target = 0;
-        for (int i=0; i<MAX_ACTIVE_NOTES;i++) {
+        for (int i=0; i<pool;i++) {
             if ( voices[i].keydown && voices[i].context == c && voices[i].midi_note > highNote ) {
                 target = i;
                 highNote = voices[i].midi_note;
@@ -1119,7 +1126,7 @@ static bool matches(const NoteRef &voice, const NoteRef &match) {
 }
 
 void SynthEngine::releaseNotes(const NoteRef &match) {
-    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+    for (int note = 0; note < pool; note++) {
         if ( voices[note].keydown && voices[note].noteActive && matches(voices[note].ref, match) ) {
             voices[note].keydown = false;
             keyupVoice(note);
@@ -1128,7 +1135,7 @@ void SynthEngine::releaseNotes(const NoteRef &match) {
 }
 
 void SynthEngine::chokeNotes(const NoteRef &match) {
-    for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+    for (int note = 0; note < pool; note++)
         if ( voices[note].noteActive && matches(voices[note].ref, match) )
             chokeVoice(note);
 }
@@ -1149,7 +1156,7 @@ void SynthEngine::chokeVoice(int note) {
 
 void SynthEngine::chokeRetiring() {
     bool sounds[MAX_CONTEXTS] = {};
-    for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+    for (int note = 0; note < pool; note++)
         if ( voices[note].live || voices[note].noteActive )
             sounds[voices[note].context] = true;
     for (int c = 0; c < MAX_CONTEXTS; c++) {
@@ -1158,14 +1165,14 @@ void SynthEngine::chokeRetiring() {
             continue;
         x.choked = true;
         x.chokeTotal = x.chokeLeft = (int)(0.003 * sampleRate) + 1;
-        for (int note = 0; note < MAX_ACTIVE_NOTES; note++)
+        for (int note = 0; note < pool; note++)
             if ( voices[note].context == c && (voices[note].live || voices[note].noteActive) )
                 chokeVoice(note);
     }
 }
 
 void SynthEngine::collectEndedNotes() {
-    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+    for (int note = 0; note < pool; note++) {
         ProcessorVoice &v = voices[note];
         if ( v.noteActive && !v.keydown && (!v.live || !v.dx7_note->isPlaying()) )
             endNote(note);
@@ -1179,7 +1186,7 @@ void SynthEngine::endNote(int note) {
 }
 
 void SynthEngine::panic() {
-    for(int i=0;i<MAX_ACTIVE_NOTES;i++) {
+    for(int i=0;i<pool;i++) {
         voices[i].midi_note = -1;
         voices[i].keydown = false;
         voices[i].live = false;
@@ -1211,24 +1218,24 @@ bool SynthEngine::peekVoiceStatus(VoiceStatus &voiceStatus) {
 
     // we are trying to find the last "keydown" note
     int note = currentNote;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+    for (int i = 0; i < pool; i++) {
         if (voices[note].keydown) {
             voices[note].dx7_note->peekVoiceStatus(voiceStatus);
             return true;
         }
         if ( --note < 0 )
-            note = MAX_ACTIVE_NOTES-1;
+            note = pool-1;
     }
 
     // not found; try a live note
     note = currentNote;
-    for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+    for (int i = 0; i < pool; i++) {
         if (voices[note].live) {
             voices[note].dx7_note->peekVoiceStatus(voiceStatus);
             return true;
         }
         if ( --note < 0 )
-            note = MAX_ACTIVE_NOTES-1;
+            note = pool-1;
     }
 
     return true;
@@ -1280,7 +1287,7 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
         ) {
         // OK so find my voice index
         int voiceIndex = -1;
-        for( int i=0; i<MAX_ACTIVE_NOTES; ++i ) {
+        for( int i=0; i<pool; ++i ) {
             if( voices[i].keydown && voices[i].channel == channel ) {
                 voiceIndex = i;
                 break;
@@ -1353,7 +1360,7 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
                     for (int ch = 0; ch < 16; ch++)
                         if ( t & (1u << ch) ) sustain[ch] = value > 63;
                     if ( !(value > 63) ) {
-                        for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+                        for (int note = 0; note < pool; note++) {
                             if (voices[note].sustained && !voices[note].keydown &&
                                 (t & (1u << ((voices[note].channel - 1) & 15)))) {
                                 voices[note].dx7_note->keyup();
@@ -1380,7 +1387,7 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
                     } else {
                         // all sound off for the channel: its voices stop now and end
                         const unsigned t = controllerTargets(channel);
-                        for (int i = 0; i < MAX_ACTIVE_NOTES; i++) {
+                        for (int i = 0; i < pool; i++) {
                             if ( !(t & (1u << ((voices[i].channel - 1) & 15))) )
                                 continue;
                             voices[i].midi_note = -1;
@@ -1399,7 +1406,7 @@ SynthEngine::MidiResult SynthEngine::processMidiMessage(const uint8_t *buf, int 
                     // (Dexed matched each held voice's already transposed pitch transposed
                     // again, so with a transpose it released nothing)
                     const unsigned t = perChannel ? controllerTargets(channel) : 1u << ((channel - 1) & 15);
-                    for (int note = 0; note < MAX_ACTIVE_NOTES; note++) {
+                    for (int note = 0; note < pool; note++) {
                         if ( voices[note].keydown && (t & (1u << ((voices[note].channel - 1) & 15))) ) {
                             voices[note].keydown = false;
                             keyupVoice(note);

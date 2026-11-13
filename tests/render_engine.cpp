@@ -5,6 +5,7 @@
  *
  *   dexed-render-engine --write baseline.txt
  *   dexed-render-engine --check baseline.txt [--reverse]
+ *   dexed-render-engine --pool-identity              every case on 128 voices as on Dexed's 16
  *
  * Copyright (c) 2026 the Oscairn contributors.
  *
@@ -45,6 +46,7 @@ const char *dumpDir = nullptr;
 // Renders one case block by block, as the plugin would.
 struct CaseRenderer {
     std::vector<float> dump;
+    bool keep = dumpDir != nullptr; // the output in dump
     const Case &c;
     uint8_t patch[156];
     SynthEngine engine;
@@ -55,7 +57,9 @@ struct CaseRenderer {
     size_t next = 0;
     Hash hash;
 
-    explicit CaseRenderer(const Case &c) : c(c), left(c.block), evs(dx7cases::events(c.scenario)) {
+    explicit CaseRenderer(const Case &c, int polyphony = SynthEngine::MAX_ACTIVE_NOTES)
+        : c(c), left(c.block), evs(dx7cases::events(c.scenario)) {
+        engine.setPolyphony(polyphony);
         // What the plugin does: the patch is its 156-byte program (operator switch byte all on).
         const auto v = voice(c.voiceIndex);
         std::memcpy(patch, v.data(), 155);
@@ -104,7 +108,7 @@ struct CaseRenderer {
         // the plugin copies the mono output to both channels
         hash.add(left.data(), n);
         hash.add(left.data(), n);
-        if (dumpDir != nullptr) // raw float32 mono output, one file per case, for diffing renders
+        if (keep) // raw float32 mono output, one file per case, for diffing renders
             dump.insert(dump.end(), left.begin(), left.begin() + n);
         pos += n;
         return true;
@@ -156,6 +160,114 @@ int checkInterleaved(const char *baseline) {
     }
     std::printf("%d interleaved pairs, %d differ\n", pairs, failures);
     return failures == 0 && pairs > 0 ? 0 : 1;
+}
+
+// A larger pool plays every case as Dexed's 16 voices do while 16 or fewer sound: each case on
+// 128 voices is the same sample for sample up to the block in which Dexed's 16 first steal a
+// sounding voice (the poly scenario's 18 overlapping notes), and differs after it.
+int checkPoolIdentity() {
+    // The block of Dexed's first steal: a note ended while rendering, the ended notes collected
+    // after each block as the plugin does.
+    struct FirstSteal : SynthEngine::NoteEndSink {
+        int at = -1, *pos = nullptr;
+        bool rendering = true;
+        void noteEnded(const NoteRef &) override {
+            if (at < 0 && rendering)
+                at = *pos;
+        }
+        void collect(SynthEngine &e) {
+            rendering = false;
+            e.collectEndedNotes();
+            rendering = true;
+        }
+    };
+    int failures = 0, cases = 0, steals = 0;
+    for (const auto &c : dx7cases::cases()) {
+        std::vector<float> out[2];
+        FirstSteal steal;
+        int i = 0;
+        for (int polyphony : { SynthEngine::MAX_ACTIVE_NOTES, SynthEngine::MAX_VOICES }) {
+            CaseRenderer r(c, polyphony);
+            r.keep = true;
+            if (polyphony == SynthEngine::MAX_ACTIVE_NOTES) {
+                steal.pos = &r.pos;
+                r.engine.setNoteEndSink(&steal);
+            }
+            while (r.step())
+                steal.collect(r.engine);
+            r.engine.setNoteEndSink(nullptr);
+            out[i++] = std::move(r.dump);
+        }
+        const size_t same = steal.at >= 0 ? (size_t)steal.at : out[0].size();
+        steals += steal.at >= 0;
+        const bool equal = out[0].size() == out[1].size() && std::equal(out[0].begin(), out[0].begin() + same, out[1].begin());
+        const bool more = steal.at < 0 || !std::equal(out[0].begin() + same, out[0].end(), out[1].begin() + same);
+        if (!equal || !more) {
+            std::fprintf(stderr, "DIFF %s: %s\n", c.name.c_str(), !equal ? "128 voices differ before Dexed's 16 steal" : "a steal changes nothing");
+            failures++;
+        }
+        cases++;
+    }
+    // Without oscillator key sync a voice's next note starts from the phases its last one left:
+    // 16 notes, all released and silent, then one more takes one of the same 16 voices, not a
+    // fresh one. Each voice of the cases, key sync off.
+    int silent = 0;
+    for (int v = 0; v < 40; v++) {
+        std::vector<float> out[2];
+        int i = 0, pos = 0;
+        FirstSteal steal;
+        steal.pos = &pos;
+        for (int polyphony : { SynthEngine::MAX_ACTIVE_NOTES, SynthEngine::MAX_VOICES }) {
+            auto data = voice(v);
+            uint8_t patch[156];
+            std::memcpy(patch, data.data(), 155);
+            patch[136] = 0; // oscillator key sync off
+            patch[155] = 63;
+            SynthEngine e;
+            e.setPolyphony(polyphony);
+            e.setTuning(createStandardTuning());
+            e.setPatch(patch);
+            e.prepare(48000);
+            if (polyphony == SynthEngine::MAX_ACTIVE_NOTES)
+                e.setNoteEndSink(&steal);
+            BlockEvents ev(e);
+            std::vector<Event> notes;
+            for (int k = 0; k < 16; k++)
+                notes.push_back({ 0, { 0x90, (uint8_t)(48 + k), 100 }, 3 });
+            for (int k = 0; k < 16; k++)
+                notes.push_back({ 0, { 0x80, (uint8_t)(48 + k), 64 }, 3 });
+            const Event last = { 0, { 0x90, 70, 100 }, 3 };
+            std::vector<float> block(256);
+            for (int b = 0; b < 2000; b++) { // about 10.7 s: the 16 released notes fall silent
+                ev.pending.clear();
+                ev.next = 0;
+                if (b == 0)
+                    for (int k = 0; k < 16; k++)
+                        ev.pending.push_back({ 0, &notes[k] });
+                if (b == 20)
+                    for (int k = 16; k < 32; k++)
+                        ev.pending.push_back({ 0, &notes[k] });
+                if (b == 1800)
+                    ev.pending.push_back({ 0, &last });
+                pos = b;
+                e.render(block.data(), 256, ev);
+                steal.collect(e);
+                if (b >= 1800)
+                    out[i].insert(out[i].end(), block.begin(), block.end());
+            }
+            i++;
+        }
+        if (steal.at >= 0)
+            continue; // a release still sounding: Dexed's 16 steal it, as the cases above check
+        silent++;
+        if (out[0] != out[1]) {
+            std::fprintf(stderr, "DIFF voice %d, key sync off: a note after 16 differs on 128 voices\n", v);
+            failures++;
+        }
+    }
+    std::printf("%d cases on 128 voices (%d with a steal on 16) and %d notes after 16 silent ones without key sync: %d "
+                "differ from Dexed's 16 where they should not\n", cases, steals, silent, failures);
+    return failures == 0 && cases > 0 && steals > 0 && silent > 0 ? 0 : 1;
 }
 
 bool fail(const char *what) {
@@ -278,6 +390,8 @@ int main(int argc, char **argv) {
     }
     if (argc == 2 && std::strcmp(argv[1], "--robustness") == 0)
         return checkRobustness();
+    if (argc == 2 && std::strcmp(argv[1], "--pool-identity") == 0)
+        return checkPoolIdentity();
     if (argc == 3 && std::strcmp(argv[1], "--interleaved") == 0)
         return checkInterleaved(argv[2]);
     return runBaseline(argc, argv, render);

@@ -24,6 +24,7 @@
 // DexedAudioProcessor unchanged so the plugin, the tests and (later) a CLAP direct-process
 // path share it. No JUCE.
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -135,7 +136,8 @@ struct VoiceStealing {
 
 class SynthEngine {
 public:
-    static const int MAX_ACTIVE_NOTES = 16;
+    static const int MAX_ACTIVE_NOTES = 16; // Dexed's polyphony: the pool's size unless set
+    static const int MAX_VOICES = 128;      // the largest pool setPolyphony takes
     static const int MAX_CONTEXTS = 8;
 
     // Supplies the events of the block being rendered, in order.
@@ -194,6 +196,10 @@ public:
     // maxFrames: the largest block render() will get; contexts other than 0 can only play
     // when it is given.
     void prepare(double sampleRate, int maxFrames = 0);
+    // The voice pool's size (1 to MAX_VOICES; MAX_ACTIVE_NOTES unless set), from the next prepare.
+    // At or under 16 sounding voices a larger pool plays as Dexed's 16 do.
+    void setPolyphony(int voices) { polyphonyWanted = std::clamp(voices, 1, MAX_VOICES); }
+    int polyphony() const { return pool; }
     // As after prepare, without allocating: voices, LFOs, filters, buffers and controllers cleared.
     void reset();
     void release();
@@ -289,7 +295,9 @@ public:
     bool normalizeDxVelocity = false;
 
 private:
-    ProcessorVoice voices[MAX_ACTIVE_NOTES];
+    ProcessorVoice voices[MAX_VOICES];
+    int pool = MAX_ACTIVE_NOTES;            // voices allocated (prepare)
+    int polyphonyWanted = MAX_ACTIVE_NOTES; // setPolyphony
     int currentNote;
 
     bool sustain[16];      // per channel; instrument-wide mode keeps all 16 equal
