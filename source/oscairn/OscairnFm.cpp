@@ -131,6 +131,9 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
     uint32_t now = 0;
     // oscairn.voice-budget (audio thread): the host's limits, as set_limits last gave them
     oscairn::voices::Limits voiceLimits;
+    // oscairn.voice-budget: the running mean of a voice's cost, microseconds a block (audio
+    // thread writes, active_voices reads; 0 before any voice has played)
+    std::atomic<double> voiceCost { 0.0 };
 
     std::atomic<double> &value(int c, size_t i) { return values[(size_t)c * params().size() + i]; }
 
@@ -567,6 +570,7 @@ struct ProcessEvents : SynthEngine::EventSource {
 
 clap_process_status process(const clap_plugin_t *p, const clap_process_t *process) {
     Plugin &s = self(p);
+    const auto started = std::chrono::steady_clock::now();
     s.out = process->out_events;
     s.now = 0;
     s.beforeEvents(); // before this call's events (RFC 0005)
@@ -599,6 +603,16 @@ clap_process_status process(const clap_plugin_t *p, const clap_process_t *proces
     s.now = frames > 0 ? frames - 1 : 0;
     s.engine.collectEndedNotes();
     s.engine.publishContextState();
+    // oscairn.voice-budget: the mean cost of one voice this block, microseconds. Blocks with
+    // no voices leave it unchanged; the first sounding block initialises it.
+    uint32_t sounding = 0;
+    for (int i = 0; i < s.engine.polyphony(); i++)
+        sounding += s.sounding(i);
+    if (sounding > 0) {
+        const double sample = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count() / sounding;
+        const double mean = s.voiceCost.load(std::memory_order_relaxed);
+        s.voiceCost.store(mean == 0 ? sample : 0.9 * mean + 0.1 * sample, std::memory_order_relaxed);
+    }
     s.out = nullptr;
     s.ringOut = nullptr; // given for one process() only
     // nothing sounds and no feedback waits: the host may stop calling until the next event
@@ -648,6 +662,7 @@ bool paramsToText(const clap_plugin_t *, clap_id id, double value, char *text, u
     switch (p.text) {
     case Text::Number: std::snprintf(text, size, "%d", n); break;
     case Text::Signed: std::snprintf(text, size, n == 0 ? "%d" : "%+d", n); break;
+    case Text::Off: std::snprintf(text, size, n == 0 ? "Off" : "%d", n); break;
     case Text::Choice:
     case Text::Switch: std::snprintf(text, size, "%s", p.choices[n - (int)p.min]); break;
     case Text::Note: std::snprintf(text, size, "%s%d", notes[n % 12], (n + 9) / 12 - 1); break; // Dexed's break point labels
@@ -669,6 +684,18 @@ bool paramsFromText(const clap_plugin_t *, clap_id id, const char *text, double 
                 *value = p.min + k;
                 return true;
             }
+    if (p.text == Text::Off) {
+        // "Off" in any case: hosts may change the case of a choice's text
+        const char *o = "Off";
+        size_t k = 0;
+        for (; o[k] != 0; k++)
+            if (std::tolower((unsigned char)text[k]) != std::tolower((unsigned char)o[k]))
+                break;
+        if (o[k] == 0 && text[k] == 0) {
+            *value = p.min;
+            return true;
+        }
+    }
     if (p.text == Text::Note) {
         static const char *const notes[] = { "A#", "C#", "D#", "F#", "G#", "A", "B", "C", "D", "E", "F", "G" };
         static const int semis[] = { 1, 4, 6, 9, 11, 0, 2, 3, 5, 7, 8, 10 }; // from A
@@ -1300,7 +1327,7 @@ void voiceBudgetSetLimits(const clap_plugin_t *plugin, uint32_t limit, const osc
 uint32_t voiceBudgetActiveVoices(const clap_plugin_t *plugin, double *voiceCost) {
     Plugin &s = self(plugin);
     if (voiceCost != nullptr)
-        *voiceCost = 0; // no estimate: the host measures the instance
+        *voiceCost = s.voiceCost.load(std::memory_order_relaxed);
     uint32_t n = 0;
     for (int i = 0; i < s.engine.polyphony(); i++)
         n += s.sounding(i);

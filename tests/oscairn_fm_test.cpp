@@ -4164,8 +4164,13 @@ struct Budgeted {
     uint32_t voices() {
         double cost = -1;
         const uint32_t n = vb->active_voices(host.plugin, &cost);
-        check(cost == 0, "no estimate of a voice's cost");
+        check(cost >= 0 && std::isfinite(cost), "a valid estimate of a voice's cost");
         return n;
+    }
+    double cost() {
+        double cost = -1;
+        vb->active_voices(host.plugin, &cost);
+        return cost;
     }
     std::map<int32_t, oscairn_voice_budget_note_t> notes() {
         oscairn_voice_budget_note_t n[32];
@@ -4204,6 +4209,22 @@ int voiceBudgetTest() {
     {
         Budgeted probe;
         check(!probe.vb->honors_volume(probe.host.plugin), "no voice follows volume expressions (Oscairn FM has none yet)");
+        // the per-voice cost: 0 before any note, positive and sane while voices sound, and it
+        // stays near its last value once they stop (blocks without voices leave it unchanged)
+        check(probe.cost() == 0, "no cost before any voice has played");
+        probe.in.note(CLAP_EVENT_NOTE_ON, 0, 1, 0, 60);
+        probe.in.note(CLAP_EVENT_NOTE_ON, 0, 2, 0, 64);
+        probe.in.note(CLAP_EVENT_NOTE_ON, 0, 3, 0, 67);
+        probe.run(8);
+        const double sounding = probe.cost();
+        check(sounding > 0 && sounding < 100000, "a cost estimate while voices sound");
+        probe.in.note(CLAP_EVENT_NOTE_OFF, 0, 1, 0, 60);
+        probe.in.note(CLAP_EVENT_NOTE_OFF, 0, 2, 0, 64);
+        probe.in.note(CLAP_EVENT_NOTE_OFF, 0, 3, 0, 67);
+        probe.run(150); // past the release and the DC filter's tail
+        const double stopped = probe.cost();
+        check(stopped > 0 && stopped < 100000, "a cost estimate after the voices stop");
+        check(stopped == sounding || (stopped < 20 * sounding && sounding < 20 * stopped), "the estimate stays near the sounding one");
     }
 
     // A lowered limit: the voices past it fade out from the next block's start, are counted and
@@ -4487,6 +4508,13 @@ int voiceLimitTest() {
         check(other.loadState(with) && other.saveState() == with, "the limit round-trips");
         check(h.loadState(plain) && h.saveState() == plain, "an old state loads with no limit");
         check(!h.loadState(plain + "p 135 129\n") && !h.loadState(plain + "p 135 1.5\n"), "a limit out of range or not whole is refused");
+        // the value text: Off for no limit, the number otherwise, and Off parses back
+        char text[16];
+        double back;
+        check(h.params->value_to_text(h.plugin, limitParam, 0, text, sizeof text) && std::strcmp(text, "Off") == 0, "0 shows Off");
+        check(h.params->value_to_text(h.plugin, limitParam, 5, text, sizeof text) && std::strcmp(text, "5") == 0, "5 shows 5");
+        check(h.params->text_to_value(h.plugin, limitParam, "Off", &back) && back == 0, "Off parses to 0");
+        check(h.params->text_to_value(h.plugin, limitParam, "off", &back) && back == 0, "off in any case parses to 0");
     }
     // A sound limited to 3 on channel 2, the default sound on channel 1 with 5 notes: the limited
     // sound's 4th note takes one of its own voices; the default sound keeps its 5. A host limit

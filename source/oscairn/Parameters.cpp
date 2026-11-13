@@ -366,7 +366,7 @@ static std::vector<Param> build() {
     // the output port the sound plays on (Oscairn: parts sharing one instance, OSCAIRN_ROLE_OUTPUT_BUS)
     setting(134, "Amp", "Output Bus", 0, 8, 0, Setting::OutputBus, Text::Choice, outputBuses);
     // the most notes the sound may hold (0: no limit of its own; the pool is the plugin's setting)
-    setting(135, "Voice", "Polyphony Limit", 0, 128, 0, Setting::VoiceLimit);
+    setting(135, "Voice", "Polyphony Limit", 0, 128, 0, Setting::VoiceLimit, Text::Off);
 
     for (int n = 1; n <= 6; n++) {
         const std::string op = "Operator " + std::to_string(n);
