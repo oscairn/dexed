@@ -77,6 +77,7 @@ add_test(NAME oscairn-fm-state-active COMMAND oscairn-fm-test state-active ${fm_
 add_test(NAME oscairn-fm-snapshots COMMAND oscairn-fm-test snapshots ${fm_module})
 add_test(NAME oscairn-fm-presets COMMAND oscairn-fm-test presets ${fm_module})
 add_test(NAME oscairn-fm-voice-budget COMMAND oscairn-fm-test voice-budget ${fm_module})
+add_test(NAME oscairn-fm-note-end COMMAND oscairn-fm-test note-end ${fm_module})
 add_test(NAME oscairn-fm-voice-limit COMMAND oscairn-fm-test voice-limit ${fm_module})
 add_test(NAME oscairn-fm-polyphony COMMAND oscairn-fm-test polyphony ${fm_module})
 add_test(NAME oscairn-fm-polyphony-16 COMMAND oscairn-fm-test polyphony ${fm_module})

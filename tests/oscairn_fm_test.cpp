@@ -5384,6 +5384,533 @@ int resetTest() {
     return 0;
 }
 
+// ---- NOTE_END: one for every note that ends ----
+
+// a path that breaks the rule is reported and the run goes on, so one run shows every path
+int noteEndFailures = 0;
+void noteEndFailure(const std::string &message) {
+    std::fprintf(stderr, "FAIL: %s\n", message.c_str());
+    noteEndFailures++;
+}
+
+// A host's view of the notes it sent: each note-on holds a slot until its NOTE_END, which must
+// come once, inside the block, with the note-on's ID, key, channel and port.
+// an instance's pool of voices, from the environment: small, so that stealing is constant
+int smallPool(int voices) {
+    setenv("OSCAIRN_FM_POLYPHONY", std::to_string(voices).c_str(), 1);
+    return voices;
+}
+
+struct Tracked {
+    const int pool;
+    Host host;
+    EventList in;
+    const oscairn_plugin_voice_budget_t *vb;
+    const oscairn_plugin_sound_contexts_t *ctx;
+    struct Start { int16_t channel, key, port; };
+    std::map<int32_t, Start> started;
+    std::map<int32_t, int> ended;
+    std::set<int32_t> forgiven; // ended by a reset: the host ends them itself
+    std::string problem;
+    clap_process_status status = CLAP_PROCESS_CONTINUE;
+    const uint32_t block;
+    explicit Tracked(uint32_t block = 64, int voices = 8) : pool(smallPool(voices)), host(entry), block(block) {
+        vb = static_cast<const oscairn_plugin_voice_budget_t *>(host.plugin->get_extension(host.plugin, OSCAIRN_EXT_VOICE_BUDGET));
+        ctx = static_cast<const oscairn_plugin_sound_contexts_t *>(host.plugin->get_extension(host.plugin, OSCAIRN_EXT_SOUND_CONTEXTS));
+        in.events.reserve(512);
+        host.activate(48000, block);
+    }
+    void on(uint32_t time, int32_t id, int16_t channel, int16_t key, int16_t port = 0) {
+        clap_event_note_t e {};
+        e.header = { sizeof e, time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_ON, 0 };
+        e.note_id = id;
+        e.port_index = port;
+        e.channel = channel;
+        e.key = key;
+        e.velocity = 0.8;
+        in.push(e);
+        if (!started.count(id))
+            started[id] = { channel, key, port };
+    }
+    void note(uint16_t type, uint32_t time, int32_t id, int16_t channel, int16_t key) { in.note(type, time, id, channel, key); }
+    void off(uint32_t time, int32_t id, int16_t channel, int16_t key) { note(CLAP_EVENT_NOTE_OFF, time, id, channel, key); }
+    void midi(uint32_t time, uint8_t a, uint8_t b, uint8_t c = 0) {
+        const uint8_t bytes[3] = { a, b, c };
+        in.midi(time, bytes, 3);
+    }
+    void param(clap_id id, double v, int16_t channel = -1) {
+        clap_event_param_value_t p {};
+        p.header = { sizeof p, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 };
+        p.param_id = id;
+        p.note_id = p.key = -1;
+        p.port_index = -1;
+        p.channel = channel;
+        p.value = v;
+        in.push(p);
+    }
+    void run(int blocks = 1) {
+        for (int b = 0; b < blocks; b++) {
+            host.output.clear();
+            status = host.process(block, in);
+            in.clear();
+            for (const auto &slot : host.output.events) {
+                auto *e = reinterpret_cast<const clap_event_note_t *>(slot.data());
+                if (e->header.type != CLAP_EVENT_NOTE_END)
+                    continue;
+                auto s = started.find(e->note_id);
+                if (s == started.end()) {
+                    if (problem.empty())
+                        problem = "NOTE_END for an id never started: " + std::to_string(e->note_id);
+                } else if (e->port_index != s->second.port || e->channel != s->second.channel || e->key != s->second.key || e->header.time >= block) {
+                    if (problem.empty())
+                        problem = "NOTE_END with wrong fields for id " + std::to_string(e->note_id);
+                }
+                if (++ended[e->note_id] > 1 && problem.empty())
+                    problem = "NOTE_END twice for id " + std::to_string(e->note_id);
+                if (forgiven.count(e->note_id) && problem.empty())
+                    problem = "NOTE_END after a reset for id " + std::to_string(e->note_id);
+            }
+        }
+    }
+    // runs until the plugin says nothing sounds (held notes keep it going: release them first)
+    void settle(int limit = 4000) {
+        for (int i = 0; i < limit && (i == 0 || status != CLAP_PROCESS_SLEEP); i++)
+            run();
+    }
+    // the ids of notes that began and got no NOTE_END (a reset's excepted)
+    std::string missing() const {
+        std::string r;
+        for (const auto &[id, s] : started)
+            if (!ended.count(id) && !forgiven.count(id))
+                r += " " + std::to_string(id);
+        return r;
+    }
+    // every note started has exactly one NOTE_END and none came wrong
+    void verify(const std::string &what) {
+        if (!problem.empty())
+            noteEndFailure(what + ": " + problem);
+        if (!missing().empty())
+            noteEndFailure(what + ": no NOTE_END for ids" + missing());
+    }
+    void releaseAll() {
+        for (const auto &[id, s] : started)
+            if (!ended.count(id))
+                off(0, id, s.channel, s.key);
+        run(2);
+    }
+    void reset() {
+        for (const auto &[id, s] : started)
+            if (!ended.count(id))
+                forgiven.insert(id);
+        host.plugin->reset(host.plugin);
+    }
+    uint32_t voices() {
+        double c = 0;
+        return vb->active_voices(host.plugin, &c);
+    }
+    void limit(uint32_t voices, std::vector<oscairn_voice_budget_context_t> contexts = {}) {
+        vb->set_limits(host.plugin, voices, contexts.data(), (uint32_t)contexts.size());
+    }
+    uint32_t addSoundB(int16_t channel) {
+        char message[256] = {};
+        const uint32_t id = ctx->prepare(host.plugin, "B", soundB.data(), (uint32_t)soundB.size(), nullptr, nullptr, message, sizeof message);
+        check(id != CLAP_INVALID_ID && ctx->select(host.plugin, id, channel), "sound B selected");
+        run();
+        return id;
+    }
+};
+
+int noteEndTest() {
+    // a release that finishes
+    {
+        Tracked t;
+        t.on(0, 1, 0, 60);
+        t.on(10, 2, 3, 64);
+        t.run(8);
+        t.off(0, 1, 0, 60);
+        t.off(0, 2, 3, 64);
+        t.settle();
+        t.verify("release");
+    }
+    // more notes than the pool (8) holds: stolen voices end when stolen
+    {
+        Tracked t;
+        for (int i = 0; i < 40; i++)
+            t.on((uint32_t)i, 100 + i, 0, 30 + i);
+        t.run(8);
+        t.releaseAll();
+        t.settle();
+        t.verify("polyphony limit");
+        if (t.ended.size() != 40)
+            noteEndFailure("polyphony limit: not every one of 40 notes ended");
+    }
+    // the sound's own limit, and a limit that falls while notes are held
+    {
+        Tracked t;
+        t.param(135, 2);
+        t.run();
+        for (int i = 0; i < 6; i++)
+            t.on(0, 200 + i, 0, 40 + i);
+        t.run(4);
+        t.param(135, 1);
+        t.run(4);
+        t.releaseAll();
+        t.settle();
+        t.verify("sound limit");
+    }
+    // the host's budget: its limit, a reserve and priorities, tightened and lifted
+    for (int variant = 0; variant < 3; variant++) {
+        Tracked t;
+        const uint32_t b = t.addSoundB(1);
+        if (variant == 0) t.limit(3);
+        if (variant == 1) t.limit(4, { oscairn_voice_budget_context_t { 0, 0, 3, 0, 0 }, oscairn_voice_budget_context_t { b, 0, 0, 9, 0 } });
+        if (variant == 2) t.limit(0, { oscairn_voice_budget_context_t { OSCAIRN_VOICE_BUDGET_SELECTED, 2, 0, 1, 0 } });
+        for (int i = 0; i < 8; i++)
+            t.on((uint32_t)i, 300 + i, i % 2, 40 + i);
+        t.run(4);
+        t.limit(2);
+        t.run(4);
+        for (int i = 0; i < 4; i++)
+            t.on(0, 320 + i, i % 2, 60 + i);
+        t.run(4);
+        t.limit(0);
+        t.releaseAll();
+        t.settle();
+        t.verify("host budget " + std::to_string(variant));
+    }
+    // equal share between sounds: 20 notes each on two sounds, a pool of 8
+    {
+        Tracked t;
+        t.addSoundB(1);
+        for (int i = 0; i < 20; i++) {
+            t.on((uint32_t)i, 400 + i, 0, 30 + i);
+            t.on((uint32_t)i, 450 + i, 1, 30 + i);
+        }
+        t.run(4);
+        t.releaseAll();
+        t.settle();
+        t.verify("equal share");
+    }
+    // Classic mono: a higher note over a held one, a lower one under it, the key released first
+    {
+        Tracked t;
+        t.param(101, 1);
+        t.run();
+        t.on(0, 500, 0, 60);
+        t.run(2);
+        t.on(0, 501, 0, 64);
+        t.run(2);
+        t.on(0, 502, 0, 50);
+        t.run(2);
+        t.off(0, 501, 0, 64);
+        t.run(2);
+        t.on(0, 503, 0, 70);
+        t.off(0, 500, 0, 60);
+        t.run(2);
+        t.releaseAll();
+        t.settle();
+        t.verify("Classic mono");
+    }
+    // Extended: mono with retrigger, mono legato with portamento, single and multi key assign
+    for (int variant = 0; variant < 4; variant++) {
+        Tracked t;
+        t.param(5, 1);
+        t.param(255, variant < 2 ? 0 : 1);
+        t.param(257, variant == 1 ? 1 : 0);
+        t.param(256, variant == 3 ? 1 : 0);
+        t.run();
+        t.on(0, 600, 0, 60);
+        t.on(0, 601, 0, 64);
+        t.run(3);
+        t.on(0, 602, 0, 60); // the same key again, 600 still held
+        t.on(10, 603, 0, 67);
+        t.run(3);
+        t.off(0, 601, 0, 64);
+        t.run(3);
+        t.off(0, 603, 0, 67);
+        t.off(0, 602, 0, 60);
+        t.off(0, 600, 0, 60);
+        t.settle();
+        t.verify("Extended mono/key assign " + std::to_string(variant));
+    }
+    // Classic: the same key again with the first still held
+    {
+        Tracked t;
+        t.on(0, 700, 0, 60);
+        t.run(2);
+        t.on(0, 701, 0, 60);
+        t.run(2);
+        t.off(0, 701, 0, 60);
+        t.run(2);
+        t.off(0, 700, 0, 60);
+        t.settle();
+        t.verify("same key again");
+    }
+    // note-ons that get no voice: another port, a key out of range, a velocity the part ignores
+    {
+        Tracked t;
+        t.on(0, 800, 0, 60, 1);
+        t.on(0, 801, 0, 128);
+        t.on(0, 802, 0, -1);
+        t.param(5, 1);
+        t.param(235, 0); // velocity depth 0 and offset 0: the note does not sound
+        t.param(236, 0);
+        t.run();
+        t.on(0, 803, 0, 60);
+        t.run(4);
+        t.settle();
+        t.verify("note-on without a voice");
+        check(t.ended.count(803) == 1, "velocity 0 part: NOTE_END for the note");
+    }
+    // a key-on delay still pending at the note-off
+    {
+        Tracked t;
+        t.param(5, 1);
+        t.param(58, 127);
+        t.run();
+        t.on(0, 900, 0, 60);
+        t.run(2);
+        check(t.voices() == 1, "a voice waiting out its key-on delay counts in active_voices");
+        t.off(0, 900, 0, 60);
+        t.run(2);
+        t.settle(8000);
+        t.verify("key-on delay");
+    }
+    // CC 120 and CC 123, on one channel and the other
+    for (int cc : { 120, 123 }) {
+        Tracked t;
+        t.on(0, 1000, 0, 60);
+        t.on(0, 1001, 0, 64);
+        t.on(0, 1002, 1, 67);
+        t.run(4);
+        t.midi(5, 0xB0, (uint8_t)cc, 0);
+        t.run(2);
+        t.midi(5, 0xB1, (uint8_t)cc, 0);
+        t.run(2);
+        t.settle();
+        t.verify("CC " + std::to_string(cc));
+    }
+    // choke and note-off by ID, by key and channel, wildcards, a mismatch
+    {
+        Tracked t;
+        t.on(0, 1100, 0, 60);
+        t.on(0, 1101, 0, 61);
+        t.on(0, 1102, 2, 62);
+        t.on(0, 1103, 2, 63);
+        t.on(0, 1104, 4, 64);
+        t.on(0, 1105, 5, 65);
+        t.run(4);
+        t.note(CLAP_EVENT_NOTE_CHOKE, 0, -1, 0, 60);
+        t.note(CLAP_EVENT_NOTE_CHOKE, 0, 1101, -1, -1);
+        t.note(CLAP_EVENT_NOTE_OFF, 0, -1, 2, 62);
+        t.note(CLAP_EVENT_NOTE_OFF, 0, -1, -1, 63);
+        t.note(CLAP_EVENT_NOTE_CHOKE, 0, -1, 4, -1);
+        t.run(4);
+        t.off(0, 7777, 5, 65); // an ID the plugin does not know: nothing to release
+        t.run(2);
+        check(t.ended.count(1105) == 0, "a note-off with another ID releases nothing");
+        t.off(0, 1105, 5, 65);
+        t.settle();
+        t.verify("choke and note-off addressing");
+    }
+    // a note-off before the note-on, and a note-off twice
+    {
+        Tracked t;
+        t.off(0, 1200, 0, 60);
+        t.on(1, 1200, 0, 60);
+        t.off(2, 1200, 0, 60);
+        t.off(3, 1200, 0, 60);
+        t.settle();
+        t.verify("note-off twice");
+    }
+    // sound switch and retiring sounds with notes held and ringing
+    {
+        Tracked t;
+        const uint32_t b = t.addSoundB(1);
+        t.on(0, 1300, 0, 60);
+        t.on(0, 1301, 1, 64);
+        t.run(4);
+        check(t.ctx->select(t.host.plugin, b, 0), "select B on channel 1 over held notes");
+        t.run(4);
+        t.on(0, 1302, 0, 70);
+        t.run(2);
+        t.off(0, 1300, 0, 60);
+        t.run(2);
+        const auto *snaps = static_cast<const oscairn_plugin_sound_snapshots_t *>(t.host.plugin->get_extension(t.host.plugin, OSCAIRN_EXT_SOUND_SNAPSHOTS));
+        check(snaps != nullptr && snaps->choke_retiring(t.host.plugin), "choke_retiring");
+        check(t.ctx->select(t.host.plugin, 0, -1), "select the default everywhere");
+        t.run(4);
+        t.releaseAll();
+        t.settle();
+        t.verify("sound switch and choke_retiring");
+    }
+    // a state loaded while notes are held
+    {
+        Tracked t;
+        const std::string saved = t.host.saveState();
+        t.on(0, 1400, 0, 60);
+        t.on(0, 1401, 0, 64);
+        t.run(4);
+        check(t.host.loadState(saved), "load while active");
+        t.run(4);
+        t.on(0, 1402, 0, 67);
+        t.run(2);
+        t.releaseAll();
+        t.settle();
+        t.verify("state load");
+    }
+    // a parameter that stops every voice of the sound, with notes held
+    {
+        Tracked t;
+        t.on(0, 1500, 0, 60);
+        t.on(0, 1501, 0, 64);
+        t.run(4);
+        t.param(5, 1); // another profile
+        t.run(2);
+        t.releaseAll();
+        t.settle();
+        t.verify("profile change");
+    }
+    // reset: no NOTE_END for the notes it ended, then the instance goes on as new
+    {
+        Tracked t;
+        t.on(0, 1600, 0, 60);
+        t.on(0, 1601, 0, 64);
+        t.run(4);
+        t.off(0, 1601, 0, 64);
+        t.run(1);
+        t.reset();
+        t.run(40);
+        t.on(0, 1602, 0, 60);
+        t.run(4);
+        t.off(0, 1602, 0, 60);
+        t.settle();
+        t.verify("reset");
+        check(!t.ended.count(1600) && !t.ended.count(1601) && t.ended.count(1602) == 1, "no NOTE_END after a reset, one for the new note");
+    }
+    // deactivate and activate with notes held: none after
+    {
+        Tracked t;
+        t.on(0, 1700, 0, 60);
+        t.run(4);
+        t.host.plugin->stop_processing(t.host.plugin);
+        t.host.plugin->deactivate(t.host.plugin);
+        t.host.active = false;
+        t.forgiven.insert(1700);
+        t.host.activate(48000, 64);
+        t.run(40);
+        t.verify("deactivate");
+    }
+    // what active_voices counts: sounding voices, releasing and fading ones included
+    {
+        Tracked t;
+        check(t.voices() == 0, "no voices at the start");
+        t.on(0, 1800, 0, 60);
+        t.on(0, 1801, 0, 64);
+        t.run(8);
+        check(t.voices() == 2, "held notes count");
+        t.off(0, 1800, 0, 60);
+        t.run(1);
+        check(t.voices() == 2, "a releasing voice still counts");
+        t.settle(40);
+        t.releaseAll();
+        t.settle();
+        check(t.voices() == 0, "none when all have ended");
+        t.verify("active_voices");
+    }
+
+    // The long run: thousands of notes across keys and channels, more than the pool holds,
+    // sounds and settings changing (Classic and Extended, mono, key assign, the limits, the host's
+    // budget, sustain, controllers 120 and 123, choke, wildcards, a few resets).
+    {
+        Tracked t(128, 6);
+        const uint32_t b = t.addSoundB(1);
+        uint64_t rng = 0x9E3779B97F4A7C15ull;
+        auto rnd = [&](uint32_t n) {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            return (uint32_t)((rng >> 11) % n);
+        };
+        std::vector<int32_t> held;
+        int32_t next = 10000;
+        int notes = 0, resets = 0;
+        for (int step = 0; step < 6000; step++) {
+            const uint32_t events = 1 + rnd(5);
+            for (uint32_t k = 0; k < events; k++) {
+                const uint32_t kind = rnd(100);
+                const uint32_t time = rnd(128);
+                if (kind < 45) {
+                    const int16_t ch = (int16_t)rnd(4), key = (int16_t)(24 + rnd(72));
+                    t.on(time, next, ch, key);
+                    held.push_back(next++);
+                    notes++;
+                } else if (kind < 80 && !held.empty()) {
+                    const size_t i = rnd((uint32_t)held.size());
+                    const int32_t id = held[i];
+                    held.erase(held.begin() + (long)i);
+                    const auto s = t.started[id];
+                    if (rnd(8) == 0)
+                        t.off(time, -1, s.channel, s.key);
+                    else
+                        t.off(time, id, s.channel, s.key);
+                } else if (kind < 84 && !held.empty()) {
+                    const int32_t id = held[rnd((uint32_t)held.size())];
+                    const auto s = t.started[id];
+                    t.note(CLAP_EVENT_NOTE_CHOKE, time, rnd(2) ? id : -1, s.channel, rnd(2) ? s.key : -1);
+                } else if (kind < 86) {
+                    t.midi(time, (uint8_t)(0xB0 | rnd(4)), rnd(2) ? 123 : 120, 0);
+                } else if (kind < 88) {
+                    t.midi(time, (uint8_t)(0xB0 | rnd(4)), 64, rnd(2) ? 127 : 0);
+                } else if (kind < 92) {
+                    static const clap_id ids[] = { 135, 101, 5, 255, 256, 257, 58 };
+                    const clap_id id = ids[rnd(7)];
+                    const double v = id == 135 ? rnd(7) : id == 58 ? (rnd(2) ? 0 : 80) : rnd(2);
+                    t.param(id, v, rnd(2) ? -1 : (int16_t)rnd(4));
+                } else if (kind < 96) {
+                    // the host sets limits between blocks
+                    const uint32_t n = rnd(3);
+                    std::vector<oscairn_voice_budget_context_t> c;
+                    if (n > 0)
+                        c.push_back({ 0, rnd(4), rnd(3), (uint8_t)rnd(11), 0 });
+                    if (n > 1)
+                        c.push_back({ b, rnd(4), rnd(3), (uint8_t)rnd(11), 0 });
+                    t.limit(rnd(3) == 0 ? 0 : 1 + rnd(12), c);
+                }
+            }
+            t.run();
+            // the held list is a host's: notes it believes are held; ended ones are dropped
+            held.erase(std::remove_if(held.begin(), held.end(), [&](int32_t id) { return t.ended.count(id) != 0; }), held.end());
+            if (step % 1500 == 1499) {
+                t.reset();
+                held.clear();
+                resets++;
+            }
+        }
+        t.limit(0);
+        t.releaseAll();
+        for (int c = 0; c < 4; c++)
+            t.midi(0, (uint8_t)(0xB0 | c), 123, 0);
+        t.run(2);
+        t.releaseAll();
+        t.settle(20000);
+        t.verify("randomised run");
+        size_t counted = 0;
+        for (const auto &[id, n] : t.ended)
+            counted += (size_t)n;
+        const size_t expected = t.started.size() - t.forgiven.size();
+        std::printf("randomised run: %d note-ons, %d resets, %zu NOTE_END, %zu expected\n", notes, resets, counted, expected);
+        if (counted != expected)
+            noteEndFailure("randomised run: NOTE_END count differs from the note-ons not ended by a reset");
+    }
+    if (noteEndFailures > 0) {
+        std::fprintf(stderr, "%d paths break the rule\n", noteEndFailures);
+        return 1;
+    }
+    std::printf("note lifetime: exactly one NOTE_END for every note that ends\n");
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -5453,6 +5980,8 @@ int main(int argc, char **argv) {
         return viewsTest();
     if (cmd == "reset")
         return resetTest();
+    if (cmd == "note-end")
+        return noteEndTest();
     std::fprintf(stderr, "unknown command %s\n", cmd.c_str());
     return 2;
 }

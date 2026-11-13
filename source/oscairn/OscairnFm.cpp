@@ -490,8 +490,16 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         }
         case CLAP_EVENT_NOTE_ON: {
             auto *e = reinterpret_cast<const clap_event_note_t *>(h);
-            if (e->key < 0 || e->key > 127 || e->port_index > 0)
+            if (e->key < 0 || e->key > 127 || e->port_index > 0) {
+                // no voice will play it: the host holds a slot for the note until its NOTE_END
+                NoteRef refused;
+                refused.id = e->note_id;
+                refused.port = e->port_index;
+                refused.channel = e->channel;
+                refused.key = e->key;
+                noteEnded(refused);
                 return;
+            }
             const int channel = e->channel >= 0 && e->channel < 16 ? e->channel : 0;
             const int velocity = std::clamp((int)std::lround(e->velocity * 127.0), 1, 127);
             NoteRef ref;
