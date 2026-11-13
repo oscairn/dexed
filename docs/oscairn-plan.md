@@ -588,8 +588,10 @@ Plan:
   release level (decision 84) counts as released and is as quiet as that level (level 20 reads
   about 0.001). `honors_volume` is false: Oscairn FM has no note expressions yet. With every voice
   sounding, a new note takes a voice in the same order (one already fading first) while the host
-  has set any limit; without limits it keeps Dexed's stealing (known differences register). Oscairn
-  carries the extension only in-process so far: a plugin in a worker is budgeted as one without it.
+  has set any limit; without limits it keeps Dexed's stealing while one sound plays, and with several
+  each sound in use keeps an equal share of the pool as its reserve (twenty-seventh session; known
+  differences register). Oscairn carries the extension only in-process so far: a plugin in a worker
+  is budgeted as one without it.
 - **Parts sharing one instance (twentieth session, decisions 86-88):** Octet 0.4.0 has what Oscairn's
   RFC 0021 slice 3 asks of a plugin parts can share: native sound contexts and their snapshot, no audio
   input or note output, eight stereo sound buses beside Main (`Bus 1` to `Bus 8`, one for each of its
@@ -1193,7 +1195,7 @@ Deliberate (decided):
   `extRatioSteps` (`msfa/ext_tables.cc`); `pitch2`, `m14s`, `fm/compare.py`.
 
 - **Voice stealing under a voice budget** (decision 85, confirmed by Jacob 2026-11-07): while Oscairn has set voice
-  limits (`oscairn.voice-budget`), a full pool of 16 and voices past a limit go in the SDK's order
+  limits (`oscairn.voice-budget`), a full pool and voices past a limit go in the SDK's order
   (released before held, the new voice's own sound, lower priority, quieter, older; never a held
   mono key or a sound's reserve), where Dexed takes, among voices that all sound, a released one
   before a held one, then the same key, then the oldest. Without limits Dexed's stealing is
@@ -1203,6 +1205,22 @@ Deliberate (decided):
   with a budget it is the one given up; the same case without limits gives up the oldest, checked
   once by hand in the nineteenth session, not by a test). Code `Plugin::steal`, `Plugin::victim` (`oscairn/OscairnFm.cpp`), the hook in
   `SynthEngine::keydown`.
+- **Polyphony** (twenty-seventh session): one pool of 128 voices shared by every sound of an instance
+  (the reference lists 128 FM voices for the instrument), each note one voice whatever its operator
+  count, a mono sound's held keys and a key played again with key assign Single (decision 41, while
+  its fade lasts) a voice each. Whether the reference's 8-operator voices, its parts or its mono
+  and Single fades count against its 128 the same way is not measured, nor how it steals at 128.
+  Within 16 sounding voices every sound plays as on Dexed's 16 (the 164 Classic cases, sample for
+  sample, up to Dexed's first steal); past 16 the extra notes play where Dexed would steal. Reproduce:
+  `dexed-render-engine --pool-identity`, `oscairn-fm-test polyphony`. Code `SynthEngine::keydown`,
+  `setPolyphony`; `polyphony()` in `oscairn/OscairnFm.cpp` (`OSCAIRN_FM_POLYPHONY` sets 1 to 128).
+- **Stealing between parts without a budget** (twenty-seventh session): with every voice sounding,
+  no limits from the host and more than one sound in use, each sound in use (sounding, or the new
+  note's) keeps an equal share of the pool as its reserve and the SDK's order picks the voice, so
+  layered parts each keep their share (at 16 voices, Dexed's stealing left the first of two layered
+  parts 4 of 16 and Oscairn's kit measured 0). One sound alone keeps Dexed's stealing. The
+  reference's stealing between parts is not measured. Reproduce: `oscairn-fm-test polyphony` with
+  `OSCAIRN_FM_POLYPHONY=16` (CTest `oscairn-fm-polyphony-16`). Code `Plugin::steal`.
 
 Pitch ranges past the reference's (Jacob: no ceiling on pitch shift or transpose, even where the
 reference has one; deliberate):
@@ -3588,6 +3606,50 @@ algorithm.
 **Not sound differences:** the times only draw the envelopes. The Classic times are a full-range
 decay at 44.1 kHz; a rise, a partial segment, keyboard rate scaling and the output level change
 the engine's real time, as the guide accepts ("approximate is enough").
+
+### Twenty-seventh session (2026-11-13): polyphony
+
+Jacob's first runs on the FANTOM-07 (4x Cortex-A53 at 1.8 GHz, 48 kHz, 128-frame blocks, a worker
+gets half a block, 1.33 ms) played EPIANO 9 cleanly to the 16-note limit: 110 us a block at 1 note,
+220 at 8, 381 at 16, about 18 us a note, so about 55-60 such notes fit one part's allowance; worker
+memory 24 MiB. And Oscairn's kit found parts sharing one instance sharing its 16 voices unfairly
+(two layered parts at 16 keys: 0 and 16 voices).
+
+- **Structure.** One array of voices in `SynthEngine`, each a `ProcessorVoice` (88 bytes) owning a
+  `Dx7Note` (10,776 bytes, the Extended note's state included; record layout from clang), allocated
+  in `prepare`. Every loop over voices and the Oscairn glue's voice budget (`keeping`, `victim`,
+  `steal`, `active_voices`, `notes`) took the fixed 16; nothing else in the engine is sized by it.
+  Mono keeps a pool voice per held key (decision 40) and key assign Single fades the old voice
+  while the new one starts (decision 41), so both take pool voices as before.
+- **Change.** The pool is `SynthEngine::setPolyphony` (1 to `MAX_VOICES` 128, Dexed's 16 unless
+  set, applied at `prepare`); the desktop Dexed keeps 16. A new note looks at Dexed's first 16
+  voices as Dexed does and goes past them only when all 16 sound, so with 16 or fewer sounding every
+  patch plays as on Dexed's 16, a voice's phases without key sync included; with every voice
+  sounding, Dexed's choice over the whole pool. Oscairn FM takes 128 (`OSCAIRN_FM_POLYPHONY`
+  sets 1 to 128): memory, 1.39 MB of notes against 174 KB, about 1.2 MB more an instance; the
+  voices are allocated at activation, so the host's voice budget, not the pool, is what limits a
+  device. Without limits from the host, several sounds share the pool fairly (register).
+- **CPU.** Instructions retired (macOS arm64, `/usr/bin/time -l`, 20,000 blocks of 128 frames at
+  48 kHz, one single-carrier Classic voice): the 128 pool's loops add about 3,700 instructions a
+  block at rest, against about 8,600 for one sounding voice. Wall-clock numbers on this Mac were
+  not usable this session (load average over 100). On the A53, at about 18 us a note and the
+  extra loops a few microseconds a block (an estimate from the instruction ratio, not measured
+  there), one part fits about 55-60 EPIANO 9 notes and, at the earlier 5-6.5 times a Classic voice,
+  about 10 Extended ones: past those the host's budget gives voices up first.
+- **Tests.** `engine-pool-identity` (`dexed-render-engine --pool-identity`): the 164 cases on 128
+  voices sample for sample as on 16 up to Dexed's first steal (136 cases steal, and differ after),
+  and 40 voices without key sync playing a 17th note after 16 silent ones (14 of them silent by
+  then) the same; a single choice over the whole pool fails it (43 differ).
+  `oscairn-fm-polyphony`: 128 held notes sound, a 129th takes Dexed's choice, a host limit of 64
+  holds below the pool, and 2 and 4 layered parts at 16 keys keep 16 each (fails on a 16 pool).
+  `oscairn-fm-polyphony-16`: the same at 16 voices, the parts keeping 8 and 4 each (fails without
+  the shares: the first part keeps 4). The Dexed baseline through the plugin, `two-rates`, `notes`
+  and `voice-budget` run at `OSCAIRN_FM_POLYPHONY=16`, the pool their cases steal from.
+- **What the extension can say.** `set_limits` gives an instance limit and, per context, a limit,
+  a reserve, a priority and mono or legato; Oscairn FM honours all of them. Oscairn sends reserves
+  only with a budget; without one the equal shares above stand in. Oscairn cannot learn the pool's
+  size or that it is shared by an instance's sounds (`active_voices` only counts), so it cannot
+  count shared sounds against it when it decides whether to share.
 
 ### How to run the tests
 
