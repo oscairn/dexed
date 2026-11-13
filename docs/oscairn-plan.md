@@ -3601,6 +3601,9 @@ ctest --test-dir build
 
 ### Releasing
 
+A plugin's version changes whenever its shipped binary does, so every release (including
+the first workflow build after hand-built packages) bumps it.
+
 The package version is Oscairn FM's descriptor version (`source/oscairn/OscairnFm.cpp`);
 the bundle is the one plugin, so no second version exists. Bump the descriptor, commit,
 then tag the package version and push the tag:
