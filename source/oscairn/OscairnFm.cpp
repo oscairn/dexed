@@ -204,8 +204,8 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         return voiceLimits.of(slots[c].loadedId, engine.context(c).selectedChannels != 0);
     }
     // The voice to give up for a new voice of context `incoming` (-1: none), from context `only`
-    // alone unless -1; -1 when none may go.
-    int victim(int incoming, int only = -1) {
+    // alone unless -1; -1 when none may go. By the host's limits, or by `limits`.
+    int victim(int incoming, int only = -1, const oscairn::voices::Limits *limits = nullptr) {
         std::array<oscairn::voices::Candidate, SynthEngine::MAX_VOICES> candidates {};
         for (int i = 0; i < engine.polyphony(); i++) {
             if (!sounding(i))
@@ -216,8 +216,8 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         }
         auto id = [&](int c) { return c < 0 ? oscairn::voices::none : slots[c].loadedId; };
         return oscairn::voices::victim(
-            (size_t)engine.polyphony(), [&](size_t i) { return sounding((int)i) ? &candidates[i] : nullptr; }, voiceLimits, id(incoming),
-            id(only));
+            (size_t)engine.polyphony(), [&](size_t i) { return sounding((int)i) ? &candidates[i] : nullptr; },
+            limits ? *limits : voiceLimits, id(incoming), id(only));
     }
     void giveUp(int note) {
         if (note >= 0)
@@ -235,8 +235,23 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
             giveUp(victim(c));
     }
     int steal(int c) override {
-        if (voiceLimits.limit == 0 && voiceLimits.count == 0)
-            return -1; // no budget from the host: Dexed's stealing, as the Classic baseline has it
+        // Without a budget from the host: Dexed's stealing while one sound plays (as the Classic
+        // baseline has it); with several, each sound in use keeps an equal share of the pool as
+        // its reserve, so a sound's new notes never take another's voices below its share.
+        oscairn::voices::Limits shares;
+        const bool budget = voiceLimits.limit != 0 || voiceLimits.count != 0;
+        if (!budget) {
+            uint32_t used = 1u << c;
+            for (int i = 0; i < engine.polyphony(); i++)
+                if (sounding(i))
+                    used |= 1u << engine.voice(i).context;
+            if (used == 1u << c)
+                return -1;
+            const uint32_t share = (uint32_t)engine.polyphony() / (uint32_t)__builtin_popcount(used);
+            for (int k = 0; k < contextCount; k++)
+                if (used >> k & 1)
+                    shares.contexts[shares.count++] = { slots[k].loadedId, 0, share, 0, 0 };
+        }
         // a voice already fading out first, the furthest gone
         int best = -1;
         for (int i = 0; i < engine.polyphony(); i++) {
@@ -244,7 +259,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
             if (v.live && v.fadeTotal > 0 && (best < 0 || v.fadeLeft < engine.voice(best).fadeLeft))
                 best = i;
         }
-        return best >= 0 ? best : victim(c);
+        return best >= 0 ? best : victim(c, -1, budget ? nullptr : &shares);
     }
     // At a block's start: voices past a limit the host lowered fade out.
     void keepWithinLimits() {

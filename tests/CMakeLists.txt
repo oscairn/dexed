@@ -78,10 +78,11 @@ add_test(NAME oscairn-fm-snapshots COMMAND oscairn-fm-test snapshots ${fm_module
 add_test(NAME oscairn-fm-presets COMMAND oscairn-fm-test presets ${fm_module})
 add_test(NAME oscairn-fm-voice-budget COMMAND oscairn-fm-test voice-budget ${fm_module})
 add_test(NAME oscairn-fm-polyphony COMMAND oscairn-fm-test polyphony ${fm_module})
+add_test(NAME oscairn-fm-polyphony-16 COMMAND oscairn-fm-test polyphony ${fm_module})
 # Dexed's 16 voices (the plugin's pool is 128): the baseline is unmodified Dexed's, stealing
 # included, and these tests steal at a full pool of 16; engine-pool-identity checks 128 against 16
 set_tests_properties(oscairn-fm-baseline oscairn-fm-baseline-reverse oscairn-fm-two-rates oscairn-fm-notes
-    oscairn-fm-voice-budget PROPERTIES ENVIRONMENT OSCAIRN_FM_POLYPHONY=16)
+    oscairn-fm-voice-budget oscairn-fm-polyphony-16 PROPERTIES ENVIRONMENT OSCAIRN_FM_POLYPHONY=16)
 add_test(NAME oscairn-fm-buses COMMAND oscairn-fm-test buses ${fm_module})
 add_test(NAME oscairn-fm-views COMMAND oscairn-fm-test views ${fm_module})
 add_test(NAME oscairn-fm-no-alloc COMMAND oscairn-fm-test-linked no-alloc)
