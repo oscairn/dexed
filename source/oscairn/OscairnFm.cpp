@@ -200,8 +200,18 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         const SynthContext &x = engine.context(c);
         return x.extended() ? x.ext->common(ext::MonoPoly) == 0 : x.monoMode;
     }
+    // the sound's own limit (0: none)
+    uint32_t ownLimit(int c) {
+        static const size_t index = (size_t)indexOf(135);
+        return (uint32_t)std::lround(value(c, index).load(std::memory_order_relaxed));
+    }
+    // the host's limits for the sound, the sound's own limit where lower
     oscairn_voice_budget_context_t settings(int c) {
-        return voiceLimits.of(slots[c].loadedId, engine.context(c).selectedChannels != 0);
+        auto s = voiceLimits.of(slots[c].loadedId, engine.context(c).selectedChannels != 0);
+        const uint32_t own = ownLimit(c);
+        if (own != 0 && (s.limit == 0 || own < s.limit))
+            s.limit = own;
+        return s;
     }
     // The voice to give up for a new voice of context `incoming` (-1: none), from context `only`
     // alone unless -1; -1 when none may go. By the host's limits, or by `limits`.
@@ -250,7 +260,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
             const uint32_t share = (uint32_t)engine.polyphony() / (uint32_t)__builtin_popcount(used);
             for (int k = 0; k < contextCount; k++)
                 if (used >> k & 1)
-                    shares.contexts[shares.count++] = { slots[k].loadedId, 0, share, 0, 0 };
+                    shares.contexts[shares.count++] = { slots[k].loadedId, 0, ownLimit(k) != 0 ? std::min(share, ownLimit(k)) : share, 0, 0 };
         }
         // a voice already fading out first, the furthest gone
         int best = -1;
@@ -353,6 +363,7 @@ struct Plugin : SynthEngine::NoteEndSink, SynthEngine::VoiceGiver {
         case Setting::Resonance: x.fx.uiReso = f; break;
         case Setting::Output: x.fx.uiGain = f; break;
         case Setting::OutputBus: x.nextBus = (int)f; return; // applied between blocks (applyOutputBuses)
+        case Setting::VoiceLimit: return; // read by makeRoom and steal
         case Setting::None: break;
         default: {
             const int k = (int)s - (int)Setting::WheelRange;
@@ -736,6 +747,8 @@ std::string patchText(const uint8_t name[10], const std::function<double(size_t)
     out << "\n";
     for (size_t i = 0; i < params().size(); i++) {
         const double v = valueOf(i);
+        if (params()[i].id == 135 && v == 0)
+            continue; // no limit: the line is left out, as states were written before it
         out << "p " << params()[i].id << " ";
         if (params()[i].stepped())
             out << (long)std::lround(v);

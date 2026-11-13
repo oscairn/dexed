@@ -16,6 +16,7 @@
  *   oscairn-fm-test presets                          cartridge voices through CLAP preset discovery
  *   oscairn-fm-test voice-budget                     voice limits, the order voices go in, notes (oscairn.voice-budget)
  *   oscairn-fm-test polyphony                        the voice pool, stealing at it, parts sharing it
+ *   oscairn-fm-test voice-limit                      a sound's own polyphony limit (Polyphony Limit, 135)
  *   oscairn-fm-test reset                            reset at once, then as a fresh instance (linked)
  *   oscairn-fm-test views                            oscairn.ui rich views: fields, routings, values
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
@@ -4454,6 +4455,71 @@ int voiceBudgetTest() {
 }
 
 
+// ---- a sound's own polyphony limit (parameter 135; 0 or absent: none) ----
+
+std::map<int, int> voicesPerChannel(Budgeted &t);
+
+uint64_t fnv1a(const std::string &s) {
+    uint64_t h = 1469598103934665603ull;
+    for (unsigned char c : s)
+        h = (h ^ c) * 1099511628211ull;
+    return h;
+}
+
+int voiceLimitTest() {
+    constexpr clap_id limitParam = 135;
+    const auto limited = [](double n) {
+        auto v = soundB;
+        v.push_back({ limitParam, n });
+        return v;
+    };
+    // State: the limit round-trips; a state without it loads as no limit and is saved as before.
+    {
+        Host h(entry);
+        const std::string plain = h.saveState();
+        check(plain.find("p 135 ") == std::string::npos, "no limit: the state has no line for it");
+        // the bytes the plugin wrote before the limit existed (hash taken on the commit before)
+        check(fnv1a(plain) == 0x27246bd9940d8f96ull, "no limit: the state is byte-identical to the one before");
+        check(h.loadState(plain + "p 135 7\n"), "a state with a limit loads");
+        const std::string with = h.saveState();
+        check(with.find("\np 135 7\n") != std::string::npos, "the limit is saved");
+        Host other(entry);
+        check(other.loadState(with) && other.saveState() == with, "the limit round-trips");
+        check(h.loadState(plain) && h.saveState() == plain, "an old state loads with no limit");
+        check(!h.loadState(plain + "p 135 129\n") && !h.loadState(plain + "p 135 1.5\n"), "a limit out of range or not whole is refused");
+    }
+    // A sound limited to 3 on channel 2, the default sound on channel 1 with 5 notes: the limited
+    // sound's 4th note takes one of its own voices; the default sound keeps its 5. A host limit
+    // for the sound below 3 holds; one above does not widen it.
+    for (const double host : { 0.0, 2.0, 5.0 }) {
+        Budgeted t;
+        char message[256] = {};
+        const uint32_t id = t.ctx->prepare(t.host.plugin, "L", limited(3).data(), 4, nullptr, nullptr, message, sizeof message);
+        check(id != CLAP_INVALID_ID && t.ctx->select(t.host.plugin, id, 1), "a sound limited to 3 on channel 2");
+        if (host != 0)
+            t.limit(0, { budgetFor(id, (uint32_t)host, 0, 0) });
+        t.run();
+        for (int k = 0; k < 5; k++)
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 1 + k, 0, (int16_t)(40 + k));
+        for (int k = 0; k < 3; k++)
+            t.in.note(CLAP_EVENT_NOTE_ON, 0, 11 + k, 1, (int16_t)(60 + k));
+        t.run(8);
+        t.in.note(CLAP_EVENT_NOTE_ON, 0, 14, 1, 70);
+        t.run(8);
+        const auto held = voicesPerChannel(t);
+        const std::string what = host == 0 ? "no host limit" : "host limit " + std::to_string((int)host);
+        const int expected = host != 0 && host < 3 ? (int)host : 3;
+        check(held.count(0) == 1 && held.at(0) == 5, what + ": the other sound keeps its 5 notes");
+        check(held.count(1) == 1 && held.at(1) == expected, what + ": the limited sound holds " + std::to_string(expected));
+        for (const auto &e : t.ended)
+            check(e.id >= 11 && e.id <= 13, what + ": only the limited sound's own notes were given up");
+        check(host != 0 || (t.ended.size() == 1 && !t.hasEnded(14)), "no host limit: its 4th note takes one voice of its own, and sounds");
+    }
+
+    std::printf("voice limit: stealing within the sound, the host's lower limit, state round trip and compatibility\n");
+    return 0;
+}
+
 // ---- polyphony: the pool every sound shares (OSCAIRN_FM_POLYPHONY, 128 unless set) ----
 
 // Notes held per MIDI channel, from the voice budget's notes()
@@ -5351,6 +5417,8 @@ int main(int argc, char **argv) {
         return voiceBudgetTest();
     if (cmd == "polyphony")
         return polyphonyTest();
+    if (cmd == "voice-limit")
+        return voiceLimitTest();
     if (cmd == "buses")
         return busesTest();
     if (cmd == "views")

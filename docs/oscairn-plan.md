@@ -1214,6 +1214,11 @@ Deliberate (decided):
   sample, up to Dexed's first steal); past 16 the extra notes play where Dexed would steal. Reproduce:
   `dexed-render-engine --pool-identity`, `oscairn-fm-test polyphony`. Code `SynthEngine::keydown`,
   `setPolyphony`; `polyphony()` in `oscairn/OscairnFm.cpp` (`OSCAIRN_FM_POLYPHONY` sets 1 to 128).
+- **A sound's own polyphony limit** (twenty-seventh session, Jacob's decision): parameter 135, Polyphony
+  Limit, 0 (none) to 128, saved with the sound; at most that many of its notes sound, and the limit
+  does not resize the pool. The reference's per-part note limit is not measured, so how it counts
+  mono, Single fades or 8-operator voices against it is unknown; here a note is one voice as in the
+  pool. Code `Plugin::settings`, `Plugin::steal`.
 - **Stealing between parts without a budget** (twenty-seventh session): with every voice sounding,
   no limits from the host and more than one sound in use, each sound in use (sounding, or the new
   note's) keeps an equal share of the pool as its reserve and the SDK's order picks the voice, so
@@ -3650,6 +3655,17 @@ memory 24 MiB. And Oscairn's kit found parts sharing one instance sharing its 16
   only with a budget; without one the equal shares above stand in. Oscairn cannot learn the pool's
   size or that it is shared by an instance's sounds (`active_voices` only counts), so it cannot
   count shared sounds against it when it decides whether to share.
+
+- **A sound's own limit.** Convention: the sound's non-patch settings are parameters in the table
+  (IDs 100-199: Output Bus is 134) and are saved as `p <id> <value>` lines, so the limit is
+  parameter 135, Polyphony Limit, 0 to 128 (0: no limit of its own). The state text omits the line
+  at 0, so a state without a limit is the bytes written before (header unchanged: an old state loads
+  with no limit, and a state with the line needs a plugin that knows 135). Enforcement: `settings(c)`
+  gives the host's limit for the sound or its own, the lower, so `makeRoom` and `keepWithinLimits`
+  give up that sound's own voices past it; in the shares between sounds a sound's reserve is the
+  lower of its share and its limit. Tests: CTest `oscairn-fm-voice-limit`
+  (`oscairn-fm-test voice-limit`); the parameter list baseline has the new line. Needs the
+  next release's minor bump (a new parameter and state line).
 
 ### How to run the tests
 
