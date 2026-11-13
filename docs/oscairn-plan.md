@@ -3667,6 +3667,47 @@ memory 24 MiB. And Oscairn's kit found parts sharing one instance sharing its 16
   (`oscairn-fm-test voice-limit`); the parameter list baseline has the new line. Needs the
   next release's minor bump (a new parameter and state line).
 
+### Twenty-eighth session (2026-11-13): note lifetime
+
+The host holds one of 512 note-route slots per note-on until the instrument sends NOTE_END for it;
+a note that ends without one leaks its slot. Rule: every note-on is answered by exactly one
+NOTE_END, with its ID, key, channel and port, at a time inside the block, except notes `reset()` or
+deactivation ended (the host ends those itself; the plugin sends none).
+
+- **How a note is tracked.** A voice keeps the `NoteRef` (ID, port, channel, key) of the note-on
+  that started it and `noteActive` until the host has been told. `endNote` is the one place that
+  sends it and clears the flag. One voice plays one note (no unison), so there is nothing to count.
+- **Ways a note ends** (all in `tests/oscairn_fm_test.cpp`, `oscairn-fm-test note-end`, CTest
+  `oscairn-fm-note-end`, on a pool of 8 voices so stealing is constant): release finishing
+  (`collectEndedNotes` at the end of each block, stamped at the block's last frame); a voice taken
+  by a new note (Dexed's choice, or `steal`'s equal shares), by the sound's own limit or the host's
+  limit, reserve and priority (a 3 ms fade, then NOTE_END); Classic mono and Extended mono,
+  legato and key assign (the old note keeps its ID and ends with its own note-off, or when it is
+  taken or faded out); the same key again; CC 120 (at its frame) and CC 123 (release); NOTE_CHOKE
+  and note-off by ID, by key and channel, with -1 wildcards; a sound switch, `choke_retiring`, a
+  state load and a parameter that stops a sound's voices (the voices stop; NOTE_END at the end of
+  that block); a key-on delay pending at the note-off; a note-on that gets no voice. All gave exactly
+  one NOTE_END except the last: a note-on on a port other than 0, or with a key outside 0 to 127,
+  was dropped silently, and now gets a NOTE_END with the fields it came with at once. An Extended
+  part whose velocity depth and offset leave no sound already ended its note at once.
+- **A note-off that matches nothing.** A note-off with an ID the plugin does not know (not -1) matches nothing, even if
+  its key and channel match a held note under another ID: IDs name notes, and falling back to the key
+  would release a newer note on a key whose earlier note a voice limit had ended. Such a note
+  stays held until a note-off for its ID, a choke, CC 120 or 123.
+- **The long run.** `note-end` ends with 6,000 blocks of 1 to 5 random events: note-ons on four
+  channels across 72 keys, note-offs (a few by -1), chokes (with -1 IDs and keys), CC 120, 123, the
+  sustain pedal, parameter changes (limit, mono, profile, key assign, portamento, key-on delay, on
+  one channel or all), host budgets with reserves and priorities on two sounds, and a reset every
+  1,500 blocks; then everything is released and the notes ring out. About 8,100 note-ons (8,148 in the last run) and 4 resets: the
+  count of NOTE_END equals the note-ons not ended by a reset, none twice, none missing, none after
+  a reset.
+- **`active_voices`** counts the voices sounding now: held, releasing, fading out (a give-up's or a
+  retrigger's fade) and waiting out a key-on delay. It does not count a note that has no voice
+  (a Classic mono note held under a higher one, a voice a mono legato note took over), though
+  that note is still open until it ends. `notes` lists the same voices.
+- **Known limit.** NOTE_END goes through `try_push`; a host whose output queue is full drops it, and
+  the plugin does not send it again.
+
 ### How to run the tests
 
 ```
