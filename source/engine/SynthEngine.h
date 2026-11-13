@@ -136,8 +136,8 @@ struct VoiceStealing {
 
 class SynthEngine {
 public:
-    static const int MAX_ACTIVE_NOTES = 16; // Dexed's polyphony: the pool's size unless set
-    static const int MAX_VOICES = 128;      // the largest pool setPolyphony takes
+    static constexpr int MAX_ACTIVE_NOTES = 16; // Dexed's polyphony: the pool's size unless set
+    static constexpr int MAX_VOICES = 128;      // the largest pool setPolyphony takes
     static const int MAX_CONTEXTS = 8;
 
     // Supplies the events of the block being rendered, in order.
