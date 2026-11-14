@@ -24,7 +24,7 @@
 #include "fm_core.h"
 
 
-bool simdKernels = true;
+bool fastPaths = true;
 
 namespace {
     // The MSFA ("Modern") kernels.

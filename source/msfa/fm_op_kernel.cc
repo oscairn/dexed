@@ -70,7 +70,7 @@ void FmOpKernel::compute(int32_t *output, const int32_t *input,
   int32_t gain = gain1;
   int32_t phase = phase0;
 #ifdef FM_SIMD
-  if (simdKernels) {
+  if (fastPaths) {
     fmBlockSimd(output, input, phase0, freq, gain1, dgain, add, modernSin4);
     return;
   }
@@ -107,7 +107,7 @@ void FmOpKernel::compute_pure(int32_t *output, int32_t phase0, int32_t freq,
   int32_t gain = gain1;
   int32_t phase = phase0;
 #ifdef FM_SIMD
-  if (simdKernels) {
+  if (fastPaths) {
     fmBlockSimd(output, nullptr, phase0, freq, gain1, dgain, add, modernSin4);
     return;
   }

@@ -45,23 +45,17 @@
 
 namespace {
 #if defined(__aarch64__) && defined(__ARM_NEON)
-    // One voice's block added to both sums, four samples a step: the scalar loop's float steps in the
-    // same order, for a voice that is neither fading nor panned.
-    void mixVoiceSimd(int32_t *audio, bool extended, float *left, float *right) {
-        const float extendedScale = kExtendedVoiceGain / (float)(1 << 28);
+    // A Classic voice's block added to both sums, four samples a step: the scalar loop's float steps in
+    // the same order, for a voice that is neither fading nor panned. (An Extended voice stays scalar:
+    // its gain multiply feeds the add, which a compiler may fuse or not, so the scalar bits depend on it.)
+    void mixVoiceSimd(int32_t *audio, float *left, float *right) {
         for (int j = 0; j < N; j += 4) {
-            const int32x4_t val = vld1q_s32(audio + j);
-            float32x4_t f;
-            if (extended) {
-                f = vmulq_n_f32(vcvtq_f32_s32(val), extendedScale);
-            } else {
-                const int32x4_t v = vshrq_n_s32(val, 4);
-                int32x4_t clip = vshrq_n_s32(v, 9);
-                clip = vbslq_s32(vcgeq_s32(v, vdupq_n_s32(1 << 24)), vdupq_n_s32(0x7fff), clip);
-                clip = vbslq_s32(vcltq_s32(v, vdupq_n_s32(-(1 << 24))), vdupq_n_s32(0x8000), clip);
-                f = vmulq_n_f32(vcvtq_f32_s32(clip), 1.0f / 0x8000); // (a power of two: the same as dividing)
-                f = vmaxq_f32(vminq_f32(f, vdupq_n_f32(1)), vdupq_n_f32(-1));
-            }
+            const int32x4_t v = vshrq_n_s32(vld1q_s32(audio + j), 4);
+            int32x4_t clip = vshrq_n_s32(v, 9);
+            clip = vbslq_s32(vcgeq_s32(v, vdupq_n_s32(1 << 24)), vdupq_n_s32(0x7fff), clip);
+            clip = vbslq_s32(vcltq_s32(v, vdupq_n_s32(-(1 << 24))), vdupq_n_s32(0x8000), clip);
+            float32x4_t f = vmulq_n_f32(vcvtq_f32_s32(clip), 1.0f / 0x8000); // (a power of two: the same as dividing)
+            f = vmaxq_f32(vminq_f32(f, vdupq_n_f32(1)), vdupq_n_f32(-1));
             vst1q_f32(left + j, vaddq_f32(vld1q_f32(left + j), f));
             vst1q_f32(right + j, vaddq_f32(vld1q_f32(right + j), f));
             vst1q_s32(audio + j, vdupq_n_s32(0));
@@ -567,8 +561,8 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     float gainLeft = 1, gainRight = 1;
                     const bool panned = right != nullptr && v.dx7_note->panned(gainLeft, gainRight);
 #if defined(__aarch64__) && defined(__ARM_NEON)
-                    if (simdKernels && v.fadeTotal <= 0 && !panned)
-                        mixVoiceSimd(audiobuf.get(), v.dx7_note->extended(), sumbuf[k], sumbufRight[k]);
+                    if (fastPaths && v.fadeTotal <= 0 && !panned && !v.dx7_note->extended())
+                        mixVoiceSimd(audiobuf.get(), sumbuf[k], sumbufRight[k]);
                     else
 #endif
                     for (int j=0; j < N; ++j) {

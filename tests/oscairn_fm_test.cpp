@@ -20,6 +20,7 @@
  *   oscairn-fm-test reset                            reset at once, then as a fresh instance (linked)
  *   oscairn-fm-test views                            oscairn.ui rich views: fields, routings, values
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
+ *   oscairn-fm-test fast-paths                       the engine's fast paths against the plain loops, sample for sample (linked)
  *   oscairn-fm-test cost <sound> <voices> [blocks] [engine]  held notes in 128-frame blocks, for callgrind (instr-atstart=no)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
@@ -63,6 +64,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -2969,6 +2971,55 @@ int costReport(const std::vector<char *> &args) {
 #endif
     std::printf("%s, %d voices, %d blocks of %u frames, peak %g\n", sounds[sound].first, voices, blocks, kBlock, peak);
     return 0;
+}
+
+// fast-paths (linked build): the benchmark's sounds, and Extended with a different 2nd-LFO amplitude
+// offset on each operator, played with several velocities and released part-way, rendered with the
+// engine's fast paths off and on: the same samples, bit for bit.
+int fastPathsTest() {
+#ifndef OSCAIRN_FM_LINKED
+    return std::fprintf(stderr, "fast-paths needs the linked build\n"), 2;
+#else
+    auto sounds = benchSounds();
+    BenchParams offsets = sounds[1].second;
+    for (int n = 1; n <= 8; n++)
+        offsets.push_back({ (clap_id)(1000 * n + 59), (double)(n - 1) });
+    sounds.push_back({ "Extended, an amplitude offset per operator", offsets });
+    for (auto &[name, params] : sounds) {
+        std::vector<float> out[2];
+        for (int on = 0; on < 2; on++) {
+            fastPaths = on != 0;
+            Host h(entry);
+            EventList in;
+            in.events.reserve(64);
+            h.activate(48000, 128);
+            for (auto &[id, value] : params)
+                in.param(0, id, value);
+            h.process(128, in);
+            in.clear();
+            for (int k = 0; k < 12; k++)
+                in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)(40 + 3 * k), 0.3 + 0.06 * k);
+            for (int b = 0; b < 150; b++) {
+                h.process(128, in);
+                in.clear();
+                out[on].insert(out[on].end(), h.left.begin(), h.left.begin() + 128);
+                out[on].insert(out[on].end(), h.right.begin(), h.right.begin() + 128);
+                if (b == 75)
+                    for (int k = 0; k < 12; k += 2)
+                        in.note(CLAP_EVENT_NOTE_OFF, 0, -1, 0, (int16_t)(40 + 3 * k), 0.5);
+            }
+        }
+        fastPaths = true;
+        float peak = 0;
+        for (float x : out[1])
+            peak = std::max(peak, std::fabs(x));
+        check(peak > 0 && std::isfinite(peak), std::string(name) + " sounds");
+        check(out[0].size() == out[1].size() && std::memcmp(out[0].data(), out[1].data(), out[0].size() * sizeof(float)) == 0,
+              std::string(name) + ": the same samples with the fast paths off and on");
+        std::printf("%s: %zu samples equal\n", name, out[1].size());
+    }
+    return 0;
+#endif
 }
 
 // ---- sound contexts ----
@@ -6015,6 +6066,8 @@ int main(int argc, char **argv) {
         return benchmark(args);
     if (cmd == "cost")
         return costReport(args);
+    if (cmd == "fast-paths")
+        return fastPathsTest();
     if (cmd == "topology")
         return topologyTest();
     if (cmd == "contexts")

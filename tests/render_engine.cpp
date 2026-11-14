@@ -138,13 +138,13 @@ int checkSimdIdentity() {
     const auto render = [](const Case &c, void (*edit)(uint8_t *)) {
         std::vector<float> out[2];
         for (int on = 0; on < 2; on++) {
-            simdKernels = on != 0;
+            fastPaths = on != 0;
             CaseRenderer r(c, SynthEngine::MAX_ACTIVE_NOTES, edit);
             r.keep = true;
             while (r.step()) {}
             out[on] = r.dump;
         }
-        simdKernels = true;
+        fastPaths = true;
         return out[0].size() == out[1].size() && !out[0].empty() &&
                std::memcmp(out[0].data(), out[1].data(), out[0].size() * sizeof(float)) == 0;
     };
@@ -170,7 +170,7 @@ int checkSimdIdentity() {
                     runs++;
                 }
             }
-    std::printf("%d renders, vector and scalar kernels differ in %d\n", runs, failures);
+    std::printf("%d renders, fast and plain paths differ in %d\n", runs, failures);
     return failures == 0 ? 0 : 1;
 }
 
