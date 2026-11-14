@@ -46,6 +46,7 @@ add_test(NAME dx7-baseline-engine-reverse COMMAND dexed-render-engine --check ${
 add_test(NAME dx7-baseline-engine-two-rates COMMAND dexed-render-engine --interleaved ${DEXED_BASELINE})
 add_test(NAME engine-robustness COMMAND dexed-render-engine --robustness)
 add_test(NAME engine-pool-identity COMMAND dexed-render-engine --pool-identity)
+add_test(NAME engine-simd-identity COMMAND dexed-render-engine --simd-identity)
 
 # Oscairn FM, the native CLAP (source/oscairn).
 # oscairn-fm-test loads the built .clap; oscairn-fm-test-linked has the plugin linked in, so

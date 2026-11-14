@@ -28,6 +28,9 @@
 class EngineMkI : public FmCore {
 public:
     EngineMkI();
+
+    // Vector kernels where the CPU has them (arm64): the same samples either way; off only for tests.
+    static void setSimd(bool on);
     
     void render(int32_t *output, FmOpParams *params, int algorithm, int32_t *fb_buf, int32_t feedback_shift) override;
     

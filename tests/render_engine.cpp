@@ -57,13 +57,17 @@ struct CaseRenderer {
     size_t next = 0;
     Hash hash;
 
-    explicit CaseRenderer(const Case &c, int polyphony = SynthEngine::MAX_ACTIVE_NOTES)
+    // `edit` may change the patch's bytes before it is set (the algorithm, the feedback)
+    explicit CaseRenderer(const Case &c, int polyphony = SynthEngine::MAX_ACTIVE_NOTES,
+                          void (*edit)(uint8_t *patch) = nullptr)
         : c(c), left(c.block), evs(dx7cases::events(c.scenario)) {
         engine.setPolyphony(polyphony);
         // What the plugin does: the patch is its 156-byte program (operator switch byte all on).
         const auto v = voice(c.voiceIndex);
         std::memcpy(patch, v.data(), 155);
         patch[155] = 63;
+        if (edit != nullptr)
+            edit(patch);
 
         engine.setTuning(createStandardTuning());
         engine.setPatch(patch);
@@ -126,6 +130,48 @@ uint64_t render(const Case &c) {
         }
     }
     return r.hash.h;
+}
+
+// Every case, and every algorithm at feedback 0 and 7, rendered with the engines' vector kernels
+// off and on: the same samples, bit for bit.
+int checkSimdIdentity() {
+    const auto render = [](const Case &c, void (*edit)(uint8_t *)) {
+        std::vector<float> out[2];
+        for (int on = 0; on < 2; on++) {
+            EngineMkI::setSimd(on != 0);
+            CaseRenderer r(c, SynthEngine::MAX_ACTIVE_NOTES, edit);
+            r.keep = true;
+            while (r.step()) {}
+            out[on] = r.dump;
+        }
+        EngineMkI::setSimd(true);
+        return out[0].size() == out[1].size() && !out[0].empty() &&
+               std::memcmp(out[0].data(), out[1].data(), out[0].size() * sizeof(float)) == 0;
+    };
+    int failures = 0, runs = 0;
+    for (const auto &c : cases()) {
+        if (!render(c, nullptr)) {
+            std::fprintf(stderr, "DIFF %s\n", c.name.c_str());
+            failures++;
+        }
+        runs++;
+    }
+    static int algorithm, feedback;
+    for (int v = 0; v < 3; v++)
+        for (algorithm = 0; algorithm < 32; algorithm++)
+            for (feedback = 0; feedback <= 7; feedback += 7) {
+                Case c { "alg", v, Scenario::Poly, Settings { 1, false, 0 }, 48000, 64 };
+                for (c.settings.engine = 0; c.settings.engine < 3; c.settings.engine++) {
+                    // patch bytes 134 (algorithm, 0-31) and 135 (feedback, 0-7)
+                    if (!render(c, [](uint8_t *p) { p[134] = (uint8_t)algorithm; p[135] = (uint8_t)feedback; })) {
+                        std::fprintf(stderr, "DIFF voice %d algorithm %d feedback %d engine %d\n", v, algorithm + 1, feedback, c.settings.engine);
+                        failures++;
+                    }
+                    runs++;
+                }
+            }
+    std::printf("%d renders, vector and scalar kernels differ in %d\n", runs, failures);
+    return failures == 0 ? 0 : 1;
 }
 
 // Two instances at different sample rates, rendering block by block in turn: each must
@@ -392,6 +438,8 @@ int main(int argc, char **argv) {
         return checkRobustness();
     if (argc == 2 && std::strcmp(argv[1], "--pool-identity") == 0)
         return checkPoolIdentity();
+    if (argc == 2 && std::strcmp(argv[1], "--simd-identity") == 0)
+        return checkSimdIdentity();
     if (argc == 3 && std::strcmp(argv[1], "--interleaved") == 0)
         return checkInterleaved(argv[2]);
     return runBaseline(argc, argv, render);

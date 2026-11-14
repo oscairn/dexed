@@ -61,11 +61,12 @@ static uint16_t sinLogTable[SINLOG_TABLESIZE];
 static const uint16_t SINEXP_BITDEPTH = 10;
 static const uint16_t SINEXP_TABLESIZE = 1<<SINEXP_BITDEPTH;
 static uint16_t sinExpTable[SINEXP_TABLESIZE];
+static const uint16_t SINEXP_FILTER = 0x3FF;
+static const uint16_t SINLOG_TABLEFILTER = SINLOG_TABLESIZE-1;
 
 const uint16_t ENV_MAX = 1<<ENV_BITDEPTH;
 
 static inline uint16_t sinLog(uint16_t phi) {
-    const uint16_t SINLOG_TABLEFILTER = SINLOG_TABLESIZE-1;
     const uint16_t index = (phi & SINLOG_TABLEFILTER);
     
     switch( ( phi & (SINLOG_TABLESIZE * 3) ) ) {
@@ -136,7 +137,6 @@ inline int32_t mkiSin(int32_t phase, uint16_t env) {
     const bool isSigned = expVal & NEGATIVE_BIT;
     expVal &= ~NEGATIVE_BIT;
     
-    const uint16_t SINEXP_FILTER = 0x3FF;
     uint16_t result = 4096 + sinExpTable[( expVal & SINEXP_FILTER ) ^ SINEXP_FILTER];
     
     //uint16_t resultB4 = result;
@@ -157,6 +157,68 @@ inline int32_t mkiSin(int32_t phase, uint16_t env) {
         return result << 13;
 }
 
+#if defined(__aarch64__) && defined(__ARM_NEON)
+#define MKI_SIMD 1
+#include <arm_neon.h>
+
+static bool mkiSimd = true;
+
+// Four table entries at once: NEON has no gather, so each is a scalar load into its lane.
+static inline uint32x4_t gather4(const uint16_t *table, uint32x4_t idx) {
+    uint16x4_t v = vdup_n_u16(0);
+    v = vld1_lane_u16(table + vgetq_lane_u32(idx, 0), v, 0);
+    v = vld1_lane_u16(table + vgetq_lane_u32(idx, 1), v, 1);
+    v = vld1_lane_u16(table + vgetq_lane_u32(idx, 2), v, 2);
+    v = vld1_lane_u16(table + vgetq_lane_u32(idx, 3), v, 3);
+    return vmovl_u16(v);
+}
+
+// mkiSin for four samples, the same integer steps lane by lane.
+static inline int32x4_t mkiSin4(int32x4_t phase, int32x4_t env) {
+    const uint32x4_t phi = vandq_u32(vreinterpretq_u32_s32(vshrq_n_s32(phase, 22 - SINLOG_BITDEPTH)), vdupq_n_u32(0xFFFF));
+    const uint32x4_t filter = vdupq_n_u32(SINLOG_TABLEFILTER);
+    const uint32x4_t mirror = vtstq_u32(phi, vdupq_n_u32(SINLOG_TABLESIZE));
+    const uint32x4_t idx = veorq_u32(vandq_u32(phi, filter), vandq_u32(mirror, filter));
+    const uint32x4_t negative = vshlq_n_u32(vandq_u32(phi, vdupq_n_u32(SINLOG_TABLESIZE * 2)), 4); // NEGATIVE_BIT
+    const uint32x4_t sum = vorrq_u32(gather4(sinLogTable, idx), negative);
+    uint32x4_t expVal = vandq_u32(vaddq_u32(sum, vreinterpretq_u32_s32(env)), vdupq_n_u32(0xFFFF));
+    const uint32x4_t isSigned = vtstq_u32(expVal, vdupq_n_u32(NEGATIVE_BIT));
+    expVal = vandq_u32(expVal, vdupq_n_u32(~NEGATIVE_BIT & 0xFFFF));
+    const uint32x4_t expIdx = veorq_u32(vandq_u32(expVal, vdupq_n_u32(SINEXP_FILTER)), vdupq_n_u32(SINEXP_FILTER));
+    uint32x4_t result = vaddq_u32(vdupq_n_u32(4096), gather4(sinExpTable, expIdx));
+    result = vshlq_u32(result, vnegq_s32(vreinterpretq_s32_u32(vshrq_n_u32(expVal, 10))));
+    return vshlq_n_s32(vreinterpretq_s32_u32(veorq_u32(result, isSigned)), 13);
+}
+
+// compute and compute_pure over the block, four samples a step: `input` may be null
+static void computeSimd(int32_t *output, const int32_t *input, int32_t phase0, int32_t freq,
+                        int32_t gain1, int32_t dgain, bool add) {
+    const int32_t lane[4] = { 0, 1, 2, 3 }, step[4] = { 1, 2, 3, 4 };
+    uint32x4_t phase = vaddq_u32(vdupq_n_u32((uint32_t)phase0), vmulq_u32(vld1q_u32((const uint32_t *)lane), vdupq_n_u32((uint32_t)freq)));
+    uint32x4_t gain = vaddq_u32(vdupq_n_u32((uint32_t)gain1), vmulq_u32(vld1q_u32((const uint32_t *)step), vdupq_n_u32((uint32_t)dgain)));
+    const uint32x4_t dphase = vdupq_n_u32((uint32_t)freq * 4), dg = vdupq_n_u32((uint32_t)dgain * 4);
+    for (int i = 0; i < N; i += 4) {
+        int32x4_t p = vreinterpretq_s32_u32(phase);
+        if (input != nullptr)
+            p = vaddq_s32(p, vld1q_s32(input + i));
+        int32x4_t y = mkiSin4(p, vreinterpretq_s32_u32(gain));
+        if (add)
+            y = vaddq_s32(y, vld1q_s32(output + i));
+        vst1q_s32(output + i, y);
+        phase = vaddq_u32(phase, dphase);
+        gain = vaddq_u32(gain, dg);
+    }
+}
+#endif
+
+void EngineMkI::setSimd(bool on) {
+#ifdef MKI_SIMD
+    mkiSimd = on;
+#else
+    (void)on;
+#endif
+}
+
 void EngineMkI::compute(int32_t *output, const int32_t *input,
                         int32_t phase0, int32_t freq,
                         int32_t gain1, int32_t gain2, bool add) {
@@ -164,6 +226,12 @@ void EngineMkI::compute(int32_t *output, const int32_t *input,
     int32_t gain = gain1;
     int32_t phase = phase0;
     const int32_t *adder = add ? output : zeros;
+#ifdef MKI_SIMD
+    if (mkiSimd) {
+        computeSimd(output, input, phase0, freq, gain1, dgain, add);
+        return;
+    }
+#endif
     
     for (int i = 0; i < N; i++) {
         gain += dgain;
@@ -180,6 +248,12 @@ void EngineMkI::compute_pure(int32_t *output, int32_t phase0, int32_t freq,
     int32_t gain = gain1;
     int32_t phase = phase0;
     const int32_t *adder = add ? output : zeros;
+#ifdef MKI_SIMD
+    if (mkiSimd) {
+        computeSimd(output, nullptr, phase0, freq, gain1, dgain, add);
+        return;
+    }
+#endif
     
     for (int i = 0; i < N; i++) {
         gain += dgain;
