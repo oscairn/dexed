@@ -157,9 +157,8 @@ inline int32_t mkiSin(int32_t phase, uint16_t env) {
         return result << 13;
 }
 
-#if defined(__aarch64__) && defined(__ARM_NEON)
-#define MKI_SIMD 1
-#include <arm_neon.h>
+#include "msfa/fm_simd.h"
+#ifdef FM_SIMD
 
 // Four table entries at once: NEON has no gather, so each is a scalar load into its lane.
 static inline uint32x4_t gather4(const uint16_t *table, uint32x4_t idx) {
@@ -188,25 +187,6 @@ static inline int32x4_t mkiSin4(int32x4_t phase, int32x4_t env) {
     return vshlq_n_s32(vreinterpretq_s32_u32(veorq_u32(result, isSigned)), 13);
 }
 
-// compute and compute_pure over the block, four samples a step: `input` may be null
-static void computeSimd(int32_t *output, const int32_t *input, int32_t phase0, int32_t freq,
-                        int32_t gain1, int32_t dgain, bool add) {
-    const int32_t lane[4] = { 0, 1, 2, 3 }, step[4] = { 1, 2, 3, 4 };
-    uint32x4_t phase = vaddq_u32(vdupq_n_u32((uint32_t)phase0), vmulq_u32(vld1q_u32((const uint32_t *)lane), vdupq_n_u32((uint32_t)freq)));
-    uint32x4_t gain = vaddq_u32(vdupq_n_u32((uint32_t)gain1), vmulq_u32(vld1q_u32((const uint32_t *)step), vdupq_n_u32((uint32_t)dgain)));
-    const uint32x4_t dphase = vdupq_n_u32((uint32_t)freq * 4), dg = vdupq_n_u32((uint32_t)dgain * 4);
-    for (int i = 0; i < N; i += 4) {
-        int32x4_t p = vreinterpretq_s32_u32(phase);
-        if (input != nullptr)
-            p = vaddq_s32(p, vld1q_s32(input + i));
-        int32x4_t y = mkiSin4(p, vreinterpretq_s32_u32(gain));
-        if (add)
-            y = vaddq_s32(y, vld1q_s32(output + i));
-        vst1q_s32(output + i, y);
-        phase = vaddq_u32(phase, dphase);
-        gain = vaddq_u32(gain, dg);
-    }
-}
 #endif
 
 void EngineMkI::compute(int32_t *output, const int32_t *input,
@@ -216,9 +196,9 @@ void EngineMkI::compute(int32_t *output, const int32_t *input,
     int32_t gain = gain1;
     int32_t phase = phase0;
     const int32_t *adder = add ? output : zeros;
-#ifdef MKI_SIMD
+#ifdef FM_SIMD
     if (simdKernels) {
-        computeSimd(output, input, phase0, freq, gain1, dgain, add);
+        fmBlockSimd(output, input, phase0, freq, gain1, dgain, add, mkiSin4);
         return;
     }
 #endif
@@ -238,9 +218,9 @@ void EngineMkI::compute_pure(int32_t *output, int32_t phase0, int32_t freq,
     int32_t gain = gain1;
     int32_t phase = phase0;
     const int32_t *adder = add ? output : zeros;
-#ifdef MKI_SIMD
+#ifdef FM_SIMD
     if (simdKernels) {
-        computeSimd(output, nullptr, phase0, freq, gain1, dgain, add);
+        fmBlockSimd(output, nullptr, phase0, freq, gain1, dgain, add, mkiSin4);
         return;
     }
 #endif
