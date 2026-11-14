@@ -39,7 +39,36 @@
 #include <xmmintrin.h>
 #endif
 
+#if defined(__aarch64__) && defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
+
 namespace {
+#if defined(__aarch64__) && defined(__ARM_NEON)
+    // One voice's block added to both sums, four samples a step: the scalar loop's float steps in the
+    // same order, for a voice that is neither fading nor panned.
+    void mixVoiceSimd(int32_t *audio, bool extended, float *left, float *right) {
+        const float extendedScale = kExtendedVoiceGain / (float)(1 << 28);
+        for (int j = 0; j < N; j += 4) {
+            const int32x4_t val = vld1q_s32(audio + j);
+            float32x4_t f;
+            if (extended) {
+                f = vmulq_n_f32(vcvtq_f32_s32(val), extendedScale);
+            } else {
+                const int32x4_t v = vshrq_n_s32(val, 4);
+                int32x4_t clip = vshrq_n_s32(v, 9);
+                clip = vbslq_s32(vcgeq_s32(v, vdupq_n_s32(1 << 24)), vdupq_n_s32(0x7fff), clip);
+                clip = vbslq_s32(vcltq_s32(v, vdupq_n_s32(-(1 << 24))), vdupq_n_s32(0x8000), clip);
+                f = vmulq_n_f32(vcvtq_f32_s32(clip), 1.0f / 0x8000); // (a power of two: the same as dividing)
+                f = vmaxq_f32(vminq_f32(f, vdupq_n_f32(1)), vdupq_n_f32(-1));
+            }
+            vst1q_f32(left + j, vaddq_f32(vld1q_f32(left + j), f));
+            vst1q_f32(right + j, vaddq_f32(vld1q_f32(right + j), f));
+            vst1q_s32(audio + j, vdupq_n_s32(0));
+        }
+    }
+#endif
+
     // Flush denormals to zero while rendering, with the same bits as juce::ScopedNoDenormals,
     // which the plugin always rendered under: the output filter's decay otherwise produces
     // denormals that change the output and cost CPU.
@@ -537,6 +566,11 @@ void SynthEngine::render(float *channelData, float *right, int numSamples, Event
                     ProcessorVoice &v = voices[note];
                     float gainLeft = 1, gainRight = 1;
                     const bool panned = right != nullptr && v.dx7_note->panned(gainLeft, gainRight);
+#if defined(__aarch64__) && defined(__ARM_NEON)
+                    if (simdKernels && v.fadeTotal <= 0 && !panned)
+                        mixVoiceSimd(audiobuf.get(), v.dx7_note->extended(), sumbuf[k], sumbufRight[k]);
+                    else
+#endif
                     for (int j=0; j < N; ++j) {
                         int32_t val = audiobuf.get()[j];
                         float f;

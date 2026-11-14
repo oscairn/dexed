@@ -138,13 +138,13 @@ int checkSimdIdentity() {
     const auto render = [](const Case &c, void (*edit)(uint8_t *)) {
         std::vector<float> out[2];
         for (int on = 0; on < 2; on++) {
-            EngineMkI::setSimd(on != 0);
+            simdKernels = on != 0;
             CaseRenderer r(c, SynthEngine::MAX_ACTIVE_NOTES, edit);
             r.keep = true;
             while (r.step()) {}
             out[on] = r.dump;
         }
-        EngineMkI::setSimd(true);
+        simdKernels = true;
         return out[0].size() == out[1].size() && !out[0].empty() &&
                std::memcmp(out[0].data(), out[1].data(), out[0].size() * sizeof(float)) == 0;
     };

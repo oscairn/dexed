@@ -24,6 +24,8 @@
 #include "fm_core.h"
 
 
+bool simdKernels = true;
+
 namespace {
     // The MSFA ("Modern") kernels.
     struct ModernKernels {

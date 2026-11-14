@@ -161,8 +161,6 @@ inline int32_t mkiSin(int32_t phase, uint16_t env) {
 #define MKI_SIMD 1
 #include <arm_neon.h>
 
-static bool mkiSimd = true;
-
 // Four table entries at once: NEON has no gather, so each is a scalar load into its lane.
 static inline uint32x4_t gather4(const uint16_t *table, uint32x4_t idx) {
     uint16x4_t v = vdup_n_u16(0);
@@ -211,14 +209,6 @@ static void computeSimd(int32_t *output, const int32_t *input, int32_t phase0, i
 }
 #endif
 
-void EngineMkI::setSimd(bool on) {
-#ifdef MKI_SIMD
-    mkiSimd = on;
-#else
-    (void)on;
-#endif
-}
-
 void EngineMkI::compute(int32_t *output, const int32_t *input,
                         int32_t phase0, int32_t freq,
                         int32_t gain1, int32_t gain2, bool add) {
@@ -227,7 +217,7 @@ void EngineMkI::compute(int32_t *output, const int32_t *input,
     int32_t phase = phase0;
     const int32_t *adder = add ? output : zeros;
 #ifdef MKI_SIMD
-    if (mkiSimd) {
+    if (simdKernels) {
         computeSimd(output, input, phase0, freq, gain1, dgain, add);
         return;
     }
@@ -249,7 +239,7 @@ void EngineMkI::compute_pure(int32_t *output, int32_t phase0, int32_t freq,
     int32_t phase = phase0;
     const int32_t *adder = add ? output : zeros;
 #ifdef MKI_SIMD
-    if (mkiSimd) {
+    if (simdKernels) {
         computeSimd(output, nullptr, phase0, freq, gain1, dgain, add);
         return;
     }

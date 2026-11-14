@@ -29,6 +29,9 @@ typedef __int16 SInt16;
 const static int LG_N = 6;
 const static int N = (1 << LG_N);
 
+// The vector kernels (arm64 NEON) are used unless a test turns them off: their samples are the scalar loops' own.
+extern bool simdKernels;
+
 #if defined(__APPLE__)
 #include <libkern/OSAtomic.h>
 #define SynthMemoryBarrier() OSMemoryBarrier()
