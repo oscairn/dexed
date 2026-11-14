@@ -826,6 +826,11 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
     for (int s = 0; s < N; s++)
         ppeg[s] = ppeg_.getsample() + glide;
     uint32_t phase0[ext::Ops];
+    // the 2nd LFO's amplitude loss each sample, once for every distinct share: operators with the same
+    // share lose the same
+    double sharedLoss[ext::Ops][N];
+    float sharedShare[ext::Ops];
+    int sharedCount = 0;
     for (int i = 0; i < ext::Ops; i++) {
         int32_t pitch = basepitch_[i] + pitchBase;
         if (partLfoDetune_[i] != 0 && part_lfo != nullptr) {
@@ -858,6 +863,18 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
         uint32_t pt = 0;
         int32_t level = 0;
         const bool partLevel = part_lfo != nullptr && partLfoLevel_[i] != 0;
+        const double *loss2nd = nullptr;
+        if (fastPaths && ampLfo != 0 && ampShare_[i] != 0) {
+            int k = 0;
+            while (k < sharedCount && sharedShare[k] != ampShare_[i])
+                k++;
+            if (k == sharedCount) {
+                sharedShare[sharedCount++] = ampShare_[i];
+                for (int s = 0; s < N; s++)
+                    sharedLoss[k][s] = extAmpLossDb(lfoLoss[s] * ampShare_[i] / (kLog2PerDb * kQ24)) * (kLog2PerDb * kQ24);
+            }
+            loss2nd = sharedLoss[k];
+        }
         for (int s = 0; s < N; s++) {
             if (ampSens_[i] != 0 && ampMod && (s == 0 || amd[s] != amd[s - 1])) {
                 const uint32_t sensamp = (uint32_t)(((uint64_t)amd[s] * (uint64_t)ampSens_[i]) >> 24);
@@ -870,7 +887,8 @@ void ExtNote::render(int32_t *buf, int32_t pitchBase, const Controllers *ctrls, 
             if (pt != 0)
                 level -= (int32_t)(((uint64_t)env * ((uint64_t)pt << 4)) >> 28);
             if (ampLfo != 0 && ampShare_[i] != 0) { // (the larger of the LFO's and the wheel's loss)
-                const double loss = extAmpLossDb(lfoLoss[s] * ampShare_[i] / (kLog2PerDb * kQ24)) * (kLog2PerDb * kQ24);
+                const double loss = loss2nd != nullptr ? loss2nd[s]
+                                                       : extAmpLossDb(lfoLoss[s] * ampShare_[i] / (kLog2PerDb * kQ24)) * (kLog2PerDb * kQ24);
                 level = std::max(0, std::min(level, env - (int32_t)std::min(loss, 1e9)));
             }
             if (partLevel) // the part LFO only lowers the level: none at its top, all at its bottom
