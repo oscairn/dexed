@@ -20,7 +20,7 @@
  *   oscairn-fm-test reset                            reset at once, then as a fresh instance (linked)
  *   oscairn-fm-test views                            oscairn.ui rich views: fields, routings, values
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
- *   oscairn-fm-test cost <sound> <voices> [blocks]   held notes in 128-frame blocks, for callgrind (instr-atstart=no)
+ *   oscairn-fm-test cost <sound> <voices> [blocks] [engine]  held notes in 128-frame blocks, for callgrind (instr-atstart=no)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
  * linked in, which no-alloc needs.
@@ -2928,13 +2928,13 @@ int benchmark(const std::vector<char *> &args) {
     return 0;
 }
 
-// cost <sound> <voices> [blocks]: held notes of one benchmark sound (0 Classic, 1 Extended sines, 2 Extended
+// cost <sound> <voices> [blocks] [engine]: held notes of one benchmark sound (0 Classic, 1 Extended sines, 2 Extended
 // waves with the filter) in 128-frame blocks at 48 kHz, nothing measured but the blocks themselves.
 // Run it under `valgrind --tool=callgrind --instr-atstart=no` for instructions a block (valgrind headers
 // at build time); without valgrind it only renders.
 int costReport(const std::vector<char *> &args) {
     if (args.size() < 4)
-        return std::fprintf(stderr, "usage: cost <sound 0-2> <voices> [blocks]\n"), 2;
+        return std::fprintf(stderr, "usage: cost <sound 0-2> <voices> [blocks] [engine 0-2]\n"), 2;
     const auto sounds = benchSounds();
     const size_t sound = (size_t)std::atoi(args[2]);
     const int voices = std::atoi(args[3]), blocks = args.size() > 4 ? std::atoi(args[4]) : 20;
@@ -2946,6 +2946,8 @@ int costReport(const std::vector<char *> &args) {
     h.activate(48000, kBlock);
     for (auto &[id, value] : sounds[sound].second)
         in.param(0, id, value);
+    if (args.size() > 5) // the engine of a Classic sound: 0 Modern, 1 Mark I (the default), 2 OPL
+        in.param(0, 100, std::atoi(args[5]));
     h.process(kBlock, in);
     in.clear();
     for (int k = 0; k < voices; k++)
