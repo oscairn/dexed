@@ -162,12 +162,21 @@ PUBLIC
     juce::juce_recommended_lto_flags
 )
 
+# The Linux arm64 build is for a 4-core Cortex-A53 instrument: schedule for that core (the same
+# instructions, any aarch64 CPU still runs the code).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    target_compile_options(dexed_engine PRIVATE -mtune=cortex-a53)
+endif()
+
 # Oscairn FM: a native CLAP over the headless engine, for Oscairn (docs/oscairn-plan.md, M1).
 # No JUCE. A plain .clap module file, as Oscairn's own plugins.
 add_library(oscairn_fm_objects OBJECT oscairn/OscairnFm.cpp oscairn/Parameters.cpp oscairn/Presets.cpp)
 target_include_directories(oscairn_fm_objects PUBLIC ../libs/clap-juce-extensions/clap-libs/clap/include ../libs/oscairn-clap/include .)
 target_compile_definitions(oscairn_fm_objects PUBLIC DEXED_HEADLESS=1)
 target_link_libraries(oscairn_fm_objects PUBLIC dexed_engine)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    target_compile_options(oscairn_fm_objects PRIVATE -mtune=cortex-a53)
+endif()
 set_target_properties(oscairn_fm_objects PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
