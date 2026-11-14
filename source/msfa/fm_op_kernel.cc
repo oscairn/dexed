@@ -25,6 +25,25 @@
 #include "synth.h"
 #include "sin.h"
 #include "fm_op_kernel.h"
+#include "fm_simd.h"
+
+#ifdef FM_SIMD
+// Sin::lookup times the gain for four lanes: the table's delta and base are adjacent, one 8-byte load a lane.
+static inline int32x4_t modernSin4(int32x4_t phase, int32x4_t gain) {
+  const int SHIFT = 24 - SIN_LG_N_SAMPLES;
+  const int32x4_t lowbits = vandq_s32(phase, vdupq_n_s32((1 << SHIFT) - 1));
+  const uint32x4_t index = vreinterpretq_u32_s32(vandq_s32(vshrq_n_s32(phase, SHIFT - 1), vdupq_n_s32((SIN_N_SAMPLES - 1) << 1)));
+  const int32x4_t a = vcombine_s32(vld1_s32(sintab + vgetq_lane_u32(index, 0)), vld1_s32(sintab + vgetq_lane_u32(index, 1)));
+  const int32x4_t b = vcombine_s32(vld1_s32(sintab + vgetq_lane_u32(index, 2)), vld1_s32(sintab + vgetq_lane_u32(index, 3)));
+  const int32x4_t dy = vuzp1q_s32(a, b), y0 = vuzp2q_s32(a, b);
+  const int32x4_t y = vaddq_s32(y0, vcombine_s32(
+      vmovn_s64(vshrq_n_s64(vmull_s32(vget_low_s32(dy), vget_low_s32(lowbits)), SHIFT)),
+      vmovn_s64(vshrq_n_s64(vmull_high_s32(dy, lowbits), SHIFT))));
+  return vcombine_s32(
+      vmovn_s64(vshrq_n_s64(vmull_s32(vget_low_s32(y), vget_low_s32(gain)), 24)),
+      vmovn_s64(vshrq_n_s64(vmull_high_s32(y, gain), 24)));
+}
+#endif
 
 #ifdef HAVE_NEONx
 static bool hasNeon() {
@@ -50,6 +69,12 @@ void FmOpKernel::compute(int32_t *output, const int32_t *input,
   int32_t dgain = (gain2 - gain1 + (N >> 1)) >> LG_N;
   int32_t gain = gain1;
   int32_t phase = phase0;
+#ifdef FM_SIMD
+  if (simdKernels) {
+    fmBlockSimd(output, input, phase0, freq, gain1, dgain, add, modernSin4);
+    return;
+  }
+#endif
   if (hasNeon()) {
 #ifdef HAVE_NEON
     neon_fm_kernel(input, add ? output : zeros, output, N,
@@ -81,6 +106,12 @@ void FmOpKernel::compute_pure(int32_t *output, int32_t phase0, int32_t freq,
   int32_t dgain = (gain2 - gain1 + (N >> 1)) >> LG_N;
   int32_t gain = gain1;
   int32_t phase = phase0;
+#ifdef FM_SIMD
+  if (simdKernels) {
+    fmBlockSimd(output, nullptr, phase0, freq, gain1, dgain, add, modernSin4);
+    return;
+  }
+#endif
   if (hasNeon()) {
 #ifdef HAVE_NEON
     neon_fm_kernel(zeros, add ? output : zeros, output, N,
