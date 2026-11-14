@@ -20,6 +20,7 @@
  *   oscairn-fm-test reset                            reset at once, then as a fresh instance (linked)
  *   oscairn-fm-test views                            oscairn.ui rich views: fields, routings, values
  *   oscairn-fm-test bench [seconds]                  CPU: real-time factor and voices per core (no gate)
+ *   oscairn-fm-test cost <sound> <voices> [blocks]   held notes in 128-frame blocks, for callgrind (instr-atstart=no)
  *
  * oscairn-fm-test needs --module; oscairn-fm-test-linked (OSCAIRN_FM_LINKED) has the plugin
  * linked in, which no-alloc needs.
@@ -49,6 +50,11 @@
 #include <oscairn-clap/sound-contexts.h>
 #include <oscairn-clap/ui.h>
 #include <oscairn-clap/voice-budget.h>
+
+#if defined(__has_include) && __has_include(<valgrind/callgrind.h>)
+#include <valgrind/callgrind.h>
+#define OSCAIRN_FM_CALLGRIND 1
+#endif
 
 #include <algorithm>
 #include <array>
@@ -2836,15 +2842,11 @@ int renderSeqToWav(const std::vector<char *> &args) {
 
 // ---- CPU benchmark (informational, not a gate: the plan defines no CPU budget) ----
 
-// bench [seconds]: held notes of representative sounds at 48 kHz in 64-sample blocks, 128 voices
-// (the plugin's pool) per instance and as many instances as the voice count needs, all on this
-// thread. Prints the real-time factor (render time over audio time) at 1, 16 and 64 voices
-// and the most voices measured to fit within 100 % and 50 % of one core.
-int benchmark(const std::vector<char *> &args) {
-    const double seconds = args.size() > 2 ? std::atof(args[2]) : 0.5;
-    constexpr double kRate = 48000;
-    constexpr uint32_t kBlock = 64;
-    using Params = std::vector<std::pair<clap_id, double>>;
+using BenchParams = std::vector<std::pair<clap_id, double>>;
+
+// The sounds the benchmark and the cost report hold: Classic, Extended sines, Extended waves with the filter.
+static std::vector<std::pair<const char *, BenchParams>> benchSounds() {
+    using Params = BenchParams;
     // Classic: algorithm 1 with every operator sounding, feedback 6, LFO pitch modulation
     Params classic = { { 1, 1 }, { 2, 6 }, { 12, 10 } };
     for (int n = 2; n <= 6; n++)
@@ -2862,9 +2864,19 @@ int benchmark(const std::vector<char *> &args) {
             waves.push_back({ (clap_id)(1000 * n + 60 + k), (double)wave[n - 1][k] });
     for (auto p : Params { { 252, 20 }, { 60, 0 }, { 61, 500 }, { 63, 60 }, { 69, 70 }, { 70, 80 }, { 74, 127 }, { 75, -60 } })
         waves.push_back(p);
-    const std::pair<const char *, const Params *> sounds[] = { { "Classic, 6 operators", &classic },
-                                                              { "Extended, 8 sines, 2nd LFO", &sines },
-                                                              { "Extended, waves, texture, filter", &waves } };
+    return { { "Classic, 6 operators", classic }, { "Extended, 8 sines, 2nd LFO", sines }, { "Extended, waves, texture, filter", waves } };
+}
+
+// bench [seconds]: held notes of representative sounds at 48 kHz in 64-sample blocks, 128 voices
+// (the plugin's pool) per instance and as many instances as the voice count needs, all on this
+// thread. Prints the real-time factor (render time over audio time) at 1, 16 and 64 voices
+// and the most voices measured to fit within 100 % and 50 % of one core.
+int benchmark(const std::vector<char *> &args) {
+    const double seconds = args.size() > 2 ? std::atof(args[2]) : 0.5;
+    constexpr double kRate = 48000;
+    constexpr uint32_t kBlock = 64;
+    using Params = BenchParams;
+    const auto sounds = benchSounds();
     // render time per second of audio for `voices` held notes of one sound
     auto rtf = [&](const Params &p, int voices) {
         std::vector<std::unique_ptr<Host>> hosts;
@@ -2900,10 +2912,10 @@ int benchmark(const std::vector<char *> &args) {
     };
     std::printf("48 kHz, %u-sample blocks, %.2f s of audio per measurement, one thread\n", kBlock, seconds);
     for (auto &[name, p] : sounds) {
-        const double r1 = rtf(*p, 1), r16 = rtf(*p, 16), r64 = rtf(*p, 64);
+        const double r1 = rtf(p, 1), r16 = rtf(p, 16), r64 = rtf(p, 64);
         int fit100 = 0, fit50 = 0;
         for (int voices = 16; voices <= 2048 && fit100 == voices - 16; voices += 16) {
-            const double r = rtf(*p, voices);
+            const double r = rtf(p, voices);
             if (r < 1.0)
                 fit100 = voices;
             if (r < 0.5)
@@ -2913,6 +2925,47 @@ int benchmark(const std::vector<char *> &args) {
                     "fits within one core: %d voices, half a core: %d voices\n",
                     name, r1, r16, r64, r64 / 64 * kBlock / kRate * 1e6, fit100, fit50);
     }
+    return 0;
+}
+
+// cost <sound> <voices> [blocks]: held notes of one benchmark sound (0 Classic, 1 Extended sines, 2 Extended
+// waves with the filter) in 128-frame blocks at 48 kHz, nothing measured but the blocks themselves.
+// Run it under `valgrind --tool=callgrind --instr-atstart=no` for instructions a block (valgrind headers
+// at build time); without valgrind it only renders.
+int costReport(const std::vector<char *> &args) {
+    if (args.size() < 4)
+        return std::fprintf(stderr, "usage: cost <sound 0-2> <voices> [blocks]\n"), 2;
+    const auto sounds = benchSounds();
+    const size_t sound = (size_t)std::atoi(args[2]);
+    const int voices = std::atoi(args[3]), blocks = args.size() > 4 ? std::atoi(args[4]) : 20;
+    check(sound < sounds.size() && voices >= 0 && voices <= 128 && blocks > 0, "cost: arguments in range");
+    constexpr uint32_t kBlock = 128;
+    Host h(entry);
+    EventList in;
+    in.events.reserve(256);
+    h.activate(48000, kBlock);
+    for (auto &[id, value] : sounds[sound].second)
+        in.param(0, id, value);
+    h.process(kBlock, in);
+    in.clear();
+    for (int k = 0; k < voices; k++)
+        in.note(CLAP_EVENT_NOTE_ON, 0, -1, 0, (int16_t)(36 + k), 0.8);
+    h.process(kBlock, in);
+    in.clear();
+    for (int b = 0; b < 40; b++) // past the attacks
+        h.process(kBlock, in);
+#ifdef OSCAIRN_FM_CALLGRIND
+    CALLGRIND_START_INSTRUMENTATION;
+#endif
+    float peak = 0;
+    for (int b = 0; b < blocks; b++) {
+        h.process(kBlock, in);
+        peak = std::max(peak, std::fabs(h.left[0]));
+    }
+#ifdef OSCAIRN_FM_CALLGRIND
+    CALLGRIND_STOP_INSTRUMENTATION;
+#endif
+    std::printf("%s, %d voices, %d blocks of %u frames, peak %g\n", sounds[sound].first, voices, blocks, kBlock, peak);
     return 0;
 }
 
@@ -5958,6 +6011,8 @@ int main(int argc, char **argv) {
         return renderSeqToWav(args);
     if (cmd == "bench")
         return benchmark(args);
+    if (cmd == "cost")
+        return costReport(args);
     if (cmd == "topology")
         return topologyTest();
     if (cmd == "contexts")
