@@ -2319,7 +2319,7 @@ int extendedTest() {
             expect(std::fabs(cents) < 0.02, "pitch bend " + std::to_string(b[1]) + " at range " + std::to_string(b[0]) + ": " +
                                                 std::to_string(cents) + " cents from " + std::to_string(b[2]) + " steps");
         }
-        // note shift and bend past the reference's ranges (Jacob: no ceiling, -127 to +127): a key
+        // note shift and bend past the reference's ranges (no ceiling, -127 to +127): a key
         // shifted past 0-127 plays the rest as semitones (key -20 at ratio 31; key 139 at ratio 0.5,
         // at 96 kHz), a bend of 100 semitones down at ratio 31
         {
